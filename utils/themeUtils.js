@@ -1,5 +1,6 @@
 export const applyTheme = (customTheme) => {
-  const themeValue = customTheme.current;
+  // customTheme can be an object { current: 'dark' } or a string like 'default'
+  const themeValue = typeof customTheme === "string" ? customTheme : customTheme?.current;
 
   if (themeValue && themeValue !== "default") {
     document.documentElement.setAttribute("data-theme", themeValue);

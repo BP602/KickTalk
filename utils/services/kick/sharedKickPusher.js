@@ -11,6 +11,8 @@ class SharedKickPusher extends EventTarget {
     this.connectionState = 'disconnected'; // disconnected, connecting, connected
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 10;
+    // Web preview: per-chatroom simulators for periodic messages
+    this.simulators = new Map(); // chatroomId -> { timer, count }
   }
 
   addChatroom(chatroomId, streamerId, chatroomData) {
@@ -31,6 +33,9 @@ class SharedKickPusher extends EventTarget {
     if (this.connectionState === 'connected') {
       this.subscribeToChatroomChannels(chatroomId);
     }
+
+    // Start mock message simulator in web preview only
+    this.startSimulator(chatroomId);
   }
 
   removeChatroom(chatroomId) {
@@ -39,6 +44,9 @@ class SharedKickPusher extends EventTarget {
       this.unsubscribeFromChatroomChannels(chatroomId);
     }
     this.chatrooms.delete(chatroomId);
+
+    // Stop simulator if running
+    this.stopSimulator(chatroomId);
 
     // If no more chatrooms, close the connection
     if (this.chatrooms.size === 0) {
@@ -355,6 +363,11 @@ class SharedKickPusher extends EventTarget {
         console.error("[SharedKickPusher] Error during closing of connection:", error);
       }
     }
+
+    // Stop all simulators
+    for (const [id] of this.simulators) {
+      this.stopSimulator(id);
+    }
   }
 
   // Get connection status
@@ -370,6 +383,53 @@ class SharedKickPusher extends EventTarget {
   // Get number of chatrooms
   getChatroomCount() {
     return this.chatrooms.size;
+  }
+
+  // --- Web Preview: Simulator helpers ---
+  startSimulator(chatroomId) {
+    if (typeof __WEB_PREVIEW__ === 'undefined' || !__WEB_PREVIEW__) return;
+    if (this.simulators.has(chatroomId)) return;
+
+    const chatroom = this.chatrooms.get(chatroomId);
+    if (!chatroom) return;
+
+    let count = 0;
+    const timer = setInterval(() => {
+      count += 1;
+      const username = (chatroom.chatroomData?.streamerData?.user?.username) || 'mockUser';
+      const payload = {
+        id: `${chatroomId}-mock-${count}`,
+        type: 'message',
+        content: `Mock message #${count} from ${username}`,
+        sender: {
+          id: 4242,
+          username,
+          roles: [],
+        },
+      };
+
+      this.dispatchEvent(
+        new CustomEvent('message', {
+          detail: {
+            chatroomId: String(chatroomId),
+            event: 'App\\Events\\ChatMessageEvent',
+            data: JSON.stringify(payload),
+            channel: `chatrooms.${chatroomId}.v2`,
+          },
+        }),
+      );
+    }, 5000);
+
+    this.simulators.set(chatroomId, { timer });
+    console.log(`[SharedKickPusher] Started mock message simulator for chatroom ${chatroomId}`);
+  }
+
+  stopSimulator(chatroomId) {
+    const entry = this.simulators.get(chatroomId);
+    if (!entry) return;
+    clearInterval(entry.timer);
+    this.simulators.delete(chatroomId);
+    console.log(`[SharedKickPusher] Stopped mock message simulator for chatroom ${chatroomId}`);
   }
 }
 
