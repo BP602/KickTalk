@@ -51,7 +51,8 @@ try {
   console.warn('[Telemetry]: Failed to create startup span:', e?.message || e);
 }
 
-const { app, shell, BrowserWindow, ipcMain, screen, session, Tray, Menu, dialog } = require("electron");
+import electron from "electron";
+const { app, shell, BrowserWindow, ipcMain, screen, session, Tray, Menu, dialog } = electron;
 import { join, basename } from "path";
 import { electronApp, optimizer } from "@electron-toolkit/utils";
 import { update } from "./utils/update";

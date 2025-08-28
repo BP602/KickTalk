@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@utils': resolve('utils'),
+      electron: resolve('tests/mocks/electron.js'),
     },
   },
 
@@ -14,6 +15,13 @@ export default defineConfig({
   test: {
     name: 'main',
     environment: 'node',
+    deps: {
+      optimizer: {
+        ssr: {
+          include: ['electron']
+        }
+      }
+    },
     
     // Test files for main process
     include: [

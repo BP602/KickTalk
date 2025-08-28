@@ -39,6 +39,18 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
   const chatroomListRef = useRef(null);
   const addChatroomDialogRef = useRef(null);
 
+  // Centralized close handler for the Add dialog to ensure consistent state reset
+  const closeAddDialog = useCallback(() => {
+    setActiveSection("chatroom");
+    setShowNavbarDialog(false);
+    // Clear form input state
+    if (inputRef.current) inputRef.current.value = "";
+    // Clear any submit error state
+    setIsSubmitError(null);
+    // Ensure connecting state is reset when dialog is closed
+    setIsConnecting(false);
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -73,6 +85,12 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
         setTimeout(() => {
           setIsSubmitError(null);
         }, 2000);
+    } catch (err) {
+      // Gracefully handle unexpected errors (e.g., network issues)
+      setIsSubmitError(err?.message || "Failed to add chatroom");
+      setTimeout(() => {
+        setIsSubmitError(null);
+      }, 3000);
     } finally {
       setIsConnecting(false);
     }
@@ -122,32 +140,30 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
 
   // Setup event listeners
   useEffect(() => {
+    const el = chatroomListRef?.current;
     const handleWheel = (e) => {
       e.preventDefault();
 
-      chatroomListRef?.current?.scrollBy({
+      el?.scrollBy({
         left: e.deltaY < 0 ? -30 : 30,
       });
     };
 
-    chatroomListRef?.current?.addEventListener("wheel", handleWheel, { passive: false });
+    el?.addEventListener("wheel", handleWheel, { passive: false });
 
     return () => {
-      chatroomListRef?.current?.removeEventListener("wheel", handleWheel);
+      el?.removeEventListener("wheel", handleWheel);
     };
   }, []);
 
-  useClickOutside(addChatroomDialogRef, () => {
-    setActiveSection("chatroom");
-    setShowNavbarDialog(false);
-  });
+  useClickOutside(addChatroomDialogRef, closeAddDialog);
 
   // Handle Add Mentions Tab
   const handleAddMentions = () => {
     if (!kickId) return window.app.authDialog.open();
 
     addMentionsTab();
-    setShowNavbarDialog(false);
+    closeAddDialog();
     setTimeout(() => {
       onSelectChatroom("mentions");
     }, 0);
@@ -179,10 +195,9 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
     }
 
     if (e.key === "Escape") {
-      setActiveSection("chatroom");
-      setShowNavbarDialog(false);
+      closeAddDialog();
     }
-  }, []);
+  }, [closeAddDialog]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleNewChatroomKeyPress);
@@ -273,7 +288,11 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
           </Droppable>
         </DragDropContext>
 
-        <div className={clsx("navbarDialog", showNavbarDialog && "open")}>
+        <div
+          className={clsx("navbarDialog", showNavbarDialog && "open")}
+          aria-hidden={!showNavbarDialog}
+          hidden={!showNavbarDialog}
+        >
           <div className="navbarDialogBody" ref={addChatroomDialogRef}>
             <div className="navbarDialogOptions">
               <div className="navbarDialogOptionBtns">
@@ -291,8 +310,8 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
                 </button>
               </div>
 
-              <button className="navbarDialogClose" onClick={() => setShowNavbarDialog(false)} aria-label="Close Add Mentions">
-                <img src={X} width={16} height={16} alt="Close Add Mentions" />
+              <button className="navbarDialogClose" onClick={closeAddDialog} aria-label="Close dialog">
+                <img src={X} width={16} height={16} alt="Close dialog" />
               </button>
             </div>
 

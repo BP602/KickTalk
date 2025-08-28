@@ -127,6 +127,7 @@
     "@testing-library/user-event": "^14.6.1",
 >>>>>>> d4f8a8f ((feat)Add comprehensive testing framework with Vitest and Playwright)
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^3.2.4",
     "@vitest/ui": "^3.2.4",
     "@vitest/web-worker": "^3.2.4",
     "cross-env": "^7.0.3",
