@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import electron from "electron";
+const { ipcMain } = electron;
 import { autoUpdater } from "electron-updater";
 import log from "electron-log";
 import store from "../../../utils/config";
