@@ -56,6 +56,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-npm-
 
+      - name: Configure pnpm (Windows hoisted linker)
+        if: matrix.os == 'windows-latest' && matrix.package-manager == 'pnpm'
+        shell: pwsh
+        run: |
+          pnpm config set node-linker hoisted
+          pnpm config get node-linker
+
       - name: Install dependencies
         shell: bash
         run: |
@@ -134,13 +141,6 @@ jobs:
       - name: Clean dist before packaging
         shell: bash
         run: rm -rf dist
-
-      - name: Configure pnpm (Windows hoisted linker)
-        if: matrix.os == 'windows-latest' && matrix.package-manager == 'pnpm'
-        shell: pwsh
-        run: |
-          pnpm config set node-linker hoisted
-          pnpm config get node-linker
 
       - name: Prebuild native deps (Windows pnpm)
         if: matrix.os == 'windows-latest' && matrix.package-manager == 'pnpm'
