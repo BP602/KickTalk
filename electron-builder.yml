@@ -22,7 +22,6 @@ files:
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
 asarUnpack:
   - resources/**
-  - node_modules/@opentelemetry/**
 win:
   executableName: kicktalk
   icon: resources/icons/win/KickTalk_v1.ico
