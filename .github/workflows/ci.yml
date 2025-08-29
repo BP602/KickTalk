@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -53,6 +55,17 @@ jobs:
           key: ${{ runner.os }}-npm-${{ hashFiles('**/package.json') }}
           restore-keys: |
             ${{ runner.os }}-npm-
+
+      - name: Configure pnpm (Windows hoisted linker)
+        if: matrix.os == 'windows-latest' && matrix.package-manager == 'pnpm'
+        shell: pwsh
+        run: |
+          pnpm config set node-linker hoisted
+          pnpm config set public-hoist-pattern '*'
+          pnpm config set shamefully-hoist true
+          echo "node-linker=$(pnpm config get node-linker)"
+          echo "public-hoist-pattern=$(pnpm config get public-hoist-pattern)"
+          echo "shamefully-hoist=$(pnpm config get shamefully-hoist)"
 
       - name: Install dependencies
         shell: bash
@@ -133,6 +146,14 @@ jobs:
         shell: bash
         run: rm -rf dist
 
+      - name: Ensure Electron binary present (Windows pnpm)
+        if: matrix.os == 'windows-latest' && matrix.package-manager == 'pnpm'
+        shell: pwsh
+        run: |
+          if (Test-Path node_modules/electron/install.js) {
+            node node_modules/electron/install.js
+          }
+
       - name: Prebuild native deps (Windows pnpm)
         if: matrix.os == 'windows-latest' && matrix.package-manager == 'pnpm'
         shell: bash
@@ -152,17 +173,17 @@ jobs:
         
       - name: Build Electron app (Windows)
         if: matrix.os == 'windows-latest'
-        shell: bash
+        shell: pwsh
         env:
           USE_HARD_LINKS: false
           DEBUG: electron-builder
           ELECTRON_BUILDER_DEBUG: true
         run: |
-          if [ "${{ matrix.package-manager }}" = "pnpm" ]; then
+          if ('${{ matrix.package-manager }}' -eq 'pnpm') {
             pnpm exec electron-builder --win --publish never
-          else
+          } else {
             npx --no-install electron-builder --win --publish never
-          fi
+          }
 
       - name: Build Electron app (macOS)
         if: matrix.os == 'macos-latest'
