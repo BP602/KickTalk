@@ -61,7 +61,11 @@ jobs:
         shell: pwsh
         run: |
           pnpm config set node-linker hoisted
-          pnpm config get node-linker
+          pnpm config set public-hoist-pattern '*'
+          pnpm config set shamefully-hoist true
+          echo "node-linker=$(pnpm config get node-linker)"
+          echo "public-hoist-pattern=$(pnpm config get public-hoist-pattern)"
+          echo "shamefully-hoist=$(pnpm config get shamefully-hoist)"
 
       - name: Install dependencies
         shell: bash
@@ -141,6 +145,14 @@ jobs:
       - name: Clean dist before packaging
         shell: bash
         run: rm -rf dist
+
+      - name: Ensure Electron binary present (Windows pnpm)
+        if: matrix.os == 'windows-latest' && matrix.package-manager == 'pnpm'
+        shell: pwsh
+        run: |
+          if (Test-Path node_modules/electron/install.js) {
+            node node_modules/electron/install.js
+          }
 
       - name: Prebuild native deps (Windows pnpm)
         if: matrix.os == 'windows-latest' && matrix.package-manager == 'pnpm'
