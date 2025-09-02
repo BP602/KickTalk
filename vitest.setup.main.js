@@ -10,16 +10,42 @@ vi.mock('electron', () => {
       whenReady: vi.fn(() => Promise.resolve()),
       on: vi.fn(),
       quit: vi.fn(),
+      setAppUserModelId: vi.fn(),
+      isPackaged: false,
     },
     BrowserWindow: vi.fn(() => ({
       loadFile: vi.fn(),
       loadURL: vi.fn(),
       on: vi.fn(),
+      once: vi.fn(),
       show: vi.fn(),
       close: vi.fn(),
+      minimize: vi.fn(),
+      maximize: vi.fn(),
+      unmaximize: vi.fn(),
+      isMaximized: vi.fn(() => false),
+      setAlwaysOnTop: vi.fn(),
+      setVisibleOnAllWorkspaces: vi.fn(),
+      setFullScreenable: vi.fn(),
+      setThumbarButtons: vi.fn(),
+      getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 800, height: 600 })),
+      getPosition: vi.fn(() => [100, 100]),
+      getSize: vi.fn(() => [800, 600]),
+      setPosition: vi.fn(),
+      isVisible: vi.fn(() => true),
+      isMinimized: vi.fn(() => false),
+      hide: vi.fn(),
+      restore: vi.fn(),
+      focus: vi.fn(),
       webContents: {
         send: vi.fn(),
         on: vi.fn(),
+        openDevTools: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+        setZoomFactor: vi.fn(),
+        getZoomFactor: vi.fn(() => 1.0),
+        setAudioMuted: vi.fn(),
+        executeJavaScript: vi.fn(),
       },
     })),
     ipcMain: {
@@ -34,6 +60,7 @@ vi.mock('electron', () => {
     Tray: vi.fn(() => ({
       setToolTip: vi.fn(),
       setContextMenu: vi.fn(),
+      on: vi.fn(),
     })),
     nativeImage: {
       createFromPath: vi.fn(),
@@ -42,18 +69,6 @@ vi.mock('electron', () => {
   return { __esModule: true, ...electron, default: electron }
 }, { virtual: true })
 
-// Mock electron-store
-vi.mock('electron-store', () => {
-  return {
-    default: vi.fn(() => ({
-      get: vi.fn(),
-      set: vi.fn(),
-      has: vi.fn(),
-      delete: vi.fn(),
-      clear: vi.fn(),
-    })),
-  }
-})
 
 // Mock OpenTelemetry modules
 vi.mock('@opentelemetry/sdk-node', () => ({

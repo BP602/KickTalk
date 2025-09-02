@@ -8,6 +8,7 @@ export default defineConfig({
     alias: {
       '@utils': resolve('utils'),
       electron: resolve('tests/mocks/electron.js'),
+      'electron-store': resolve('tests/mocks/electron-store.js'),
     },
   },
 
@@ -18,7 +19,8 @@ export default defineConfig({
     deps: {
       optimizer: {
         ssr: {
-          include: ['electron']
+          // Ensure these packages are processed by Vite so vi.mock/vi.doMock can intercept CJS require()
+          include: ['electron', 'electron-store', /@opentelemetry\//]
         }
       }
     },
@@ -27,6 +29,8 @@ export default defineConfig({
     include: [
       'src/main/**/*.{test,spec}.{js,ts}',
       'src/main/**/__tests__/**/*.{js,ts}',
+      'src/preload/**/*.{test,spec}.{js,ts}',
+      'src/preload/**/__tests__/**/*.{js,ts}',
       'src/telemetry/**/*.{test,spec}.{js,ts}',
       'utils/**/*.{test,spec}.{js,ts}'
     ],

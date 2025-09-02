@@ -13,9 +13,20 @@ let telemetryEnabled = false;
 try {
   const StoreMod = require('electron-store');
   const ElectronStore = StoreMod && StoreMod.default ? StoreMod.default : StoreMod;
-  const store = new ElectronStore();
+  // electron-store v10 requires a projectName in some environments; derive from Electron app when available
+  let projectName = 'KickTalk';
+  try {
+    const { app } = require('electron');
+    const name = app?.getName?.();
+    if (typeof name === 'string' && name.trim()) projectName = name.trim();
+  } catch {}
+  const store = new ElectronStore({ projectName });
   const telemetrySettings = store.get('telemetry', { enabled: false });
   telemetryEnabled = telemetrySettings.enabled === true;
+  // Allow tests or controlled environments to force-enable telemetry without touching user settings
+  if (process.env.KICKTALK_TELEMETRY_FORCE_ENABLED === '1' || process.env.KICKTALK_TELEMETRY_FORCE_ENABLED === 'true') {
+    telemetryEnabled = true;
+  }
   
   if (!telemetryEnabled) {
     console.log('[Telemetry] Telemetry disabled by user settings, skipping initialization');
@@ -60,20 +71,25 @@ if (telemetryEnabled) {
     ExplicitBucketHistogramAggregation,
     HttpInstrumentation;
   let __otelReady = true;
-  try {
-    ({ NodeSDK } = safeRequire('@opentelemetry/sdk-node'));
-    ({ diag, DiagConsoleLogger, DiagLogLevel } = safeRequire('@opentelemetry/api'));
-    ({ OTLPTraceExporter } = safeRequire('@opentelemetry/exporter-trace-otlp-http'));
-    ({ OTLPMetricExporter } = safeRequire('@opentelemetry/exporter-metrics-otlp-http'));
-    ({ AlwaysOnSampler } = safeRequire('@opentelemetry/sdk-trace-base'));
-    ({ HttpInstrumentation } = safeRequire('@opentelemetry/instrumentation-http'));
-    // Views are optional; load defensively to avoid runtime mismatches across package versions
-    try {
-      ({ View, ExplicitBucketHistogramAggregation } = safeRequire('@opentelemetry/sdk-metrics'));
-    } catch {}
-  } catch (requireErr) {
-    console.error('[Telemetry] OpenTelemetry modules are not available, disabling telemetry:', requireErr?.message || requireErr);
+  if (process.env.KICKTALK_TELEMETRY_FORCE_OTEL_MISSING === '1' || process.env.KICKTALK_TELEMETRY_FORCE_OTEL_MISSING === 'true') {
+    console.error('[Telemetry] OpenTelemetry modules are not available, disabling telemetry:', 'forced-missing');
     __otelReady = false;
+  } else {
+    try {
+      ({ NodeSDK } = safeRequire('@opentelemetry/sdk-node'));
+      ({ diag, DiagConsoleLogger, DiagLogLevel } = safeRequire('@opentelemetry/api'));
+      ({ OTLPTraceExporter } = safeRequire('@opentelemetry/exporter-trace-otlp-http'));
+      ({ OTLPMetricExporter } = safeRequire('@opentelemetry/exporter-metrics-otlp-http'));
+      ({ AlwaysOnSampler } = safeRequire('@opentelemetry/sdk-trace-base'));
+      ({ HttpInstrumentation } = safeRequire('@opentelemetry/instrumentation-http'));
+      // Views are optional; load defensively to avoid runtime mismatches across package versions
+      try {
+        ({ View, ExplicitBucketHistogramAggregation } = safeRequire('@opentelemetry/sdk-metrics'));
+      } catch {}
+    } catch (requireErr) {
+      console.error('[Telemetry] OpenTelemetry modules are not available, disabling telemetry:', requireErr?.message || requireErr);
+      __otelReady = false;
+    }
   }
 
   (async () => {
