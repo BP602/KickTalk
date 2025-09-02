@@ -23,6 +23,7 @@
     "format": "prettier --write .",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
+    "test:smoke": "vitest run src/renderer/src/components/Navbar.smoke.test.jsx",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
@@ -111,7 +112,6 @@
     "@electron-toolkit/eslint-config": "^2.1.0",
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@eslint/js": "^9.33.0",
-<<<<<<< HEAD
     "@opentelemetry/context-zone": "^2.0.1",
     "@opentelemetry/exporter-prometheus": "^0.203.0",
     "@opentelemetry/instrumentation": "^0.203.0",
@@ -120,12 +120,10 @@
     "@opentelemetry/resources": "^2.0.1",
     "@opentelemetry/sdk-trace-web": "^2.0.1",
     "@opentelemetry/semantic-conventions": "^1.36.0",
-=======
     "@playwright/test": "^1.55.0",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
->>>>>>> d4f8a8f ((feat)Add comprehensive testing framework with Vitest and Playwright)
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/ui": "^3.2.4",
