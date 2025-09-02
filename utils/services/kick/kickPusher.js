@@ -31,9 +31,20 @@ class KickPusher extends EventTarget {
     try {
       // Use error monitoring system for WebSocket connection with circuit breaker
       await this.executeWithErrorMonitoring(async () => {
-        this.chat = new WebSocket(
-          "wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=8.4.0-rc2&flash=false",
-        );
+        const DEFAULT_WS_URL = "wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=8.4.0-rc2&flash=false";
+        let override = null;
+        try {
+          // Prefer renderer env override when bundled by Vite
+          if (typeof import.meta !== 'undefined' && import.meta.env) {
+            override = import.meta.env.RENDERER_VITE_KT_PUSHER_URL || null;
+          }
+        } catch {}
+        // Allow runtime override via window for manual testing
+        if (!override && typeof window !== 'undefined') {
+          override = window.__KT_PUSHER_URL || null;
+        }
+        const WS_URL = override || DEFAULT_WS_URL;
+        this.chat = new WebSocket(WS_URL);
         this.setupWebSocketHandlers();
       }, 'websocket_connect');
       
