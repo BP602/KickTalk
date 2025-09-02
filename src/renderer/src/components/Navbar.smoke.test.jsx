@@ -18,6 +18,7 @@ vi.mock('@hello-pangea/dnd', () => ({
 const mockChatStore = {
   connections: {},
   chatrooms: [],
+  messages: {},
   hasMentionsTab: false,
   addChatroom: vi.fn(),
   removeChatroom: vi.fn(),
@@ -48,6 +49,7 @@ describe('Navbar (smoke)', () => {
       { id: 'c1', username: 'alpha', displayName: 'Alpha', order: 0, streamerData: { user: { profile_pic: '' } } },
       { id: 'c2', username: 'beta', displayName: 'Beta', order: 1, streamerData: { user: { profile_pic: '' } } },
     ]
+    mockChatStore.messages = { c1: [], c2: [] }
   })
 
   it('auto-selects first chatroom on mount when none selected', () => {
@@ -89,4 +91,3 @@ describe('Navbar (smoke)', () => {
     expect(addChatroom).toHaveBeenCalledWith('new')
   })
 })
-
