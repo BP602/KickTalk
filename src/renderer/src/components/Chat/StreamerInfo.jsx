@@ -44,19 +44,30 @@ const StreamerInfo = memo(
       // }
     }, [pinDetails]);
 
-    // Get Streamlink settings
+    // Get Streamlink settings and subscribe to changes
     useEffect(() => {
-      const getStreamlinkSettings = async () => {
+      let unsubscribe = () => {};
+      const init = async () => {
         try {
           const settings = await window.app.store.get("streamlink");
-          if (settings) {
-            setStreamlinkSettings(settings);
-          }
+          if (settings) setStreamlinkSettings(settings);
         } catch (error) {
           console.error("Failed to get Streamlink settings:", error);
         }
+        try {
+          unsubscribe = window.app.store.onUpdate((delta) => {
+            if (delta && Object.prototype.hasOwnProperty.call(delta, "streamlink")) {
+              setStreamlinkSettings(delta.streamlink || { enabled: false, quality: "best" });
+            }
+          });
+        } catch (e) {
+          console.warn("Failed to subscribe to settings updates:", e);
+        }
       };
-      getStreamlinkSettings();
+      init();
+      return () => {
+        try { unsubscribe && unsubscribe(); } catch {}
+      };
     }, []);
 
     const handleRefresh7TV = () => {

@@ -198,7 +198,7 @@ const schema = {
       },
       player: {
         type: "string",
-        default: "vlc",
+        default: "",
       },
       customArgs: {
         type: "string",
@@ -208,7 +208,7 @@ const schema = {
     default: {
       enabled: false,
       quality: "best",
-      player: "vlc",
+      player: "",
       customArgs: "--hls-live-edge 2 --hls-segment-stream-data --stream-segment-threads 5",
     },
   },

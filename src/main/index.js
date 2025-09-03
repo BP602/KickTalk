@@ -2199,6 +2199,11 @@ const launchStreamlink = async (username) => {
   if (!username) {
     throw new Error("Username is required to launch Streamlink");
   }
+  // Validate Kick slug to avoid malformed URLs or IPC misuse
+  const slugRegex = /^[a-zA-Z0-9_-]+$/;
+  if (typeof username !== 'string' || !slugRegex.test(username)) {
+    throw new Error("Invalid username provided for Streamlink");
+  }
 
   // Get user settings
   const streamlinkSettings = store.get("streamlink", {

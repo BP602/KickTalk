@@ -925,6 +925,33 @@ const NotificationsSection = ({ settingsData, onChange }) => {
 };
 
 const ExternalPlayersSection = ({ settingsData, onChange }) => {
+  const [streamlinkInfo, setStreamlinkInfo] = useState({ available: false, path: "", checking: false });
+
+  const checkAvailability = async () => {
+    try {
+      setStreamlinkInfo((s) => ({ ...s, checking: true }));
+      const res = await window.app.utils.checkStreamlinkAvailable();
+      setStreamlinkInfo({ available: !!res?.available, path: res?.path || "", checking: false });
+      return res;
+    } catch (e) {
+      console.warn("[Settings]: Streamlink availability check failed:", e);
+      setStreamlinkInfo({ available: false, path: "", checking: false });
+      return { available: false };
+    }
+  };
+
+  useEffect(() => {
+    // Initial probe
+    checkAvailability();
+    // Recheck when user enables the feature
+  }, []);
+
+  useEffect(() => {
+    if (settingsData?.streamlink?.enabled) {
+      checkAvailability();
+    }
+  }, [settingsData?.streamlink?.enabled]);
+
   return (
     <div className="settingsContentSection">
       <div className="settingsSectionHeader">
@@ -954,13 +981,73 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
 
             <Switch
               checked={settingsData?.streamlink?.enabled || false}
-              onCheckedChange={(checked) =>
+              onCheckedChange={async (checked) => {
+                if (checked) {
+                  try {
+                    const { available, path } = await window.app.utils.checkStreamlinkAvailable();
+                    setStreamlinkInfo({ available: !!available, path: path || "", checking: false });
+                    if (!available) {
+                      window.alert("Streamlink not found. Please install Streamlink, then enable this setting.");
+                      // Force disable in settings if user attempted to enable
+                      onChange("streamlink", {
+                        ...settingsData?.streamlink,
+                        enabled: false,
+                      });
+                      return;
+                    }
+                  } catch (e) {
+                    console.error("[Settings]: Failed to check Streamlink availability:", e);
+                    window.alert("Could not verify Streamlink availability. Please try again.");
+                    onChange("streamlink", {
+                      ...settingsData?.streamlink,
+                      enabled: false,
+                    });
+                    return;
+                  }
+                }
                 onChange("streamlink", {
                   ...settingsData?.streamlink,
                   enabled: checked,
-                })
-              }
+                });
+              }}
             />
+          </div>
+        </div>
+
+        <div className="settingsItem">
+          <div className={clsx("settingNumericItem")}> 
+            <div className="settingsItemTitleWithInfo">
+              <span className="settingsItemTitle">Streamlink Path</span>
+              <Tooltip delayDuration={100}>
+                <TooltipTrigger asChild>
+                  <button className="settingsInfoIcon">
+                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Detected Streamlink executable path. Click Refresh after installing or updating your PATH.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                type="text"
+                readOnly
+                placeholder={streamlinkInfo.checking ? "Checking..." : (streamlinkInfo.available ? streamlinkInfo.path : "Not found")}
+                value={streamlinkInfo.available ? (streamlinkInfo.path || "") : ""}
+                disabled={!settingsData?.streamlink?.enabled}
+                className={clsx("settingTextInput")}
+                style={{ width: 300 }}
+              />
+              <button
+                className="timestampFormat"
+                disabled={!settingsData?.streamlink?.enabled || streamlinkInfo.checking}
+                onClick={checkAvailability}
+              >
+                {streamlinkInfo.checking ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -983,66 +1070,73 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
               </Tooltip>
             </div>
 
-            <DropdownMenu value={settingsData?.streamlink?.quality || "best"}>
-              <DropdownMenuTrigger asChild>
-                <button className="timestampFormat" disabled={!settingsData?.streamlink?.enabled}>
-                  {settingsData?.streamlink?.quality || "best"}
-                  <img src={CaretDownIcon} width={14} height={14} alt="Chevron" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom">
-                <DropdownMenuItem
-                  onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "best" })}
-                  value="best">
-                  best
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "1080p60" })}
-                  value="1080p60">
-                  1080p60
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "1080p" })}
-                  value="1080p">
-                  1080p
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "720p60" })}
-                  value="720p60">
-                  720p60
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "720p" })}
-                  value="720p">
-                  720p
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "480p" })}
-                  value="480p">
-                  480p
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "360p" })}
-                  value="360p">
-                  360p
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "160p" })}
-                  value="160p">
-                  160p
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "audio_only" })}
-                  value="audio_only">
-                  audio_only
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "worst" })}
-                  value="worst">
-                  worst
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {settingsData?.streamlink?.enabled ? (
+              <DropdownMenu value={settingsData?.streamlink?.quality || "best"}>
+                <DropdownMenuTrigger asChild>
+                  <button className="timestampFormat">
+                    {settingsData?.streamlink?.quality || "best"}
+                    <img src={CaretDownIcon} width={14} height={14} alt="Chevron" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="bottom">
+                  <DropdownMenuItem
+                    onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "best" })}
+                    value="best">
+                    best
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "1080p60" })}
+                    value="1080p60">
+                    1080p60
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "1080p" })}
+                    value="1080p">
+                    1080p
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "720p60" })}
+                    value="720p60">
+                    720p60
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "720p" })}
+                    value="720p">
+                    720p
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "480p" })}
+                    value="480p">
+                    480p
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "360p" })}
+                    value="360p">
+                    360p
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "160p" })}
+                    value="160p">
+                    160p
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "audio_only" })}
+                    value="audio_only">
+                    audio_only
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onChange("streamlink", { ...settingsData?.streamlink, quality: "worst" })}
+                    value="worst">
+                    worst
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <button className="timestampFormat" disabled>
+                {settingsData?.streamlink?.quality || "best"}
+                <img src={CaretDownIcon} width={14} height={14} alt="Chevron" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1059,14 +1153,14 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Specify the media player command (e.g., "vlc", "mpv", "/usr/bin/vlc"). Default is VLC. Leave empty to use Streamlink's automatic player detection.</p>
+                  <p>Specify the media player command (e.g., "vlc", "mpv", "/usr/bin/vlc"). Leave empty to use Streamlink's automatic player detection.</p>
                 </TooltipContent>
               </Tooltip>
             </div>
 
             <input
               type="text"
-              placeholder="Default: vlc"
+              placeholder="Empty uses auto-detect (e.g., vlc, mpv)"
               value={settingsData?.streamlink?.player || ""}
               disabled={!settingsData?.streamlink?.enabled}
               onChange={(e) =>
