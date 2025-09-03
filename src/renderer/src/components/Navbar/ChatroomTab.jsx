@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState, useEffect } from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import {
   ContextMenu,
@@ -33,9 +33,37 @@ const ChatroomTab = memo(
       useShallow((state) => state.messages[chatroom.id] || [])
     );
     
+    const [streamlinkSettings, setStreamlinkSettings] = useState({ enabled: false, quality: "best" });
+
     const unreadCount = useMemo(() => {
       return chatroomMessages.filter((message) => !message.isRead && message.type !== "system").length;
     }, [chatroomMessages]);
+
+    // Get Streamlink settings and subscribe to changes
+    useEffect(() => {
+      let unsubscribe = () => {};
+      const init = async () => {
+        try {
+          const settings = await window.app.store.get("streamlink");
+          if (settings) setStreamlinkSettings(settings);
+        } catch (error) {
+          console.error("Failed to get Streamlink settings:", error);
+        }
+        try {
+          unsubscribe = window.app.store.onUpdate((delta) => {
+            if (delta && Object.prototype.hasOwnProperty.call(delta, "streamlink")) {
+              setStreamlinkSettings(delta.streamlink || { enabled: false, quality: "best" });
+            }
+          });
+        } catch (e) {
+          console.warn("Failed to subscribe to settings updates:", e);
+        }
+      };
+      init();
+      return () => {
+        try { unsubscribe && unsubscribe(); } catch {}
+      };
+    }, []);
 
     return (
       <Draggable key={chatroom.id} draggableId={`item-${chatroom.id}`} index={index}>
@@ -117,6 +145,21 @@ const ChatroomTab = memo(
                 <ContextMenuItem onSelect={() => window.open(`https://player.kick.com/${chatroom.username}`, "_blank")}>
                   Open Player in Browser
                 </ContextMenuItem>
+                {streamlinkSettings.enabled && (
+                  <ContextMenuItem onSelect={async () => {
+                    try {
+                      const result = await window.app.utils.launchStreamlink(chatroom.username);
+                      if (!result.success) {
+                        console.error("Failed to launch Streamlink:", result.error);
+                        // Optionally show user notification here
+                      }
+                    } catch (error) {
+                      console.error("Error launching Streamlink:", error);
+                    }
+                  }}>
+                    Open Stream in Streamlink
+                  </ContextMenuItem>
+                )}
                 <ContextMenuSeparator />
                 <ContextMenuItem
                   onSelect={() =>
