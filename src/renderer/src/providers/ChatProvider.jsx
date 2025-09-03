@@ -610,7 +610,10 @@ const useChatStore = create((set, get) => ({
     const streamerName = chatroom?.streamerData?.user?.username || chatroom?.username || `chatroom_${chatroomId}`;
     try { opSpan?.setAttribute?.('streamer.name', streamerName); } catch {}
     console.log(`[Telemetry] sendReply - chatroomId: ${chatroomId}, streamerName: ${streamerName}`);
-    
+
+    // Prepare metadata outside try block so catch can access it
+    let completeMetadata = { ...metadata };
+
     try {
       const message = content.trim();
       console.info("Sending reply to chatroom:", chatroomId);
@@ -630,8 +633,20 @@ const useChatStore = create((set, get) => ({
         return false;
       }
 
+      // Ensure reply metadata includes original sender for optimistic rendering
+      if (!completeMetadata?.original_sender && completeMetadata?.original_message?.id) {
+        const existingMessages = get().messages[chatroomId] || [];
+        const original = existingMessages.find(msg => msg.id === completeMetadata.original_message.id);
+        if (original?.sender?.username) {
+          completeMetadata.original_sender = {
+            id: original.sender.id,
+            username: original.sender.username,
+          };
+        }
+      }
+
       // Create and immediately add optimistic reply (should be instant now!)
-      const optimisticReply = createOptimisticReply(chatroomId, message, currentUser, metadata);
+      const optimisticReply = createOptimisticReply(chatroomId, message, currentUser, completeMetadata);
       get().addMessage(chatroomId, optimisticReply);
       try { opSpan?.addEvent?.('optimistic.add', { 'message.temp_id': optimisticReply.tempId }); } catch {}
 
@@ -660,7 +675,7 @@ const useChatStore = create((set, get) => ({
       });
       let response;
       try {
-        response = await window.app.kick.sendReply(chatroomId, message, metadata);
+        response = await window.app.kick.sendReply(chatroomId, message, completeMetadata);
         try { apiSpan?.setAttribute?.('http.response.status_code', response?.status || response?.data?.status?.code || 200); } catch {}
         endSpanOk(apiSpan);
       } catch (err) {
@@ -714,7 +729,7 @@ const useChatStore = create((set, get) => ({
         'chatroom.id': chatroomId,
         'message.operation': 'reply',
         'message.content_length': content?.length || 0,
-        'reply.original_message_id': metadata.original_message?.id
+        'reply.original_message_id': completeMetadata.original_message?.id
       });
       
       const errMsg = chatroomErrorHandler(error);
