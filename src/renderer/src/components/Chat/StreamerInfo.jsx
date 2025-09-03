@@ -188,7 +188,7 @@ const StreamerInfo = memo(
                 console.error("Error launching Streamlink:", error);
               }
             }}>
-              Open Stream in Streamlink ({streamlinkSettings.quality})
+              Open Stream in Streamlink
             </ContextMenuItem>
           )}
           {canModerate && (

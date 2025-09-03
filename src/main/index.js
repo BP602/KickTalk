@@ -303,13 +303,14 @@ const logLimits = {
 let tray = null;
 
 const createTrayContextMenu = () => {
-  const isWindowVisible = mainWindow && mainWindow.isVisible() && !mainWindow.isMinimized();
+  const isWindowVisible =
+    mainWindow && !mainWindow.isDestroyed?.() && mainWindow.isVisible() && !mainWindow.isMinimized();
   
   return Menu.buildFromTemplate([
     {
       label: isWindowVisible ? 'Hide KickTalk' : 'Show KickTalk',
       click: () => {
-        if (mainWindow) {
+        if (mainWindow && !mainWindow.isDestroyed?.()) {
           if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
             mainWindow.hide();
           } else {
@@ -319,9 +320,9 @@ const createTrayContextMenu = () => {
             }
             mainWindow.focus();
           }
-          // Update context menu after visibility change
-          tray.setContextMenu(createTrayContextMenu());
         }
+        // Update context menu after visibility change
+        if (tray) tray.setContextMenu(createTrayContextMenu());
       }
     },
     {
@@ -341,21 +342,26 @@ const createTrayContextMenu = () => {
       label: 'Quit',
       click: async () => {
         // Proper shutdown with telemetry cleanup
-        if (isTelemetryEnabled()) {
-          if (allWindows.size > 0) {
-            const openWindowTitles = Array.from(allWindows).map(win => win.getTitle());
-            console.error(`[ProcessExit] Closing with ${allWindows.size} windows still open: ${openWindowTitles.join(", ")}`);
-            metrics.recordError(new Error("Lingering windows on exit"), { openWindows: openWindowTitles });
-          }
-          if (shutdownTelemetry) {
-            try {
-              await shutdownTelemetry();
-            } catch (error) {
-              console.warn('[Telemetry]: Failed to shutdown telemetry:', error.message);
+        try {
+          if (isTelemetryEnabled()) {
+            if (allWindows.size > 0) {
+              const openWindowTitles = getSafeOpenWindowTitles();
+              console.error(`[ProcessExit] Closing with ${allWindows.size} windows still open: ${openWindowTitles.join(", ")}`);
+              metrics.recordError(new Error("Lingering windows on exit"), { openWindows: openWindowTitles });
+            }
+            if (shutdownTelemetry) {
+              try {
+                await shutdownTelemetry();
+              } catch (error) {
+                console.warn('[Telemetry]: Failed to shutdown telemetry:', error.message);
+              }
             }
           }
+        } catch (e) {
+          console.warn('[Quit]: Graceful shutdown encountered an error:', e?.message || e);
+        } finally {
+          app.quit();
         }
-        app.quit();
       }
     }
   ]);
@@ -403,6 +409,23 @@ let settingsDialog = null;
 
 // Track all windows for telemetry
 const allWindows = new Set();
+
+// Safely collect titles of non-destroyed windows for logging
+const getSafeOpenWindowTitles = () => {
+  try {
+    return Array.from(allWindows)
+      .filter((win) => win && !win.isDestroyed?.())
+      .map((win) => {
+        try {
+          return typeof win.getTitle === 'function' ? win.getTitle() : 'untitled';
+        } catch {
+          return 'destroyed';
+        }
+      });
+  } catch {
+    return [];
+  }
+};
 
 // Centralized Settings Dialog creator to avoid duplication
 const openSettingsDialog = async (data) => {
@@ -1848,21 +1871,26 @@ ipcMain.handle("telemetry:getAnalyticsMemoryStats", (e) => {
 app.on("window-all-closed", async () => {
   if (process.platform !== "darwin") {
     // Shutdown telemetry before quitting
-    if (isTelemetryEnabled()) {
-      if (allWindows.size > 0) {
-        const openWindowTitles = Array.from(allWindows).map(win => win.getTitle());
-        console.error(`[ProcessExit] Closing with ${allWindows.size} windows still open: ${openWindowTitles.join(", ")}`);
-        metrics.recordError(new Error("Lingering windows on exit"), { openWindows: openWindowTitles });
-      }
-      if (shutdownTelemetry) {
-        try {
-          await shutdownTelemetry();
-        } catch (error) {
-          console.warn('[Telemetry]: Failed to shutdown telemetry:', error.message);
+    try {
+      if (isTelemetryEnabled()) {
+        if (allWindows.size > 0) {
+          const openWindowTitles = getSafeOpenWindowTitles();
+          console.error(`[ProcessExit] Closing with ${allWindows.size} windows still open: ${openWindowTitles.join(", ")}`);
+          metrics.recordError(new Error("Lingering windows on exit"), { openWindows: openWindowTitles });
+        }
+        if (shutdownTelemetry) {
+          try {
+            await shutdownTelemetry();
+          } catch (error) {
+            console.warn('[Telemetry]: Failed to shutdown telemetry:', error.message);
+          }
         }
       }
+    } catch (e) {
+      console.warn('[WindowAllClosed]: Graceful shutdown encountered an error:', e?.message || e);
+    } finally {
+      app.quit();
     }
-    app.quit();
   }
 });
 
@@ -2192,68 +2220,152 @@ const launchStreamlink = async (username) => {
   }
 
   const streamUrl = `https://kick.com/${username}`;
-  const quality = streamlinkSettings.quality || "best";
+  const userQuality = streamlinkSettings.quality || "best";
   
-  // Build arguments array
-  let args = [streamUrl, quality];
+  // Helper function to attempt launch with a specific quality
+  const attemptLaunch = (quality, isFallback = false) => {
+    // Build arguments array
+    let args = [streamUrl, quality];
 
-  // Add player argument if specified
-  if (streamlinkSettings.player && streamlinkSettings.player.trim()) {
-    args.push("--player", streamlinkSettings.player.trim());
-  }
+    // Add player argument if specified
+    if (streamlinkSettings.player && streamlinkSettings.player.trim()) {
+      args.push("--player", streamlinkSettings.player.trim());
+    }
 
-  // Parse and add custom arguments
-  if (streamlinkSettings.customArgs && streamlinkSettings.customArgs.trim()) {
-    const customArgs = streamlinkSettings.customArgs.trim().split(/\s+/);
-    args = args.concat(customArgs);
-  }
+    // Parse and add custom arguments
+    if (streamlinkSettings.customArgs && streamlinkSettings.customArgs.trim()) {
+      const customArgs = streamlinkSettings.customArgs.trim().split(/\s+/);
+      args = args.concat(customArgs);
+    }
 
-  console.log(`[Streamlink]: Launching ${streamlinkPath} ${args.join(" ")}`);
+    console.log(`[Streamlink]: Attempting launch with quality "${quality}": ${streamlinkPath} ${args.join(" ")}`);
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(streamlinkPath, args, {
-      detached: true,
-      stdio: 'ignore'
-    });
-
-    child.on('error', (error) => {
-      console.error("[Streamlink]: Launch failed:", error);
-      if (error.code === 'ENOENT') {
-        reject(new Error("Streamlink not found. Please install Streamlink to use this feature."));
-      } else {
-        reject(new Error(`Failed to launch Streamlink: ${error.message}`));
-      }
-    });
-
-    child.on('spawn', () => {
-      console.log(`[Streamlink]: Successfully launched for ${username} (${quality})`);
-      child.unref(); // Allow the parent process to exit independently
-      resolve({ 
-        success: true, 
-        username, 
-        streamUrl, 
-        quality,
-        player: streamlinkSettings.player || "default",
-        args: args.join(" ")
+    return new Promise((resolve, reject) => {
+      const child = spawn(streamlinkPath, args, {
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe']
       });
-    });
 
-    // Set a timeout to handle cases where spawn event doesn't fire
-    setTimeout(() => {
-      if (child.pid) {
-        console.log(`[Streamlink]: Process spawned with PID ${child.pid}`);
-        child.unref();
-        resolve({ 
-          success: true, 
-          username, 
-          streamUrl, 
-          quality,
-          player: streamlinkSettings.player || "default",
-          args: args.join(" ")
+      let stderr = '';
+      let hasResolved = false;
+
+      // Capture stderr to detect quality-related errors
+      if (child.stderr) {
+        child.stderr.on('data', (data) => {
+          stderr += data.toString();
         });
       }
-    }, 1000);
-  });
+
+      child.on('error', (error) => {
+        if (!hasResolved) {
+          hasResolved = true;
+          console.error(`[Streamlink]: Launch failed for quality "${quality}":`, error);
+          if (error.code === 'ENOENT') {
+            reject(new Error("Streamlink not found. Please install Streamlink to use this feature."));
+          } else {
+            reject(new Error(`Failed to launch Streamlink: ${error.message}`));
+          }
+        }
+      });
+
+      child.on('exit', (code) => {
+        console.log(`[Streamlink]: Process exited with code ${code} for quality "${quality}". stderr:`, stderr.trim());
+        
+        if (!hasResolved) {
+          hasResolved = true;
+          
+          if (code === 0) {
+            // Success case - process completed normally
+            console.log(`[Streamlink]: Successfully completed for ${username} with quality "${quality}"`);
+            resolve({ 
+              success: true, 
+              username, 
+              streamUrl, 
+              quality,
+              player: streamlinkSettings.player || "default",
+              args: args.join(" ")
+            });
+          } else {
+            // Error case - process failed
+            const errorMessage = stderr.trim() || `Streamlink exited with code ${code}`;
+            console.error(`[Streamlink]: Failed for quality "${quality}":`, errorMessage);
+            
+            // Check if error is likely quality-related
+            const isQualityError = stderr.includes('Unable to find') || 
+                                 stderr.includes('No playable streams found') ||
+                                 stderr.includes('quality') ||
+                                 code === 1;
+            
+            reject(new Error(isQualityError ? `Quality "${quality}" not available` : errorMessage));
+          }
+        }
+      });
+
+      child.on('spawn', () => {
+        console.log(`[Streamlink]: Process spawned with PID ${child.pid} for quality "${quality}"`);
+        child.unref(); // Allow the parent process to exit independently
+        
+        // For successful launches, Streamlink often keeps running to manage the stream
+        // Wait a bit to see if it exits immediately with an error, otherwise assume success
+        setTimeout(() => {
+          if (!hasResolved && child.pid && !child.killed) {
+            hasResolved = true;
+            console.log(`[Streamlink]: Successfully launched for ${username} with quality "${quality}" (process still running)`);
+            resolve({ 
+              success: true, 
+              username, 
+              streamUrl, 
+              quality,
+              player: streamlinkSettings.player || "default",
+              args: args.join(" ")
+            });
+          }
+        }, 5000); // 5 second delay to catch immediate failures
+      });
+
+      // Overall timeout to prevent hanging - longer timeout for fallback attempts  
+      const timeoutMs = isFallback ? 25000 : 20000;
+      setTimeout(() => {
+        if (!hasResolved) {
+          hasResolved = true;
+          reject(new Error(`Streamlink launch timeout for quality "${quality}" after ${timeoutMs/1000}s`));
+        }
+      }, timeoutMs);
+    });
+  };
+
+  // First attempt: Try user's preferred quality
+  try {
+    const result = await attemptLaunch(userQuality);
+    return result;
+  } catch (error) {
+    // Check if this was a quality-related error and user didn't already select "best"
+    const isQualityError = error.message.includes('not available') || 
+                          error.message.includes('Unable to find') ||
+                          error.message.includes('No playable streams found');
+    
+    if (isQualityError && userQuality !== 'best' && userQuality !== 'worst') {
+      console.log(`[Streamlink]: Quality "${userQuality}" failed, attempting fallback to "best"`);
+      
+      try {
+        // Second attempt: Fallback to "best" quality with longer timeout
+        const result = await attemptLaunch('best', true);
+        console.log(`[Streamlink]: Successfully fell back to "best" quality for ${username}`);
+        return { 
+          ...result, 
+          quality: 'best',
+          fallback: true, 
+          originalQuality: userQuality 
+        };
+      } catch (fallbackError) {
+        // If even "best" fails, throw the original error with context
+        throw new Error(`Failed to launch stream with quality "${userQuality}" and fallback "best" also failed: ${fallbackError.message}`);
+      }
+    } else {
+      // Re-throw the original error if it wasn't quality-related or user selected "best"
+      throw error;
+    }
+  }
 };
 
 // Streamlink IPC Handlers

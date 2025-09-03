@@ -978,7 +978,7 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Select the preferred stream quality. "best" automatically chooses the highest available quality.</p>
+                  <p>Select preferred stream quality. Falls back to "best" if unavailable.</p>
                 </TooltipContent>
               </Tooltip>
             </div>
