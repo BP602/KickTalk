@@ -45,6 +45,14 @@ class KickWebSocket extends EventTarget {
     this.circuitBreakerResetTime = null;
     
     this.bindMethods();
+
+    // Normalize WebSocket readyState constants for test environments
+    this.WS_STATES = {
+      CONNECTING: (typeof WebSocket !== 'undefined' && typeof WebSocket.CONNECTING === 'number') ? WebSocket.CONNECTING : 0,
+      OPEN: (typeof WebSocket !== 'undefined' && typeof WebSocket.OPEN === 'number') ? WebSocket.OPEN : 1,
+      CLOSING: (typeof WebSocket !== 'undefined' && typeof WebSocket.CLOSING === 'number') ? WebSocket.CLOSING : 2,
+      CLOSED: (typeof WebSocket !== 'undefined' && typeof WebSocket.CLOSED === 'number') ? WebSocket.CLOSED : 3
+    };
   }
 
   bindMethods() {
@@ -126,13 +134,17 @@ class KickWebSocket extends EventTarget {
         // Wait for connection to open or fail
         const onOpen = () => {
           clearTimeout(this.connectionTimeout);
-          this.websocket.removeEventListener('error', onError);
+          if (this.websocket && typeof this.websocket.removeEventListener === 'function') {
+            this.websocket.removeEventListener('error', onError);
+          }
           resolve();
         };
 
         const onError = (error) => {
           clearTimeout(this.connectionTimeout);
-          this.websocket.removeEventListener('open', onOpen);
+          if (this.websocket && typeof this.websocket.removeEventListener === 'function') {
+            this.websocket.removeEventListener('open', onOpen);
+          }
           reject(error);
         };
 
@@ -183,17 +195,18 @@ class KickWebSocket extends EventTarget {
   /**
    * Handle WebSocket close event
    */
-  handleClose(event) {
-    console.log(`WebSocket closed (code: ${event.code}, reason: ${event.reason})`);
+  handleClose(event = {}) {
+    const { code, reason, wasClean } = event;
+    console.log(`WebSocket closed (code: ${code}, reason: ${reason})`);
     
     this.connectionState = 'disconnected';
     this.stopHeartbeat();
     
     this.dispatchEvent(new CustomEvent('close', { 
       detail: { 
-        code: event.code,
-        reason: event.reason,
-        wasClean: event.wasClean
+        code,
+        reason,
+        wasClean
       }
     }));
 
@@ -279,7 +292,11 @@ class KickWebSocket extends EventTarget {
    * @returns {boolean} - Success status
    */
   send(message) {
-    if (this.connectionState !== 'connected' || !this.websocket) {
+    if (
+      this.connectionState !== 'connected' ||
+      !this.websocket ||
+      this.websocket.readyState !== this.WS_STATES.OPEN
+    ) {
       // Queue message for later sending
       if (this.messageQueue.length < this.maxQueueSize) {
         this.messageQueue.push({
@@ -440,6 +457,8 @@ class KickWebSocket extends EventTarget {
     console.log(`Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts})`);
 
     this.reconnectTimer = setTimeout(async () => {
+      // Guard: only attempt reconnect if still desired and not already connected
+      if (!this.shouldReconnect || this.connectionState === 'connected') return;
       this.dispatchEvent(new CustomEvent('reconnecting', { 
         detail: { 
           attempt: this.reconnectAttempts,
@@ -510,7 +529,8 @@ class KickWebSocket extends EventTarget {
    */
   getConnectionHealth() {
     const now = Date.now();
-    const isConnected = this.connectionState === 'connected' && this.websocket?.readyState === WebSocket.OPEN;
+    const isConnected = this.connectionState === 'connected' && this.websocket?.readyState === this.WS_STATES.OPEN;
+    const start = this.connectionStartTime || now;
     
     return {
       isConnected,
@@ -524,7 +544,7 @@ class KickWebSocket extends EventTarget {
       queuedMessages: this.messageQueue.length,
       socketId: this.socketId,
       latency: this.lastPongTime && this.lastPingTime ? this.lastPongTime - this.lastPingTime : null,
-      uptime: isConnected && this.connectionStartTime ? now - this.connectionStartTime : null
+      uptime: isConnected ? now - start : null
     };
   }
 
@@ -544,7 +564,7 @@ class KickWebSocket extends EventTarget {
     
     this.stopHeartbeat();
     
-    if (this.websocket) {
+    if (this.websocket && typeof this.websocket.removeEventListener === 'function') {
       this.websocket.removeEventListener('open', this.handleOpen);
       this.websocket.removeEventListener('close', this.handleClose);
       this.websocket.removeEventListener('error', this.handleError);
@@ -563,8 +583,12 @@ class KickWebSocket extends EventTarget {
     
     this.cleanup();
     
-    if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
-      this.websocket.close(1000, 'Client disconnect');
+    if (this.websocket && this.websocket.readyState !== this.WS_STATES.CLOSED) {
+      try {
+        this.websocket.close(1000, 'Client disconnect');
+      } catch (_e) {
+        // ignore close errors during teardown
+      }
     }
     
     this.websocket = null;

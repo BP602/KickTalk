@@ -171,12 +171,13 @@ describe('main/index.js - Electron Main Process', () => {
     const mockTracer = {
       startSpan: vi.fn(() => mockSpan)
     }
+    const mockTrace = {
+      getTracer: vi.fn(() => mockTracer),
+      setSpan: vi.fn(),
+      active: vi.fn()
+    }
     vi.doMock('@opentelemetry/api', () => ({
-      trace: {
-        getTracer: vi.fn(() => mockTracer),
-        setSpan: vi.fn(),
-        active: vi.fn()
-      },
+      trace: mockTrace,
       context: {
         with: vi.fn((ctx, fn) => fn()),
         active: vi.fn()
@@ -264,7 +265,7 @@ describe('main/index.js - Electron Main Process', () => {
       update: vi.fn()
     }))
 
-    return { mockStore, metrics, mockSpan, mockTracer, mockRequest }
+    return { mockStore, metrics, mockSpan, mockTracer, mockTrace, mockRequest }
   }
 
   const setupMainWithMocks = async (options = {}) => {
@@ -339,6 +340,7 @@ describe('main/index.js - Electron Main Process', () => {
       
       const { mockTracer } = await setupMainWithMocks({ envVars })
       
+      // The tracer.startSpan should be called with 'main_startup_boot'
       expect(mockTracer.startSpan).toHaveBeenCalledWith('main_startup_boot')
       expect(process.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('https://tempo.example.com')
       expect(process.env.OTEL_EXPORTER_OTLP_HEADERS).toBe('authorization=Bearer token123')
@@ -354,15 +356,15 @@ describe('main/index.js - Electron Main Process', () => {
     })
 
     it('should set service version from app version', async () => {
-      const { electron } = await setupMainWithMocks()
+      const envVars = {
+        MAIN_VITE_OTEL_SERVICE_NAME: 'kicktalk-test'
+      }
       
-      electron.app.getVersion.mockReturnValue('1.2.3')
+      const { electron } = await setupMainWithMocks({ envVars })
       
-      // Re-import to trigger version setting logic
-      vi.resetModules()
-      await setupMainWithMocks()
-      
-      expect(process.env.OTEL_RESOURCE_ATTRIBUTES).toContain('service.version=1.2.3')
+      // The service version should be set in OTEL_RESOURCE_ATTRIBUTES
+      // The test setup uses app.getVersion() mock which returns '1.1.8'
+      expect(process.env.OTEL_RESOURCE_ATTRIBUTES).toMatch(/service\.version=1\.1\.8/)
     })
 
     it('should initialize request ID generator correctly', async () => {
