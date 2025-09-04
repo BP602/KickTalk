@@ -635,8 +635,9 @@ ipcMain.handle("otel:get-config", async () => {
   try {
     console.log('[OTEL Config] Renderer requesting telemetry config');
     
+    // Prefer build-time env from electron-vite (import.meta.env) with runtime fallback to process.env
+    const env = (typeof import !== 'undefined' && import.meta && import.meta.env) ? import.meta.env : process.env;
     // Check if we have OTLP configuration for IPC relay
-    const env = process.env;
     const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
                     env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
                     (env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_ENDPOINT);
@@ -681,7 +682,7 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
     console.log(`[OTEL IPC Relay][${requestId}] Received trace export from renderer`);
     console.log(`[OTEL IPC Relay][${requestId}] Payload size: ${JSON.stringify(exportJson || {}).length} chars`);
     
-    const env = process.env;
+    const env = (typeof import !== 'undefined' && import.meta && import.meta.env) ? import.meta.env : process.env;
     const base = env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_ENDPOINT || "";
     const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
                     env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
@@ -761,6 +762,59 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
   } catch (e) {
     console.error(`[OTEL IPC Relay][${requestId}] Failed:`, e.message);
     return { ok: false, reason: e.message, requestId };
+  }
+});
+
+// Telemetry health check (masked, main-only details)
+ipcMain.handle("telemetry:health", async () => {
+  try {
+    const env = (typeof import !== 'undefined' && import.meta && import.meta.env) ? import.meta.env : process.env;
+    const source = (typeof import !== 'undefined' && import.meta && import.meta.env) ? 'build' : 'runtime';
+
+    const base = env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_ENDPOINT || "";
+    const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
+                     env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
+                     (base ? `${String(base).replace(/\/$/, "")}/v1/traces` : "");
+
+    const headersRaw = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
+                       env.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS ||
+                       env.OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
+                       env.OTEL_EXPORTER_OTLP_HEADERS || "";
+
+    const deploymentEnv = env.MAIN_VITE_OTEL_DEPLOYMENT_ENV ||
+                          env.OTEL_DEPLOYMENT_ENV ||
+                          env.NODE_ENV ||
+                          "development";
+
+    const endpointPresent = Boolean(endpoint);
+    const headersPresent = Boolean(headersRaw);
+
+    // Mask headers
+    const maskedHeaders = {};
+    if (headersRaw) {
+      String(headersRaw).split(',').forEach((kv) => {
+        const idx = kv.indexOf('=');
+        if (idx > 0) {
+          const k = kv.slice(0, idx).trim();
+          const v = kv.slice(idx + 1).trim();
+          const masked = v.length <= 4 ? '*'.repeat(v.length) : `${v.slice(0, 2)}${'*'.repeat(Math.max(0, v.length - 4))}${v.slice(-2)}`;
+          if (k) maskedHeaders[k] = masked;
+        }
+      });
+    }
+
+    const ok = endpointPresent && headersPresent;
+    return {
+      ok,
+      endpointPresent,
+      headersPresent,
+      endpoint,
+      maskedHeaders,
+      deploymentEnv,
+      source
+    };
+  } catch (e) {
+    return { ok: false, reason: e?.message || String(e) };
   }
 });
 

@@ -261,7 +261,9 @@ if (process.contextIsolated) {
         } catch (e) {
           return Promise.resolve({ success: false, reason: e?.message || 'ipc_invoke_failed' });
         }
-      }
+      },
+      // Health summary (masked) of telemetry config in main
+      getHealth: () => ipcRenderer.invoke('telemetry:health')
     });
 
     contextBridge.exposeInMainWorld("app", {
