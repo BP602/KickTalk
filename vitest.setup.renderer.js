@@ -62,17 +62,19 @@ vi.mock('@lexical/react/LexicalPlainTextPlugin', () => ({
 }))
 
 // Setup WebSocket mocks for testing
-global.WebSocket = vi.fn(() => ({
+const WebSocketMock = vi.fn(() => ({
   addEventListener: vi.fn(),
   removeEventListener: vi.fn(),
   send: vi.fn(),
   close: vi.fn(),
   readyState: 1, // OPEN
-  CONNECTING: 0,
-  OPEN: 1,
-  CLOSING: 2,
-  CLOSED: 3,
 }))
+// Provide static readyState constants on the constructor to match usage like WebSocket.OPEN
+WebSocketMock.CONNECTING = 0
+WebSocketMock.OPEN = 1
+WebSocketMock.CLOSING = 2
+WebSocketMock.CLOSED = 3
+global.WebSocket = WebSocketMock
 
 // Prevent unhandled errors/rejections in jsdom from crashing tests that purposely throw in handlers
 if (typeof window !== 'undefined') {
@@ -104,7 +106,4 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-// Setup fake timers before all tests by default
-beforeAll(() => {
-  vi.useFakeTimers()
-})
+// Use real timers by default; individual tests can opt into fake timers when needed
