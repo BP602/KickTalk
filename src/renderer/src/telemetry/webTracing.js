@@ -250,7 +250,8 @@ const shouldEmitTelemetry = (spanName, attributes = {}, requiredLevel = 'NORMAL'
 };
 
 // Message parser sampling configuration
-const MESSAGE_PARSER_SAMPLE_RATE = 0.1; // 10% sampling
+// Reduce high-volume message parser traces to 1%
+const MESSAGE_PARSER_SAMPLE_RATE = 0.01; // 1% sampling
 let messageParserSampleCounter = 0;
 
 const shouldSampleMessageParser = () => {

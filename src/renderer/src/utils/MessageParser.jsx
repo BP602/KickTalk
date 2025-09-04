@@ -484,33 +484,28 @@ export const MessageParser = ({
   chatroomName,
   userChatroomInfo,
 }) => {
-  // Consolidated span for all message parsing operations (sampling applied in startSpan)
-  const parserSpan = startSpan('message.parser_consolidated', {
-    'message.id': message?.id || '',
-    'chatroom.id': chatroomId || '',
-    'message.type': type || 'regular',
-    'service.name': 'kicktalk-renderer'
-  });
-  
+  // Lazily create span only for cache misses to reduce volume
+  let parserSpan = null;
   const startTime = performance.now();
   
   try {
     const cacheKey = `${message?.id}-${message?.content}-${sevenTVSettings?.emotes}-${type}`;
 
     if (messageContentCache.has(cacheKey)) {
-      parserSpan?.addEvent?.('cache_hit');
-      parserSpan?.setAttribute?.('cache.hit', true);
+      // No span for cache hits (reduce trace noise)
       const parseTime = performance.now() - startTime;
-      parserSpan?.setAttributes?.({
-        'parse.total_duration_ms': parseTime,
-        'cache.final_size': messageContentCache.size
-      });
-      endSpanOk(parserSpan);
       return messageContentCache.get(cacheKey);
     }
 
+    // Cache miss: create consolidated span now (sampling applied in startSpan)
+    parserSpan = startSpan('message.parser_consolidated', {
+      'message.id': message?.id || '',
+      'chatroom.id': chatroomId || '',
+      'message.type': type || 'regular',
+      'service.name': 'kicktalk-renderer',
+      'cache.hit': false
+    });
     parserSpan?.addEvent?.('cache_miss');
-    parserSpan?.setAttribute?.('cache.hit', false);
 
     // Pass parent span to consolidate telemetry instead of creating separate spans
     const parsed = parseMessageContent({
