@@ -8,6 +8,8 @@ import mainConfig from './vite.config.main.js'
 export default defineConfig({
   // Multi-project configuration
   test: {
+    // Stop early on CI to save resources
+    bail: process.env.CI ? 1 : 0,
     projects: [
       // Renderer process tests (React components, hooks, utilities)
       {
@@ -37,11 +39,9 @@ export default defineConfig({
       html: './test-report.html'
     },
 
-    // Watch configuration
-    watch: true,
-    
-    // UI configuration
-    ui: true,
+    // Watch/UI disabled by default to reduce overhead
+    watch: process.env.VITEST_WATCH === 'true',
+    ui: process.env.VITEST_UI === 'true',
     
     // Global coverage settings (can be overridden by individual projects)
     coverage: {

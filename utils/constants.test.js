@@ -821,9 +821,9 @@ describe('Constants', () => {
       const veryLongText = 'a'.repeat(100000)
       
       expect(() => {
-        [...veryLongText.matchAll(urlRegex)]
-        [...veryLongText.matchAll(kickEmoteRegex)]
-        [...veryLongText.matchAll(mentionRegex)]
+        void Array.from(veryLongText.matchAll(urlRegex));
+        void Array.from(veryLongText.matchAll(kickEmoteRegex));
+        void Array.from(veryLongText.matchAll(mentionRegex));
       }).not.toThrow()
     })
 
@@ -846,8 +846,8 @@ describe('Constants', () => {
       expect(() => {
         // These should throw TypeError, but not crash the application
         try {
-          [...nullText?.matchAll?.(urlRegex) ?? []]
-          [...undefinedText?.matchAll?.(mentionRegex) ?? []]
+          void Array.from(nullText?.matchAll?.(urlRegex) ?? []);
+          void Array.from(undefinedText?.matchAll?.(mentionRegex) ?? []);
         } catch (error) {
           expect(error).toBeInstanceOf(TypeError)
         }

@@ -12,7 +12,12 @@ vi.mock('@assets/icons/notification-bell.svg?asset', () => ({ default: 'notif.sv
 vi.mock('@assets/icons/message-bubble.svg?asset', () => ({ default: 'msg.svg' }))
 vi.mock('@hello-pangea/dnd', () => ({
   DragDropContext: ({ children }) => <div data-testid="drag-drop-context">{children}</div>,
-  Droppable: ({ children }) => children({ droppableProps: {}, innerRef: vi.fn(), placeholder: null })
+  Droppable: ({ children }) => children({ droppableProps: {}, innerRef: vi.fn(), placeholder: null }),
+  Draggable: ({ children, index }) => children({ 
+    draggableProps: {}, 
+    dragHandleProps: {}, 
+    innerRef: vi.fn() 
+  }, { isDragging: false })
 }))
 
 const mockChatStore = {

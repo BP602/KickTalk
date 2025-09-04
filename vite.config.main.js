@@ -38,7 +38,8 @@ export default defineConfig({
       '**/node_modules/**',
       '**/dist/**',
       '**/out/**',
-      '**/.git/**'
+      '**/.git/**',
+      '**/*.focused.test.{js,ts}'
     ],
     
     // Setup files
@@ -50,7 +51,7 @@ export default defineConfig({
     // Coverage configuration
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json-summary', 'html'],
       exclude: [
         'node_modules/',
         '**/*.test.{js,ts}',

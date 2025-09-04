@@ -228,6 +228,19 @@ class SharedStvWebSocket extends EventTarget {
 
     this.chat = new WebSocket("wss://events.7tv.io/v3?app=kicktalk&version=420.69");
 
+    this.chat.addEventListener('open', () => {
+      console.log("[Shared7TV]: Connected to 7TV WebSocket");
+      this.connectionState = 'connected';
+      // Inform listeners that pooled 7TV connection is ready
+      this.dispatchEvent(new CustomEvent('connection', {
+        detail: {
+          type: 'system',
+          content: 'connection-success',
+          chatrooms: Array.from(this.chatrooms.keys()),
+        }
+      }));
+    });
+
     this.chat.onerror = (event) => {
       console.log(`[Shared7TV]: WebSocket error:`, event);
       this.connectionState = 'disconnected';

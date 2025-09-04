@@ -115,6 +115,16 @@ class SharedKickPusher extends EventTarget {
     this.chat.addEventListener("open", async () => {
       console.log("[SharedKickPusher] Connected to Kick WebSocket");
       this.reconnectAttempts = 0;
+      this.connectionState = 'connected';
+
+      // Notify listeners of successful connection
+      this.dispatchEvent(new CustomEvent("connection", {
+        detail: {
+          type: "system",
+          content: "connection-success",
+          chatrooms: Array.from(this.chatrooms.keys()),
+        },
+      }));
 
       // Complete the connection span successfully
       if (this.connectionSpan) {

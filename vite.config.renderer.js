@@ -27,6 +27,14 @@ export default defineConfig({
   test: {
     name: 'renderer',
     environment: 'jsdom',
+    // Limit concurrency to reduce memory footprint
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        maxThreads: 2,
+        minThreads: 1,
+      }
+    },
     
     // Test files
     include: [
@@ -37,7 +45,8 @@ export default defineConfig({
       '**/node_modules/**',
       '**/dist/**',
       '**/out/**',
-      '**/.git/**'
+      '**/.git/**',
+      '**/*.focused.test.{js,jsx,ts,tsx}'
     ],
     
     // Setup files
@@ -49,7 +58,7 @@ export default defineConfig({
     // Coverage configuration
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json-summary', 'html'],
       exclude: [
         'node_modules/',
         'src/renderer/src/assets/',

@@ -38,6 +38,12 @@ global.electronAPI = {
   removeAllListeners: vi.fn(),
 }
 
+// Ensure window.electronAPI exists where tests access it
+if (typeof window !== 'undefined') {
+  // Keep reference equality with the global mock
+  window.electronAPI = globalThis.electronAPI
+}
+
 // Mock CSS imports and static assets
 vi.mock('*.scss', () => ({}))
 vi.mock('*.css', () => ({}))

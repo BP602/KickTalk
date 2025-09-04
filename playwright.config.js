@@ -22,6 +22,8 @@ export default defineConfig({
     ['json', { outputFile: 'playwright-results.json' }],
     process.env.CI ? ['github'] : ['list']
   ],
+  // Stop early on CI to avoid wasting resources
+  maxFailures: process.env.CI ? 1 : undefined,
   
   // Shared settings for all the projects below
   use: {

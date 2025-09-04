@@ -378,12 +378,9 @@ describe('StvWebSocket', () => {
           })
         )
         expect(consoleSpy).toHaveBeenCalledWith('[7TV]: Subscribed to entitlement.* events')
-        expect(dispatchSpy).toHaveBeenCalledWith(
-          expect.objectContaining({
-            type: 'open',
-            detail: { body: 'SUBSCRIBED', type: 'entitlement.*' }
-          })
-        )
+        const openEvt = dispatchSpy.mock.calls.at(-1)[0]
+        expect(openEvt.type).toBe('open')
+        expect(openEvt.detail).toEqual({ body: 'SUBSCRIBED', type: 'entitlement.*' })
         
         consoleSpy.mockRestore()
       })
@@ -449,15 +446,9 @@ describe('StvWebSocket', () => {
 
         mockWebSocket.onmessage(mockMessage)
 
-        expect(dispatchSpy).toHaveBeenCalledWith(
-          expect.objectContaining({
-            type: 'message',
-            detail: {
-              body: { user_id: 'user123', updated_fields: ['username'] },
-              type: 'user.update'
-            }
-          })
-        )
+        const evt = dispatchSpy.mock.calls.at(-1)[0]
+        expect(evt.type).toBe('message')
+        expect(evt.detail).toEqual({ body: { user_id: 'user123', updated_fields: ['username'] }, type: 'user.update' })
       })
 
       it('should handle emote_set.update messages', () => {
@@ -473,15 +464,9 @@ describe('StvWebSocket', () => {
 
         mockWebSocket.onmessage(mockMessage)
 
-        expect(dispatchSpy).toHaveBeenCalledWith(
-          expect.objectContaining({
-            type: 'message',
-            detail: {
-              body: { set_id: 'set123', changes: ['emote_added'] },
-              type: 'emote_set.update'
-            }
-          })
-        )
+        const evt = dispatchSpy.mock.calls.at(-1)[0]
+        expect(evt.type).toBe('message')
+        expect(evt.detail).toEqual({ body: { set_id: 'set123', changes: ['emote_added'] }, type: 'emote_set.update' })
       })
 
       it('should handle cosmetic.create messages', () => {
@@ -661,22 +646,12 @@ describe('StvWebSocket', () => {
 
         mockWebSocket.onmessage(mockMessage)
 
-        expect(dispatchSpy).toHaveBeenCalledWith(
-          expect.objectContaining({
-            detail: {
-              body: expect.objectContaining({
-                badges: expect.arrayContaining([
-                  expect.objectContaining({
-                    id: 'badge456',
-                    title: 'Subscriber Badge',
-                    url: 'https://cdn.7tv.app/3x.webp' // Should use last file
-                  })
-                ])
-              }),
-              type: 'cosmetic.create'
-            }
-          })
-        )
+        const evt = dispatchSpy.mock.calls.at(-1)[0]
+        expect(evt.detail.type).toBe('cosmetic.create')
+        const badges = evt.detail.body.badges || []
+        expect(badges).toEqual(expect.arrayContaining([
+          expect.objectContaining({ id: 'badge456', title: 'Subscriber Badge', url: 'https://cdn.7tv.app/3x.webp' })
+        ]))
       })
 
       it('should handle badge with default ID replacement', () => {
@@ -705,19 +680,11 @@ describe('StvWebSocket', () => {
 
         mockWebSocket.onmessage(mockMessage)
 
-        expect(dispatchSpy).toHaveBeenCalledWith(
-          expect.objectContaining({
-            detail: {
-              body: expect.objectContaining({
-                badges: expect.arrayContaining([
-                  expect.objectContaining({
-                    id: 'real_badge_id' // Should use ref_id instead of default ID
-                  })
-                ])
-              })
-            }
-          })
-        )
+        const evt = dispatchSpy.mock.calls.at(-1)[0]
+        const badges = evt.detail.body.badges || []
+        expect(badges).toEqual(expect.arrayContaining([
+          expect.objectContaining({ id: 'real_badge_id' })
+        ]))
       })
 
       it('should not duplicate existing badges', () => {

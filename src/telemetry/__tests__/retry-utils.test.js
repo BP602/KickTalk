@@ -26,8 +26,8 @@ vi.mock('../error-monitoring', () => ({
   ErrorMonitor: mockErrorMonitor
 }))
 
-// Mock sleep function to make tests faster
-const mockSleep = vi.fn().mockResolvedValue()
+// Mock sleep function to make tests faster (use hoisted ref for vi.mock)
+const { mockSleep } = vi.hoisted(() => ({ mockSleep: vi.fn().mockResolvedValue() }))
 vi.mock('../retry-utils', async () => {
   const actual = await vi.importActual('../retry-utils')
   return {
