@@ -154,5 +154,6 @@ jobs:
         with:
           files: artifacts/**/*
           generate_release_notes: true
+          body_path: docs/Release-notes-${{ github.ref_name }}.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
