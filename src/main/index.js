@@ -636,7 +636,15 @@ ipcMain.handle("otel:get-config", async () => {
     console.log('[OTEL Config] Renderer requesting telemetry config');
     
     // Prefer build-time env from electron-vite (import.meta.env) with runtime fallback to process.env
-    const env = (typeof import !== 'undefined' && import.meta && import.meta.env) ? import.meta.env : process.env;
+    let env = process.env;
+    try {
+      // In ESM builds, import.meta.env is available via electron-vite
+      // eslint-disable-next-line no-undef
+      if (import.meta && import.meta.env) {
+        // eslint-disable-next-line no-undef
+        env = import.meta.env;
+      }
+    } catch {}
     // Check if we have OTLP configuration for IPC relay
     const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
                     env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
@@ -682,7 +690,14 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
     console.log(`[OTEL IPC Relay][${requestId}] Received trace export from renderer`);
     console.log(`[OTEL IPC Relay][${requestId}] Payload size: ${JSON.stringify(exportJson || {}).length} chars`);
     
-    const env = (typeof import !== 'undefined' && import.meta && import.meta.env) ? import.meta.env : process.env;
+    let env = process.env;
+    try {
+      // eslint-disable-next-line no-undef
+      if (import.meta && import.meta.env) {
+        // eslint-disable-next-line no-undef
+        env = import.meta.env;
+      }
+    } catch {}
     const base = env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_ENDPOINT || "";
     const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
                     env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
@@ -768,8 +783,16 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
 // Telemetry health check (masked, main-only details)
 ipcMain.handle("telemetry:health", async () => {
   try {
-    const env = (typeof import !== 'undefined' && import.meta && import.meta.env) ? import.meta.env : process.env;
-    const source = (typeof import !== 'undefined' && import.meta && import.meta.env) ? 'build' : 'runtime';
+    let env = process.env;
+    let source = 'runtime';
+    try {
+      // eslint-disable-next-line no-undef
+      if (import.meta && import.meta.env) {
+        // eslint-disable-next-line no-undef
+        env = import.meta.env;
+        source = 'build';
+      }
+    } catch {}
 
     const base = env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_ENDPOINT || "";
     const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
