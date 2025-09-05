@@ -108,5 +108,4 @@ out/
 package-lock.json
 
 RELEASE_NOTES_v*.md
-CLAUDE.md
-.claude/
+html.meta.json.gz

@@ -1,5 +1,10 @@
 // KickTalk Retry Utilities with Exponential Backoff and Telemetry
-const { ErrorMonitor } = require('./error-monitoring');
+let ErrorMonitorRef = require('./error-monitoring').ErrorMonitor;
+
+// Allow tests to override the ErrorMonitor instance used internally
+function setErrorMonitor(monitor) {
+  ErrorMonitorRef = monitor;
+}
 
 /**
  * Retry configuration presets for different operation types
@@ -141,7 +146,13 @@ async function retryWithBackoff(operation, options = {}) {
       if (attempt > 1) {
         const duration = Date.now() - startTime;
         const errorId = `retry_${operationName}_${startTime}`;
-        ErrorMonitor.recordRecovery(errorId, `retry_attempt_${attempt}`, true, duration);
+        try {
+          if (ErrorMonitorRef && typeof ErrorMonitorRef.recordRecovery === 'function') {
+            ErrorMonitorRef.recordRecovery(errorId, `retry_attempt_${attempt}`, true, duration);
+          }
+        } catch (monitorError) {
+          console.warn('[Retry] Failed to record recovery:', monitorError.message);
+        }
         
         console.log(`[Retry] Success on attempt ${attempt}/${config.maxAttempts} for ${operationName} (${duration}ms)`);
       }
@@ -151,12 +162,20 @@ async function retryWithBackoff(operation, options = {}) {
     } catch (error) {
       lastError = error;
       
-      // Record the error
-      const errorRecord = ErrorMonitor.recordError(error, {
-        ...context,
-        retry_attempt: attempt,
-        max_attempts: config.maxAttempts
-      });
+      // Record the error (handle ErrorMonitor failures gracefully)
+      let errorRecord = { error_id: 'unknown' };
+      try {
+        if (ErrorMonitorRef && typeof ErrorMonitorRef.recordError === 'function') {
+          errorRecord = ErrorMonitorRef.recordError(error, {
+            ...context,
+            retry_attempt: attempt,
+            max_attempts: config.maxAttempts
+          });
+        }
+      } catch (monitorError) {
+        // Log but don't throw - continue with retry logic
+        console.warn('[Retry] Failed to record error:', monitorError.message);
+      }
       
       // Check if we should retry
       const shouldRetry = attempt < config.maxAttempts && 
@@ -167,7 +186,13 @@ async function retryWithBackoff(operation, options = {}) {
         
         // Record final failure
         const duration = Date.now() - startTime;
-        ErrorMonitor.recordRecovery(errorRecord.error_id, `retry_exhausted`, false, duration);
+        try {
+          if (ErrorMonitorRef && typeof ErrorMonitorRef.recordRecovery === 'function') {
+            ErrorMonitorRef.recordRecovery(errorRecord.error_id, `retry_exhausted`, false, duration);
+          }
+        } catch (monitorError) {
+          console.warn('[Retry] Failed to record recovery:', monitorError.message);
+        }
         
         break;
       }
@@ -202,7 +227,7 @@ async function retryWithCircuitBreaker(operation, options = {}) {
   
   // Create retry operation that uses circuit breaker
   const retryOperation = async (attempt) => {
-    return await ErrorMonitor.executeWithCircuitBreaker(
+    return await ErrorMonitorRef.executeWithCircuitBreaker(
       circuitBreakerName,
       operation,
       options.fallback,
@@ -315,5 +340,6 @@ module.exports = {
   retryWithBackoff,
   retryWithCircuitBreaker,
   RETRY_PRESETS,
-  calculateDelay
+  calculateDelay,
+  setErrorMonitor
 };

@@ -76,8 +76,7 @@ const updateCosmetics = async (body) => {
           style: data.function,
           shape: data.shape,
           backgroundImage:
-            `${data.function || "linear-gradient"}(${isDeg_or_Shape}, ${gradient})` ||
-            `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
+            `${(data.function || "linear-gradient")}(${isDeg_or_Shape}, ${gradient})`,
           shadows: null,
           KIND: "non-animated",
           url: data.image_url,
@@ -89,8 +88,7 @@ const updateCosmetics = async (body) => {
           style: data.function,
           shape: data.shape,
           backgroundImage:
-            `url('${[data.image_url]}')` ||
-            `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
+            `url('${[data.image_url]}')`,
           shadows: null,
           KIND: "animated",
           url: data.image_url,
@@ -138,7 +136,7 @@ let tracer;
 try {
   const { trace } = require('@opentelemetry/api');
   tracer = trace.getTracer('kicktalk-shared-7tv-websocket', '1.0.0');
-} catch (e) {
+} catch (_e) {
   // Fallback if OpenTelemetry not available
   tracer = {
     startSpan: (name, options) => ({ 
@@ -173,7 +171,6 @@ class SharedStvWebSocket extends EventTarget {
       stvId,
       stvEmoteSetId,
     });
-
     // If we're already connected, subscribe to this chatroom's events
     if (this.connectionState === 'connected') {
       this.subscribeToChatroomEvents(chatroomId);
@@ -227,6 +224,19 @@ class SharedStvWebSocket extends EventTarget {
     });
 
     this.chat = new WebSocket("wss://events.7tv.io/v3?app=kicktalk&version=420.69");
+
+    this.chat.addEventListener('open', () => {
+      console.log("[Shared7TV]: Connected to 7TV WebSocket");
+      this.connectionState = 'connected';
+      // Inform listeners that pooled 7TV connection is ready
+      this.dispatchEvent(new CustomEvent('connection', {
+        detail: {
+          type: 'system',
+          content: 'connection-success',
+          chatrooms: Array.from(this.chatrooms.keys()),
+        }
+      }));
+    });
 
     this.chat.onerror = (event) => {
       console.log(`[Shared7TV]: WebSocket error:`, event);
@@ -358,6 +368,8 @@ class SharedStvWebSocket extends EventTarget {
     };
   }
 
+  
+
   handleConnectionError() {
     this.reconnectAttempts++;
     console.log(`[Shared7TV]: Connection error. Attempt ${this.reconnectAttempts}`);
@@ -369,10 +381,10 @@ class SharedStvWebSocket extends EventTarget {
       return;
     }
 
-    // exponential backoff: start * 2^(step-1)
+    // exponential backoff: start * 2^(attempt-1)
     // cap at maxRetrySteps, so after step 5 it stays at start * 2^(maxRetrySteps-1)
-    const step = Math.min(this.reconnectAttempts, this.maxRetrySteps);
-    const delay = this.startDelay * Math.pow(2, step - 1);
+    const attempt = Math.min(this.reconnectAttempts + 1, this.maxRetrySteps);
+    const delay = this.startDelay * Math.pow(2, attempt - 1);
 
     console.log(`[Shared7TV]: Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1})`);
 

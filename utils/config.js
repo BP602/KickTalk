@@ -236,8 +236,63 @@ const schema = {
   },
 };
 
-const store = new Store({
-  schema,
-});
+// Create a memory-backed store for environments where ElectronStore is unavailable
+function createMemoryStore() {
+  const memory = {}
+  return {
+    get: (key, def) => {
+      if (!key) return memory
+      if (key.includes('.')) {
+        const parts = key.split('.')
+        let cur = memory
+        for (const p of parts) {
+          cur = cur?.[p]
+          if (cur === undefined) return def
+        }
+        return cur
+      }
+      return Object.prototype.hasOwnProperty.call(memory, key) ? memory[key] : def
+    },
+    set: (key, value) => {
+      if (key.includes('.')) {
+        const parts = key.split('.')
+        let cur = memory
+        for (let i = 0; i < parts.length - 1; i++) {
+          const p = parts[i]
+          if (!cur[p]) cur[p] = {}
+          cur = cur[p]
+        }
+        cur[parts[parts.length - 1]] = value
+      } else {
+        memory[key] = value
+      }
+      return true
+    },
+    delete: (key) => {
+      if (!key) return false
+      if (key.includes('.')) {
+        const parts = key.split('.')
+        let cur = memory
+        for (let i = 0; i < parts.length - 1; i++) {
+          cur = cur?.[parts[i]]
+          if (!cur) return false
+        }
+        return delete cur[parts[parts.length - 1]]
+      }
+      return delete memory[key]
+    },
+    clear: () => {
+      for (const k of Object.keys(memory)) delete memory[k]
+    },
+    get store() { return memory }
+  }
+}
 
-export default store;
+let exportedStore
+try {
+  exportedStore = new Store({ schema })
+} catch (_e) {
+  exportedStore = createMemoryStore()
+}
+
+export default exportedStore
