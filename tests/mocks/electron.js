@@ -3,7 +3,7 @@
 
 export const app = {
   getName: () => 'KickTalk',
-  getVersion: () => '1.1.8',
+  getVersion: () => '1.1.9',
   getPath: (p) => `/mock/path/${p}`,
   isPackaged: false,
   whenReady: async () => {},

@@ -13,6 +13,7 @@ export default defineConfig({
       '@components': resolve('src/renderer/src/components'),
       '@assets': resolve('src/renderer/src/assets'),
       '@utils': resolve('utils'),
+      '@lexical/react': resolve('tests/mocks/lexical-react.js'),
     },
   },
   
@@ -27,6 +28,8 @@ export default defineConfig({
   test: {
     name: 'renderer',
     environment: 'jsdom',
+    // Ensure non-watch mode by default
+    watch: false,
     // Limit concurrency to reduce memory footprint
     pool: 'threads',
     poolOptions: {

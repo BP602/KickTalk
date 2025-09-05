@@ -163,10 +163,11 @@ class ConnectionManager {
         this.stvWebSocket.connect();
       });
 
-      // Wait for both connections with timeout (shorter to keep tests fast)
+      // Wait for both connections with timeout (shorter in test environment)
+      const timeout = process.env.VITEST ? 1000 : 10000;
       await Promise.race([
         Promise.all([kickPromise, stvPromise]),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timeout")), 1000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timeout")), timeout))
       ])
 
       console.log("[ConnectionManager] Shared connections established");

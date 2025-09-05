@@ -133,17 +133,20 @@ const mockSettingsDialog = {
   close: vi.fn()
 }
 
-global.window.app = {
-  getAppInfo: vi.fn().mockResolvedValue(mockAppInfo),
-  settingsDialog: mockSettingsDialog,
-  logout: vi.fn()
-}
-
 describe('Settings Component', () => {
   let mockOnDataCleanup
+  let originalWindowApp
 
   beforeEach(() => {
     vi.clearAllMocks()
+    
+    // Save original window.app and set up our mock
+    originalWindowApp = window.app
+    window.app = {
+      getAppInfo: vi.fn().mockResolvedValue(mockAppInfo),
+      settingsDialog: mockSettingsDialog,
+      logout: vi.fn()
+    }
     
     mockOnDataCleanup = vi.fn()
     mockSettingsDialog.onData.mockReturnValue(mockOnDataCleanup)
@@ -155,6 +158,8 @@ describe('Settings Component', () => {
 
   afterEach(() => {
     vi.clearAllTimers()
+    // Restore original window.app
+    window.app = originalWindowApp
   })
 
   describe('Rendering and Initial State', () => {
@@ -470,24 +475,27 @@ describe('Settings Component', () => {
   })
 
   describe('Error Handling', () => {
-    it('should handle missing window.app gracefully', async () => {
-      const originalApp = global.window.app
-      delete global.window.app
+    it('should handle missing window.app gracefully', () => {
+      const originalApp = window.app
+      window.app = undefined
       
       expect(() => {
         render(<Settings />)
       }).not.toThrow()
       
-      global.window.app = originalApp
+      window.app = originalApp
     })
 
     it('should handle missing app methods gracefully', async () => {
       const originalGetAppInfo = window.app.getAppInfo
-      delete window.app.getAppInfo
+      window.app.getAppInfo = undefined
       
       expect(() => {
         render(<Settings />)
       }).not.toThrow()
+      
+      expect(mockSettingsDialog.onData).toHaveBeenCalledTimes(1)
+      expect(mockSettingsDialog.onData).toHaveBeenCalledWith(expect.any(Function))
       
       window.app.getAppInfo = originalGetAppInfo
     })

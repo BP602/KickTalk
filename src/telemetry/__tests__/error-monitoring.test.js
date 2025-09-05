@@ -2,16 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ErrorMonitor, ERROR_CATEGORIES, ERROR_RATE_SLOS, CircuitBreaker } from '../error-monitoring.js'
 
 // Mock OpenTelemetry APIs
+const mockCounter = { add: vi.fn() }
+const mockGauge = { addCallback: vi.fn() }
+const mockHistogram = { record: vi.fn() }
+
 const mockMeter = {
-  createCounter: vi.fn(() => ({
-    add: vi.fn()
-  })),
-  createObservableGauge: vi.fn(() => ({
-    addCallback: vi.fn()
-  })),
-  createHistogram: vi.fn(() => ({
-    record: vi.fn()
-  }))
+  createCounter: vi.fn(() => mockCounter),
+  createObservableGauge: vi.fn(() => mockGauge),
+  createHistogram: vi.fn(() => mockHistogram)
 }
 
 const mockMetrics = {

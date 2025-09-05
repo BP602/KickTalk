@@ -16,6 +16,8 @@ export default defineConfig({
   test: {
     name: 'main',
     environment: 'node',
+    // Ensure non-watch mode by default
+    watch: false,
     deps: {
       optimizer: {
         ssr: {

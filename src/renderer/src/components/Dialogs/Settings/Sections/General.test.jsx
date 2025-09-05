@@ -730,31 +730,32 @@ describe('NotificationsSection', () => {
 
     it('should handle notification sounds API errors', async () => {
       window.app.notificationSounds.getAvailable.mockRejectedValue(new Error('API Error'));
-      
-      expect(() => {
-        render(<NotificationsSection settingsData={defaultSettings} onChange={mockOnChange} />);
-      }).not.toThrow();
+      render(<NotificationsSection settingsData={defaultSettings} onChange={mockOnChange} />);
+      await waitFor(() => {
+        expect(window.app.notificationSounds.getAvailable).toHaveBeenCalled();
+      });
     });
   });
 
   describe('Accessibility', () => {
-    it('should have proper ARIA labels for complex controls', () => {
+    it('should have proper ARIA labels for complex controls', async () => {
       render(<NotificationsSection settingsData={defaultSettings} onChange={mockOnChange} />);
-      
-      const switches = screen.getAllByTestId('switch');
-      switches.forEach(switchElement => {
-        expect(switchElement).toHaveAttribute('aria-pressed');
+      await waitFor(() => {
+        const switches = screen.getAllByTestId('switch');
+        switches.forEach(switchElement => {
+          expect(switchElement).toHaveAttribute('aria-pressed');
+        });
+        const slider = screen.getByTestId('slider');
+        expect(slider).toHaveAttribute('type', 'range');
       });
-      
-      const slider = screen.getByTestId('slider');
-      expect(slider).toHaveAttribute('type', 'range');
     });
 
-    it('should provide tooltips for all settings', () => {
+    it('should provide tooltips for all settings', async () => {
       render(<NotificationsSection settingsData={defaultSettings} onChange={mockOnChange} />);
-      
-      const tooltips = screen.getAllByTestId('tooltip');
-      expect(tooltips.length).toBeGreaterThan(5);
+      await waitFor(() => {
+        const tooltips = screen.getAllByTestId('tooltip');
+        expect(tooltips.length).toBeGreaterThan(5);
+      });
     });
   });
 });

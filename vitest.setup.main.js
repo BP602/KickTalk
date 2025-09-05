@@ -117,6 +117,106 @@ if (typeof globalThis.CloseEvent === 'undefined') {
   globalThis.CloseEvent = CloseEventPolyfill
 }
 
+// Polyfill CustomEvent for Node test environment
+if (typeof globalThis.CustomEvent !== 'function') {
+  class CustomEventPolyfill extends Event {
+    constructor(type, params = {}) {
+      super(type, params)
+      this.detail = params?.detail
+    }
+  }
+  globalThis.CustomEvent = CustomEventPolyfill
+}
+
+// Deterministic WebSocket mock for main tests
+if (typeof globalThis.WebSocket === 'undefined') {
+  class MockWebSocket extends EventTarget {
+    constructor(url) {
+      super()
+      this.url = url
+      this.readyState = MockWebSocket.CONNECTING
+      this._listeners = new Map()
+      
+      // Simulate immediate connection for tests to avoid timeouts
+      // Use setImmediate or process.nextTick for faster execution in tests
+      const openConnection = () => {
+        this.readyState = MockWebSocket.OPEN
+        const openEvent = new Event('open')
+        this.dispatchEvent(openEvent)
+        this._emit('open', openEvent)
+      }
+      
+      // In test environment, connect immediately
+      if (process.env.VITEST) {
+        // Use setImmediate if available, otherwise use minimal timeout
+        if (typeof setImmediate !== 'undefined') {
+          setImmediate(openConnection)
+        } else {
+          setTimeout(openConnection, 0)
+        }
+      } else {
+        setTimeout(openConnection, 10)
+      }
+    }
+    
+    addEventListener(type, handler) {
+      // Also support EventTarget interface
+      super.addEventListener(type, handler)
+      // Keep our own tracking for compatibility
+      const set = this._listeners.get(type) || new Set()
+      set.add(handler)
+      this._listeners.set(type, set)
+    }
+    
+    removeEventListener(type, handler) {
+      super.removeEventListener(type, handler)
+      this._listeners.get(type)?.delete(handler)
+    }
+    
+    _emit(type, event) {
+      const list = Array.from(this._listeners.get(type) || [])
+      for (const handler of list) {
+        try { 
+          handler.call(this, event)
+        } catch (e) {
+          console.error('WebSocket mock handler error:', e)
+        }
+      }
+    }
+    
+    send(data) {
+      if (this.readyState !== MockWebSocket.OPEN) {
+        throw new Error('WebSocket is not open')
+      }
+      // Mock send - in tests we can simulate responses if needed
+    }
+    
+    close(code = 1000, reason = '') {
+      if (this.readyState === MockWebSocket.CLOSED) return
+      
+      this.readyState = MockWebSocket.CLOSING
+      const closeEvent = new CloseEvent('close', { 
+        code, 
+        reason, 
+        wasClean: true 
+      })
+      
+      setTimeout(() => {
+        this.readyState = MockWebSocket.CLOSED
+        this.dispatchEvent(closeEvent)
+        this._emit('close', closeEvent)
+      }, 0)
+    }
+  }
+  
+  MockWebSocket.CONNECTING = 0
+  MockWebSocket.OPEN = 1
+  MockWebSocket.CLOSING = 2
+  MockWebSocket.CLOSED = 3
+  
+  globalThis.WebSocket = MockWebSocket
+}
+
 // Setup environment variables for testing
 beforeAll(() => {
   process.env.NODE_ENV = 'test'

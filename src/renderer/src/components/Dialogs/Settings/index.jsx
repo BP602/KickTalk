@@ -17,13 +17,21 @@ const Settings = () => {
 
   useEffect(() => {
     const getAppInfo = async () => {
-      const info = await window.app.getAppInfo();
-      setAppInfo(info);
+      if (window.app?.getAppInfo) {
+        try {
+          const info = await window.app.getAppInfo();
+          setAppInfo(info);
+        } catch (error) {
+          console.error("[Settings]: Failed to get app info:", error);
+        }
+      }
     };
     getAppInfo();
   }, []);
 
   useEffect(() => {
+    if (!window.app?.settingsDialog?.onData) return;
+    
     const handleDialogData = (data) => {
       if (JSON.stringify(data?.settings) !== JSON.stringify(settingsData)) {
         setSettingsData(data?.settings);
@@ -32,9 +40,9 @@ const Settings = () => {
 
     const cleanupUserData = window.app.settingsDialog.onData(handleDialogData);
     return () => {
-      cleanupUserData();
+      if (cleanupUserData) cleanupUserData();
     };
-  }, [settingsData]);
+  }, []); // Empty dependency array - only register once
 
   useEffect(() => {
     if (settings && JSON.stringify(settings) !== JSON.stringify(settingsData)) {

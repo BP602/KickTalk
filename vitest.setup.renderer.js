@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { cleanup } from '@testing-library/react'
-import { afterEach, beforeAll, vi } from 'vitest'
+import { afterEach, vi } from 'vitest'
 
 // Mock IntersectionObserver globally
 global.IntersectionObserver = vi.fn(() => ({
@@ -31,6 +31,19 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
+// Minimal Clipboard API polyfill for tests
+if (!('clipboard' in navigator)) {
+  Object.assign(navigator, {
+    clipboard: {
+      writeText: vi.fn().mockResolvedValue(),
+      readText: vi.fn().mockResolvedValue(''),
+    }
+  })
+}
+if (typeof globalThis.ClipboardEvent === 'undefined') {
+  globalThis.ClipboardEvent = function ClipboardEvent() {}
+}
+
 // Mock Electron APIs that might be used in renderer
 global.electronAPI = {
   invoke: vi.fn(),
@@ -42,6 +55,40 @@ global.electronAPI = {
 if (typeof window !== 'undefined') {
   // Keep reference equality with the global mock
   window.electronAPI = globalThis.electronAPI
+  
+  // Mock window.app APIs used by components
+  window.app = {
+    getAppInfo: vi.fn().mockResolvedValue({
+      version: '1.0.0',
+      platform: 'test',
+      arch: 'x64'
+    }),
+    settingsDialog: {
+      onData: vi.fn((callback) => {
+        // Return a cleanup function
+        return vi.fn()
+      }),
+      close: vi.fn()
+    },
+    notificationSounds: {
+      getAvailable: vi.fn().mockResolvedValue(['default.wav', 'bells.wav']),
+      play: vi.fn()
+    },
+    logout: vi.fn(),
+    // Add other commonly used app APIs
+    userDialog: {
+      onData: vi.fn((callback) => vi.fn()),
+      onUpdate: vi.fn((callback) => vi.fn())
+    },
+    logs: {
+      onUpdate: vi.fn((callback) => vi.fn())
+    },
+    ipc: {
+      invoke: vi.fn(),
+      on: vi.fn(),
+      removeAllListeners: vi.fn()
+    }
+  }
 }
 
 // Mock CSS imports and static assets
@@ -59,6 +106,24 @@ vi.mock('*.avif', () => 'test-file-stub')
 // in the test bundler. Provide a minimal no-op component.
 vi.mock('@lexical/react/LexicalPlainTextPlugin', () => ({
   PlainTextPlugin: () => null,
+}))
+
+// Also provide a coarse-grained mock for the base package to satisfy deep import resolution
+vi.mock('@lexical/react', () => ({
+  LexicalComposer: ({ children }) => children,
+  PlainTextPlugin: () => null,
+  RichTextPlugin: () => null,
+  ContentEditable: () => null,
+  HistoryPlugin: () => null,
+  LexicalErrorBoundary: {},
+  useLexicalComposerContext: () => [{
+    update: (fn) => fn?.(),
+    focus: () => {},
+    registerCommand: () => () => {},
+    registerNodeTransform: () => () => {},
+    registerUpdateListener: () => () => {},
+    getRootElement: () => document.createElement('div'),
+  }],
 }))
 
 // Setup WebSocket mocks for testing

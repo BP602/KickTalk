@@ -56,15 +56,25 @@ Object.defineProperty(global, 'window', {
 
 describe('ConnectionManager', () => {
   let connectionManager
+  let consoleLogSpy
+  let consoleErrorSpy
 
   beforeEach(() => {
+    // Mock console methods globally for all tests
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.clearAllMocks()
-    vi.useFakeTimers()
     connectionManager = new ConnectionManager()
   })
 
   afterEach(() => {
-    vi.useRealTimers()
+    // Restore console mocks
+    consoleLogSpy?.mockRestore()
+    consoleErrorSpy?.mockRestore()
+    vi.clearAllMocks()
+    if (connectionManager) {
+      connectionManager.cleanup()
+    }
   })
 
   describe('Constructor', () => {
@@ -124,16 +134,26 @@ describe('ConnectionManager', () => {
     }
 
     beforeEach(() => {
-      // Mock successful connections
+      // Mock successful connections - use immediate execution for deterministic tests
       mockSharedKickPusher.addEventListener.mockImplementation((event, handler) => {
         if (event === 'connection') {
-          setTimeout(() => handler({ detail: { content: 'connection-success' } }), 10)
+          // Use setImmediate or minimal timeout for deterministic test behavior
+          if (typeof setImmediate !== 'undefined') {
+            setImmediate(() => handler({ detail: { content: 'connection-success' } }))
+          } else {
+            setTimeout(() => handler({ detail: { content: 'connection-success' } }), 0)
+          }
         }
       })
 
       mockSharedStvWebSocket.addEventListener.mockImplementation((event, handler) => {
         if (event === 'connection') {
-          setTimeout(() => handler({ detail: { content: 'connection-success' } }), 10)
+          // Use setImmediate or minimal timeout for deterministic test behavior
+          if (typeof setImmediate !== 'undefined') {
+            setImmediate(() => handler({ detail: { content: 'connection-success' } }))
+          } else {
+            setTimeout(() => handler({ detail: { content: 'connection-success' } }), 0)
+          }
         }
       })
 
@@ -160,40 +180,28 @@ describe('ConnectionManager', () => {
     it('should prevent multiple simultaneous initializations', async () => {
       connectionManager.initializationInProgress = true
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       await connectionManager.initializeConnections(mockChatrooms, mockEventHandlers, mockStoreCallbacks)
 
-      expect(consoleSpy).toHaveBeenCalledWith('[ConnectionManager] Initialization already in progress')
-      
-      consoleSpy.mockRestore()
+      expect(consoleLogSpy).toHaveBeenCalledWith('[ConnectionManager] Initialization already in progress')
     })
 
     it('should successfully initialize connections', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       await connectionManager.initializeConnections(mockChatrooms, mockEventHandlers, mockStoreCallbacks)
 
       expect(connectionManager.initializationInProgress).toBe(false)
-      expect(consoleSpy).toHaveBeenCalledWith('[ConnectionManager] Initialization completed successfully')
-      
-      consoleSpy.mockRestore()
+      expect(consoleLogSpy).toHaveBeenCalledWith('[ConnectionManager] Initialization completed successfully')
     })
 
     it('should handle initialization errors gracefully', async () => {
       const error = new Error('Initialization failed')
       mockSharedKickPusher.connect.mockRejectedValue(error)
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
       await expect(
         connectionManager.initializeConnections(mockChatrooms, mockEventHandlers, mockStoreCallbacks)
       ).rejects.toThrow('Initialization failed')
 
       expect(connectionManager.initializationInProgress).toBe(false)
-      expect(consoleSpy).toHaveBeenCalledWith('[ConnectionManager] Error during initialization:', error)
-      
-      consoleSpy.mockRestore()
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[ConnectionManager] Error during initialization:', error)
     })
 
     it('should set up all event handlers', async () => {
@@ -209,13 +217,22 @@ describe('ConnectionManager', () => {
     })
 
     it('should handle connection timeout', async () => {
+      vi.useFakeTimers()
+      
       // Simulate slow connections
       mockSharedKickPusher.addEventListener.mockImplementation(() => {})
       mockSharedStvWebSocket.addEventListener.mockImplementation(() => {})
 
-      await expect(
-        connectionManager.initializeConnections(mockChatrooms, mockEventHandlers, mockStoreCallbacks)
-      ).rejects.toThrow('Connection timeout')
+      const mockChatrooms = [{ id: 'test', streamerData: { id: 'test' } }]
+
+      const initPromise = connectionManager.initializeConnections(mockChatrooms, {}, {})
+      
+      // Fast-forward past the timeout (1000ms in test environment)
+      await vi.advanceTimersByTimeAsync(1000)
+      
+      await expect(initPromise).rejects.toThrow('Connection timeout')
+      
+      vi.useRealTimers()
     })
   })
 
@@ -244,8 +261,6 @@ describe('ConnectionManager', () => {
     })
 
     it('should add chatroom successfully', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       await connectionManager.addChatroom(mockChatroom)
 
       expect(mockSharedKickPusher.addChatroom).toHaveBeenCalledWith(
@@ -261,11 +276,9 @@ describe('ConnectionManager', () => {
         'set1'
       )
 
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleLogSpy).toHaveBeenCalledWith(
         '[ConnectionManager] Added chatroom chatroom1 (StreamerOne)'
       )
-      
-      consoleSpy.mockRestore()
     })
 
     it('should handle missing 7TV emote data gracefully', async () => {
@@ -307,28 +320,20 @@ describe('ConnectionManager', () => {
       const error = new Error('Addition failed')
       mockSharedKickPusher.addChatroom.mockImplementation(() => { throw error })
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
       await connectionManager.addChatroom(mockChatroom)
 
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
         '[ConnectionManager] Error adding chatroom chatroom1:',
         error
       )
-      
-      consoleSpy.mockRestore()
     })
 
     it('should remove chatroom successfully', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       await connectionManager.removeChatroom('chatroom1')
 
       expect(mockSharedKickPusher.removeChatroom).toHaveBeenCalledWith('chatroom1')
       expect(mockSharedStvWebSocket.removeChatroom).toHaveBeenCalledWith('chatroom1')
-      expect(consoleSpy).toHaveBeenCalledWith('[ConnectionManager] Removed chatroom chatroom1')
-      
-      consoleSpy.mockRestore()
+      expect(consoleLogSpy).toHaveBeenCalledWith('[ConnectionManager] Removed chatroom chatroom1')
     })
   })
 
@@ -390,31 +395,23 @@ describe('ConnectionManager', () => {
         data: { data: null }
       })
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       await connectionManager.fetchInitialMessages(mockChatroom)
 
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleLogSpy).toHaveBeenCalledWith(
         '[ConnectionManager] No initial messages data for chatroom chatroom1'
       )
-      
-      consoleSpy.mockRestore()
     })
 
     it('should handle API errors gracefully', async () => {
       const error = new Error('API Error')
       mockWindowApp.kick.getInitialChatroomMessages.mockRejectedValue(error)
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
       await connectionManager.fetchInitialMessages(mockChatroom)
 
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
         '[ConnectionManager] Error fetching initial messages for chatroom chatroom1:',
         error
       )
-      
-      consoleSpy.mockRestore()
     })
 
     it('should handle missing store callbacks', async () => {
@@ -497,16 +494,12 @@ describe('ConnectionManager', () => {
       const error = new Error('API Error')
       mockWindowApp.kick.getChannelChatroomInfo.mockRejectedValue(error)
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
       await connectionManager.fetchInitialChatroomInfo(mockChatroom)
 
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
         '[ConnectionManager] Error fetching initial chatroom info for chatroom chatroom1:',
         error
       )
-      
-      consoleSpy.mockRestore()
     })
 
     it('should handle null response', async () => {
@@ -536,62 +529,54 @@ describe('ConnectionManager', () => {
       const mockEmotes = ['cached_emote1', 'cached_emote2']
       connectionManager.emoteCache.set('test_stream', mockEmotes)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const result = await connectionManager.fetchChatroomEmotes(mockChatroom)
 
       expect(result).toEqual(mockEmotes)
       expect(mockWindowApp.kick.getEmotes).not.toHaveBeenCalled()
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleLogSpy).toHaveBeenCalledWith(
         '[ConnectionManager] Using cached emotes for TestStream'
       )
-      
-      consoleSpy.mockRestore()
     })
 
     it('should handle emote fetch errors', async () => {
       const error = new Error('Emote fetch failed')
       mockWindowApp.kick.getEmotes.mockRejectedValue(error)
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
       const result = await connectionManager.fetchChatroomEmotes(mockChatroom)
 
       expect(result).toBeNull()
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
         '[ConnectionManager] Error fetching emotes for TestStream:',
         error
       )
-      
-      consoleSpy.mockRestore()
     })
 
     it('should cache global 7TV emotes', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       await connectionManager.fetchGlobalStvEmotes()
 
-      expect(consoleSpy).toHaveBeenCalledWith('[ConnectionManager] Fetching global 7TV emotes...')
-      expect(consoleSpy).toHaveBeenCalledWith('[ConnectionManager] Global 7TV emotes cached')
-      
-      consoleSpy.mockRestore()
+      expect(consoleLogSpy).toHaveBeenCalledWith('[ConnectionManager] Fetching global 7TV emotes...')
+      expect(consoleLogSpy).toHaveBeenCalledWith('[ConnectionManager] Global 7TV emotes cached')
     })
 
     it('should use cached global 7TV emotes', async () => {
       connectionManager.globalStvEmotesCache = ['global_emote1']
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
       const result = await connectionManager.fetchGlobalStvEmotes()
 
       expect(result).toEqual(['global_emote1'])
-      expect(consoleSpy).toHaveBeenCalledWith('[ConnectionManager] Using cached global 7TV emotes')
-      
-      consoleSpy.mockRestore()
+      expect(consoleLogSpy).toHaveBeenCalledWith('[ConnectionManager] Using cached global 7TV emotes')
     })
   })
 
   describe('Batch Processing', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+    
     const mockChatrooms = [
       { id: 'room1', isStreamerLive: true },
       { id: 'room2', isStreamerLive: false },
@@ -624,24 +609,24 @@ describe('ConnectionManager', () => {
 
       expect(chunked).toEqual([[1, 2]])
     })
-
     it('should process chatrooms in batches with delays', async () => {
       // Mock addChatroom to resolve immediately
       vi.spyOn(connectionManager, 'addChatroom').mockResolvedValue()
       
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
-      await connectionManager.initializeChatroomsInBatches(mockChatrooms)
+      const initPromise = connectionManager.initializeChatroomsInBatches(mockChatrooms)
+      
+      // Run all timers to process batches
+      await vi.runAllTimersAsync()
+      
+      await initPromise
 
       // Should be processed in batches of 3 (default batchSize)
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleLogSpy).toHaveBeenCalledWith(
         '[ConnectionManager] Processing batch 1/2 (3 chatrooms)'
       )
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleLogSpy).toHaveBeenCalledWith(
         '[ConnectionManager] Processing batch 2/2 (2 chatrooms)'
       )
-      
-      consoleSpy.mockRestore()
     })
 
     it('should batch fetch emotes with limits', async () => {
@@ -654,7 +639,11 @@ describe('ConnectionManager', () => {
 
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
-      await connectionManager.batchFetchEmotes(chatrooms)
+      const fetchPromise = connectionManager.batchFetchEmotes(chatrooms)
+      
+      // Advance timers to handle any delays in batch processing
+      await vi.runAllTimersAsync()
+      await fetchPromise
 
       expect(consoleSpy).toHaveBeenCalledWith('[ConnectionManager] Starting batch emote fetching...')
       expect(consoleSpy).toHaveBeenCalledWith('[ConnectionManager] Batch emote fetching completed')
@@ -696,10 +685,16 @@ describe('ConnectionManager', () => {
     })
   })
 
-  describe('Utility Methods', () => {
-    it('should implement delay correctly', async () => {
-      const start = Date.now()
+  describe('Utility Functions', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    
+    afterEach(() => {
+      vi.useRealTimers()
+    })
 
+    it('should delay for specified time', async () => {
       const delayPromise = connectionManager.delay(100)
       vi.advanceTimersByTime(100)
       await delayPromise
@@ -761,22 +756,32 @@ describe('ConnectionManager', () => {
     })
 
     it('should handle network timeouts during connection', async () => {
+      vi.useFakeTimers()
+      
       // Simulate connection that never resolves
       mockSharedKickPusher.addEventListener.mockImplementation(() => {})
       mockSharedStvWebSocket.addEventListener.mockImplementation(() => {})
 
       const mockChatrooms = [{ id: 'test', streamerData: { id: 'test' } }]
 
-      await expect(
-        connectionManager.initializeConnections(mockChatrooms, {}, {})
-      ).rejects.toThrow('Connection timeout')
+      const initPromise = connectionManager.initializeConnections(mockChatrooms, {}, {})
+      
+      // Fast-forward past the timeout (1000ms in test environment)
+      await vi.advanceTimersByTimeAsync(1000)
+      
+      await expect(initPromise).rejects.toThrow('Connection timeout')
+      
+      vi.useRealTimers()
     })
 
     it('should handle partial connection failures', async () => {
+      vi.useFakeTimers()
+      
       // Kick connects successfully, but 7TV fails
       mockSharedKickPusher.addEventListener.mockImplementation((event, handler) => {
         if (event === 'connection') {
-          setTimeout(() => handler({ detail: { content: 'connection-success' } }), 10)
+          // Use immediate execution for deterministic tests
+          setTimeout(() => handler({ detail: { content: 'connection-success' } }), 0)
         }
       })
 
@@ -786,9 +791,14 @@ describe('ConnectionManager', () => {
 
       const mockChatrooms = [{ id: 'test', streamerData: { id: 'test' } }]
 
-      await expect(
-        connectionManager.initializeConnections(mockChatrooms, {}, {})
-      ).rejects.toThrow('Connection timeout')
+      const initPromise = connectionManager.initializeConnections(mockChatrooms, {}, {})
+      
+      // Fast-forward past the timeout (1000ms in test environment)
+      await vi.advanceTimersByTimeAsync(1000)
+      
+      await expect(initPromise).rejects.toThrow('Connection timeout')
+      
+      vi.useRealTimers()
     })
 
     it('should handle empty event handlers gracefully', async () => {
@@ -800,16 +810,24 @@ describe('ConnectionManager', () => {
         }
       ]
 
-      // Setup successful connections
+      // Setup successful connections - use immediate execution for deterministic tests
       mockSharedKickPusher.addEventListener.mockImplementation((event, handler) => {
         if (event === 'connection') {
-          setTimeout(() => handler({ detail: { content: 'connection-success' } }), 10)
+          if (typeof setImmediate !== 'undefined') {
+            setImmediate(() => handler({ detail: { content: 'connection-success' } }))
+          } else {
+            setTimeout(() => handler({ detail: { content: 'connection-success' } }), 0)
+          }
         }
       })
 
       mockSharedStvWebSocket.addEventListener.mockImplementation((event, handler) => {
         if (event === 'connection') {
-          setTimeout(() => handler({ detail: { content: 'connection-success' } }), 10)
+          if (typeof setImmediate !== 'undefined') {
+            setImmediate(() => handler({ detail: { content: 'connection-success' } }))
+          } else {
+            setTimeout(() => handler({ detail: { content: 'connection-success' } }), 0)
+          }
         }
       })
 

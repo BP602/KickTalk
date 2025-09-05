@@ -37,10 +37,16 @@
 
 ## Mocks and Setup
 
-- Renderer globals: IntersectionObserver, ResizeObserver, matchMedia, WebSocket.
+- Renderer globals: IntersectionObserver, ResizeObserver, matchMedia, WebSocket (with OPEN/CLOSED constants).
+- Clipboard: minimal navigator.clipboard polyfill for copy/paste tests.
 - Electron bridge: window.electronAPI available in tests (also on globalThis).
+- Window.app APIs: Comprehensive mocks for getAppInfo, settingsDialog, notificationSounds, userDialog, logs, ipc, logout.
+- Lexical: @lexical/react is aliased to tests/mocks/lexical-react.js to avoid deep import resolution issues; subpath plugins mocked in setup.
 - Main Electron: mocked via Vite alias and setup (app, BrowserWindow, ipcMain, Menu, Tray, fs, path, OTEL SDK/exporters).
+- WebSocket mock (main): Deterministic mock that opens immediately in test environment, extends EventTarget.
+- CustomEvent polyfill (main): Added for Node.js environments lacking native CustomEvent.
 - Config store (tests): in-memory utils/config.js to avoid real electron-store; supports dotted paths.
+- Timers: real timers by default; individual tests should use scoped fake timers with async advancement when needed.
 
 ## E2E (Playwright)
 
@@ -68,6 +74,8 @@
 - Use `await findBy*`/`waitFor` for async state; avoid asserting mid-update.
 - Cleanups and timers are handled in setup; do not manually reset unless a test changes timers.
 - If code references Electron bridge, use `window.electronAPI` as provided by setup.
+- For Settings/Dialog tests: ensure window.app mocks are properly saved/restored in beforeEach/afterEach.
+- Use optional chaining (?.) in components when accessing window.app APIs for graceful degradation.
 
 ## Main Testing Tips
 
@@ -75,6 +83,8 @@
 - Telemetry gating reads `telemetry.enabled` from the config store (in-memory in tests).
 - If a test depends on env, pass `envVars` to the helper (e.g., OTEL/MAIN_VITE_OTEL_*).
 - For file system behavior, fs is mocked; adjust mocks per test where needed.
+- For timer-based tests: use scoped fake timers (vi.useFakeTimers/vi.useRealTimers) and async timer advancement (vi.runAllTimersAsync, vi.advanceTimersByTimeAsync).
+- ConnectionManager tests: ensure socket mocks emit connection-success events immediately for deterministic behavior.
 
 ### Common IPC Channels (examples)
 
@@ -99,9 +109,13 @@
 
 ## Current Status
 
-- Docs: This guide is up to date with the repo.
+- Docs: This guide is up to date with the latest test stabilization fixes.
 - Vitest: UI/watch disabled by default; renderer threads=2; CI fail‑fast enabled; focused tests excluded.
 - Main tests: Fixed startup span, otel:get-config (deploymentEnv=test under harness), safer telemetry error handler, constants parse issues, retry-utils hoisted mock; updated 7TV tests to assert against CustomEvent detail.
-- Shared sockets: Kick/7TV shared connections now dispatch a connection-success event on open to satisfy ConnectionManager expectations.
+- WebSocket mock: Added deterministic WebSocket mock to vitest.setup.main.js that extends EventTarget and opens immediately in test environment.
+- CustomEvent polyfill: Added to vitest.setup.main.js for Node.js environments.
+- Shared sockets: Kick/7TV shared connections now dispatch a connection-success event immediately on open for deterministic ConnectionManager tests.
+- ConnectionManager tests: Fixed with scoped fake timers and async timer advancement (vi.runAllTimersAsync, vi.advanceTimersByTimeAsync) to handle timeouts properly.
 - Config store tests: electron-store constructor is mockable; code falls back to in‑memory when construction is unavailable.
-- Remaining work: ConnectionManager tests still have timeouts in some flows; next step is to make mocks emit deterministic events or increase per‑test timeouts.
+- Renderer tests: Settings component tests fully stabilized with proper window.app mocks, optional chaining in component, and single registration of onData listeners.
+- Memory footprint: Improved by limiting renderer threads and avoiding coverage/UI during local runs.

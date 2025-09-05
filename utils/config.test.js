@@ -17,21 +17,31 @@ const mockStore = {
 }
 
 const mockStoreConstructor = vi.fn(() => mockStore)
+let capturedSchema = null
 
-vi.mock('electron-store', () => ({
-  default: mockStoreConstructor
-}))
+vi.mock('electron-store', () => {
+  return {
+    default: vi.fn((options) => {
+      capturedSchema = options?.schema
+      mockStoreConstructor(options)
+      return mockStore
+    })
+  }
+})
 
 describe('Config Store', () => {
   let store
+  let configModule
 
   beforeEach(async () => {
     vi.clearAllMocks()
     mockStore.size = 0
     mockStore.store = {}
+    capturedSchema = null
     
-    // Re-import the module to get fresh instance
-    const configModule = await import('./config.js')
+    // Clear module cache and re-import
+    vi.resetModules()
+    configModule = await import('./config.js')
     store = configModule.default
   })
 
@@ -808,7 +818,8 @@ describe('Config Store', () => {
     ]
 
     it.each(booleanProperties)('should have correct boolean property %s.%s with default %s', (section, property, defaultValue) => {
-      const schema = mockStoreConstructor.mock.calls[0][0].schema
+      const schema = capturedSchema || mockStoreConstructor.mock.calls[0]?.[0]?.schema
+      expect(schema).toBeDefined()
       const propertySchema = schema[section].properties[property]
       
       expect(propertySchema.type).toBe('boolean')
@@ -825,7 +836,8 @@ describe('Config Store', () => {
     ]
 
     it.each(stringProperties)('should have correct string property %s with default "%s"', (property, subProperty, defaultValue) => {
-      const schema = mockStoreConstructor.mock.calls[0][0].schema
+      const schema = capturedSchema || mockStoreConstructor.mock.calls[0]?.[0]?.schema
+      expect(schema).toBeDefined()
       const propertySchema = subProperty ? schema[property].properties[subProperty] : schema[property]
       
       expect(propertySchema.type).toBe('string')
@@ -841,7 +853,8 @@ describe('Config Store', () => {
     ]
 
     it.each(numberProperties)('should have correct number property %s.%s with default %s and bounds [%s, %s]', (section, property, defaultValue, min, max) => {
-      const schema = mockStoreConstructor.mock.calls[0][0].schema
+      const schema = capturedSchema || mockStoreConstructor.mock.calls[0]?.[0]?.schema
+      expect(schema).toBeDefined()
       const propertySchema = property ? schema[section].properties[property] : schema[section]
       
       expect(propertySchema.type).toBe('number')
@@ -858,14 +871,16 @@ describe('Config Store', () => {
 
   describe('Schema Integrity', () => {
     it('should not have circular references in schema', () => {
-      const schema = mockStoreConstructor.mock.calls[0][0].schema
+      const schema = capturedSchema || mockStoreConstructor.mock.calls[0]?.[0]?.schema
+      expect(schema).toBeDefined()
       
       // Simple check for circular references by attempting JSON serialization
       expect(() => JSON.stringify(schema)).not.toThrow()
     })
 
     it('should have valid JSON-serializable defaults', () => {
-      const schema = mockStoreConstructor.mock.calls[0][0].schema
+      const schema = capturedSchema || mockStoreConstructor.mock.calls[0]?.[0]?.schema
+      expect(schema).toBeDefined()
       
       Object.keys(schema).forEach(key => {
         expect(() => JSON.stringify(schema[key].default)).not.toThrow()
@@ -873,16 +888,22 @@ describe('Config Store', () => {
     })
 
     it('should maintain schema consistency after multiple imports', async () => {
-      // Import the module again
-      const configModule2 = await import('./config.js')
+      // The first import already happened in beforeEach
+      expect(mockStoreConstructor).toHaveBeenCalledTimes(1)
       
-      // Both instances should use the same schema
-      expect(mockStoreConstructor).toHaveBeenCalledTimes(2)
+      // Import the module again - it should return the cached instance
+      const config2 = await import('./config.js')
       
-      const firstCall = mockStoreConstructor.mock.calls[0][0]
-      const secondCall = mockStoreConstructor.mock.calls[1][0]
+      // Due to module caching, the constructor should still only be called once
+      expect(mockStoreConstructor).toHaveBeenCalledTimes(1)
       
-      expect(JSON.stringify(firstCall.schema)).toBe(JSON.stringify(secondCall.schema))
+      // Both imports should return the same instance
+      expect(config2.default).toBe(store)
+      
+      // The schema should be consistent
+      const schema = capturedSchema || mockStoreConstructor.mock.calls[0]?.[0]?.schema
+      expect(schema).toBeDefined()
+      expect(() => JSON.stringify(schema)).not.toThrow()
     })
   })
 
@@ -901,7 +922,7 @@ describe('Config Store', () => {
       expect(async () => {
         try {
           await import('./config.js?' + Date.now()) // Force re-import
-        } catch (error) {
+        } catch (_error) {
           // Expected to throw, but should be caught by the module system
         }
       }).not.toThrow()
@@ -916,7 +937,7 @@ describe('Config Store', () => {
       expect(async () => {
         try {
           await import('./config.js?' + Date.now()) // Force re-import
-        } catch (error) {
+        } catch (_error) {
           // Expected to throw, but should be handled gracefully
         }
       }).not.toThrow()
