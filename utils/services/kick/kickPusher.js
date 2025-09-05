@@ -364,7 +364,8 @@ class KickPusher extends EventTarget {
           jsonData.event === `App\\Events\\ChatMessageEvent` ||
           jsonData.event === `App\\Events\\MessageDeletedEvent` ||
           jsonData.event === `App\\Events\\UserBannedEvent` ||
-          jsonData.event === `App\\Events\\UserUnbannedEvent`
+          jsonData.event === `App\\Events\\UserUnbannedEvent` ||
+          /Subscription|Donation|Tip|Reward/.test(jsonData.event)
         ) {
           // Record received message for ChatMessageEvent
           if (jsonData.event === `App\\Events\\ChatMessageEvent`) {

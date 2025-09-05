@@ -50,6 +50,10 @@ const schema = {
         type: "boolean",
         default: true,
       },
+      showSupportEvents: {
+        type: "boolean",
+        default: true,
+      },
       batchingInterval: {
         type: "number",
         default: 0,
@@ -67,6 +71,7 @@ const schema = {
     },
     default: {
       showModActions: true,
+      showSupportEvents: true,
       batchingInterval: 0,
       batching: false,
       showInfoBar: true,

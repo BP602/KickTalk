@@ -101,6 +101,21 @@ const MessagesHandler = memo(
           return false;
         }
 
+        let metadata = {};
+        if (typeof message?.metadata === "string") {
+          try {
+            metadata = JSON.parse(message.metadata);
+          } catch {
+            metadata = {};
+          }
+        } else {
+          metadata = message?.metadata || {};
+        }
+        const eventType = message?.type === "metadata" ? metadata?.type : message?.type;
+        if (["subscription", "donation", "reward"].includes(eventType) && !settings?.chatrooms?.showSupportEvents) {
+          return false;
+        }
+
         return (
           <Message
             key={message?.id}
