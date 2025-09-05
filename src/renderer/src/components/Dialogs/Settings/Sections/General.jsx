@@ -422,6 +422,36 @@ const ChatroomSection = ({ settingsData, onChange }) => {
         <div className="settingsItem">
           <div
             className={clsx("settingSwitchItem", {
+              active: settingsData?.chatrooms?.showSupportEvents,
+            })}>
+            <div className="settingsItemTitleWithInfo">
+              <span className="settingsItemTitle">Show Support Events</span>
+              <Tooltip delayDuration={100}>
+                <TooltipTrigger asChild>
+                  <button className="settingsInfoIcon">
+                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Display subscription, donation, and reward events in chat</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <Switch
+              checked={settingsData?.chatrooms?.showSupportEvents || false}
+              onCheckedChange={(checked) =>
+                onChange("chatrooms", {
+                  ...settingsData?.chatrooms,
+                  showSupportEvents: checked,
+                })
+              }
+            />
+          </div>
+        </div>
+        <div className="settingsItem">
+          <div
+            className={clsx("settingSwitchItem", {
               active: settingsData?.chatrooms?.showInfoBar,
             })}>
             <div className="settingsItemTitleWithInfo">

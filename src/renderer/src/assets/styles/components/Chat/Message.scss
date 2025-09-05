@@ -549,6 +549,23 @@
 }
 
 /** [End of Mod Action Message] **/
+
+.supportEvent {
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.supportEventMessage {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 4px;
+
+  .supportEventUsername {
+    font-weight: 600;
+    margin-right: 4px;
+  }
+}
+
 .tooltipItem {
   display: none;
   border-radius: 8px;
