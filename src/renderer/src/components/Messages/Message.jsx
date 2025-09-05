@@ -9,6 +9,7 @@ import useCosmeticsStore from "../../providers/CosmeticsProvider";
 import useChatStore from "../../providers/ChatProvider";
 import ReplyMessage from "./ReplyMessage";
 import { createMentionRegex } from "@utils/regex";
+import SupportEventMessage from "./SupportEventMessage";
 
 import {
   ContextMenu,
@@ -104,6 +105,20 @@ const Message = ({
     }
     return "transparent";
   };
+
+  const parsedMetadata = useMemo(() => {
+    if (typeof message?.metadata === "string") {
+      try {
+        return JSON.parse(message.metadata);
+      } catch {
+        return {};
+      }
+    }
+    return message?.metadata || {};
+  }, [message?.metadata]);
+
+  const eventType = message?.type === "metadata" ? parsedMetadata?.type : message?.type;
+  const isSupportEvent = ["subscription", "donation", "reward"].includes(eventType);
 
   // Remove useCallback for these since message changes constantly
   const handleCopyMessage = () => {
@@ -321,6 +336,7 @@ const Message = ({
         shouldHighlightMessage && "highlighted",
         message.isOptimistic && message.state === "optimistic" && "optimistic",
         message.isOptimistic && message.state === "failed" && "failed",
+        isSupportEvent && "supportEvent",
       )}
       style={{
         backgroundColor: shouldHighlightMessage ? rgbaObjectToString(settings?.notifications?.backgroundRgba) : "transparent",
@@ -386,6 +402,8 @@ const Message = ({
           userChatroomInfo={userChatroomInfo}
         />
       )}
+
+      {isSupportEvent && <SupportEventMessage message={{ ...message, metadata: parsedMetadata }} />}
     </div>
   );
 

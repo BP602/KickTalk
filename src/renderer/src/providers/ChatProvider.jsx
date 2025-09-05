@@ -1421,105 +1421,136 @@ const useChatStore = create((set, get) => ({
   handleKickMessage: async (chatroomId, eventDetail) => {
     const parsedEvent = JSON.parse(eventDetail.data);
 
-    switch (eventDetail.event) {
-      case "App\\Events\\ChatMessageEvent":
-        // Add user to chatters list if they're not already in there
-        get().addChatter(chatroomId, parsedEvent?.sender);
+    if (eventDetail.event === "App\\Events\\ChatMessageEvent") {
+      // Add user to chatters list if they're not already in there
+      get().addChatter(chatroomId, parsedEvent?.sender);
 
-        // Get batching settings
-        const settings = await window.app.store.get("chatrooms");
-        const batchingSettings = {
-          enabled: settings?.batching ?? false,
-          interval: settings?.batchingInterval ?? 0,
+      // Get batching settings
+      const settings = await window.app.store.get("chatrooms");
+      const batchingSettings = {
+        enabled: settings?.batching ?? false,
+        interval: settings?.batchingInterval ?? 0,
+      };
+
+      if (!batchingSettings.enabled || batchingSettings.interval === 0) {
+        // No batching - add message immediately
+        const messageWithTimestamp = {
+          ...parsedEvent,
+          timestamp: new Date().toISOString(),
+        };
+        get().addMessage(chatroomId, messageWithTimestamp);
+
+        if (parsedEvent?.type === "reply") {
+          window.app.replyLogs.add({
+            chatroomId: chatroomId,
+            userId: parsedEvent.sender.id,
+            message: messageWithTimestamp,
+          });
+        } else {
+          window.app.logs.add({
+            chatroomId: chatroomId,
+            userId: parsedEvent.sender.id,
+            message: messageWithTimestamp,
+          });
+        }
+      } else {
+        // Use batching system (existing logic)
+        if (!window.__chatMessageBatch) {
+          window.__chatMessageBatch = {};
+        }
+
+        if (!window.__chatMessageBatch[chatroomId]) {
+          window.__chatMessageBatch[chatroomId] = {
+            queue: [],
+            timer: null,
+          };
+        }
+
+        window.__chatMessageBatch[chatroomId].queue.push({
+          ...parsedEvent,
+          timestamp: new Date().toISOString(),
+        });
+
+        const flushBatch = () => {
+          try {
+            const batch = window.__chatMessageBatch[chatroomId]?.queue;
+            if (batch && batch.length > 0) {
+              batch.forEach((msg) => {
+                get().addMessage(chatroomId, msg);
+
+                if (msg?.type === "reply") {
+                  window.app.replyLogs.add({
+                    chatroomId: chatroomId,
+                    userId: msg.sender.id,
+                    message: msg,
+                  });
+                } else {
+                  window.app.logs.add({
+                    chatroomId: chatroomId,
+                    userId: msg.sender.id,
+                    message: msg,
+                  });
+                }
+              });
+              window.__chatMessageBatch[chatroomId].queue = [];
+            }
+          } catch (error) {
+            console.error("[Batching] Error flushing batch:", error);
+          }
         };
 
-        if (!batchingSettings.enabled || batchingSettings.interval === 0) {
-          // No batching - add message immediately
-          const messageWithTimestamp = {
-            ...parsedEvent,
-            timestamp: new Date().toISOString(),
-          };
-          get().addMessage(chatroomId, messageWithTimestamp);
-
-          if (parsedEvent?.type === "reply") {
-            window.app.replyLogs.add({
-              chatroomId: chatroomId,
-              userId: parsedEvent.sender.id,
-              message: messageWithTimestamp,
-            });
-          } else {
-            window.app.logs.add({
-              chatroomId: chatroomId,
-              userId: parsedEvent.sender.id,
-              message: messageWithTimestamp,
-            });
-          }
-        } else {
-          // Use batching system (existing logic)
-          if (!window.__chatMessageBatch) {
-            window.__chatMessageBatch = {};
-          }
-
-          if (!window.__chatMessageBatch[chatroomId]) {
-            window.__chatMessageBatch[chatroomId] = {
-              queue: [],
-              timer: null,
-            };
-          }
-
-          window.__chatMessageBatch[chatroomId].queue.push({
-            ...parsedEvent,
-            timestamp: new Date().toISOString(),
-          });
-
-          const flushBatch = () => {
-            try {
-              const batch = window.__chatMessageBatch[chatroomId]?.queue;
-              if (batch && batch.length > 0) {
-                batch.forEach((msg) => {
-                  get().addMessage(chatroomId, msg);
-
-                  if (msg?.type === "reply") {
-                    window.app.replyLogs.add({
-                      chatroomId: chatroomId,
-                      userId: msg.sender.id,
-                      message: msg,
-                    });
-                  } else {
-                    window.app.logs.add({
-                      chatroomId: chatroomId,
-                      userId: msg.sender.id,
-                      message: msg,
-                    });
-                  }
-                });
-                window.__chatMessageBatch[chatroomId].queue = [];
-              }
-            } catch (error) {
-              console.error("[Batching] Error flushing batch:", error);
-            }
-          };
-
-          if (!window.__chatMessageBatch[chatroomId].timer) {
-            window.__chatMessageBatch[chatroomId].timer = setTimeout(() => {
-              flushBatch();
-              window.__chatMessageBatch[chatroomId].timer = null;
-            }, batchingSettings.interval);
-          }
+        if (!window.__chatMessageBatch[chatroomId].timer) {
+          window.__chatMessageBatch[chatroomId].timer = setTimeout(() => {
+            flushBatch();
+            window.__chatMessageBatch[chatroomId].timer = null;
+          }, batchingSettings.interval);
         }
-        break;
+      }
+    } else if (eventDetail.event === "App\\Events\\MessageDeletedEvent") {
+      get().handleMessageDelete(chatroomId, parsedEvent.message.id);
+    } else if (eventDetail.event === "App\\Events\\UserBannedEvent") {
+      get().handleUserBanned(chatroomId, parsedEvent.user, parsedEvent.banned_by, parsedEvent.permanent);
+    } else if (eventDetail.event === "App\\Events\\UserUnbannedEvent") {
+      get().handleUserUnbanned(chatroomId, parsedEvent.user, parsedEvent.unbanned_by);
+    } else if (/Subscription|Donation|Tip|Reward/.test(eventDetail.event)) {
+      const supportType = /Subscription/.test(eventDetail.event)
+        ? "subscription"
+        : /Donation|Tip/.test(eventDetail.event)
+          ? "donation"
+          : "reward";
 
-      case "App\\Events\\MessageDeletedEvent":
-        get().handleMessageDelete(chatroomId, parsedEvent.message.id);
-        break;
+      const supportMessage = {
+        id: parsedEvent?.id || crypto.randomUUID(),
+        type: supportType,
+        chatroom_id: chatroomId,
+        timestamp: new Date().toISOString(),
+        sender: parsedEvent?.sender || { username: parsedEvent?.username },
+        metadata: {
+          ...parsedEvent,
+          username:
+            parsedEvent?.username ||
+            parsedEvent?.user?.username ||
+            parsedEvent?.sender?.username,
+          message:
+            parsedEvent?.message ||
+            parsedEvent?.description ||
+            parsedEvent?.text,
+        },
+      };
 
-      case "App\\Events\\UserBannedEvent":
-        get().handleUserBanned(chatroomId, parsedEvent.user, parsedEvent.banned_by, parsedEvent.permanent);
-        break;
+      if (supportMessage?.sender) {
+        get().addChatter(chatroomId, supportMessage.sender);
+      }
 
-      case "App\\Events\\UserUnbannedEvent":
-        get().handleUserUnbanned(chatroomId, parsedEvent.user, parsedEvent.unbanned_by);
-        break;
+      get().addMessage(chatroomId, supportMessage);
+
+      if (supportMessage?.sender?.id) {
+        window.app.logs.add({
+          chatroomId: chatroomId,
+          userId: supportMessage.sender.id,
+          message: supportMessage,
+        });
+      }
     }
   },
 
