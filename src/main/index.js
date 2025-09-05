@@ -80,7 +80,6 @@ const genRequestId = () => {
 };
 
 // Initialize telemetry early if enabled
-let initTelemetry = null;
 let shutdownTelemetry = null;
 let isTelemetryEnabled = () => false; // Default fallback
 
@@ -1079,6 +1078,57 @@ ipcMain.handle("replyLogs:updateDeleted", async (e, { chatroomId, messageId }) =
   return updated;
 });
 
+// Clear reply logs for a specific thread or an entire chatroom
+ipcMain.handle("replyLogs:clear", async (e, { data }) => {
+  try {
+    const chatroomId = data?.chatroomId;
+    const originalMessageId = data?.originalMessageId;
+
+    if (!chatroomId) return false;
+
+    const chatroomReplyThreads = replyLogsStore.get(chatroomId);
+    if (!chatroomReplyThreads) return true; // nothing to clear
+
+    if (originalMessageId) {
+      // Delete a single thread
+      const existed = chatroomReplyThreads.delete(originalMessageId);
+
+      // Notify reply thread dialog if currently viewing this thread
+      if (existed && replyThreadDialog && replyThreadInfo?.originalMessageId === originalMessageId) {
+        try {
+          replyThreadDialog.webContents.send("replyLogs:updated", {
+            originalMessageId,
+            messages: [],
+          });
+        } catch {}
+      }
+
+      return existed;
+    }
+
+    // No specific thread provided, clear all threads for the chatroom
+    chatroomReplyThreads.clear();
+    return true;
+  } catch (err) {
+    console.warn("[Reply Logs]: Failed to clear reply logs:", err?.message || err);
+    return false;
+  }
+});
+
+// Provider refresh relay: broadcast to all windows so renderers can refresh data providers
+ipcMain.handle("provider:refresh", (e, { provider }) => {
+  try {
+    const payload = { provider };
+    BrowserWindow.getAllWindows().forEach((win) => {
+      try { win.webContents.send("provider:refresh", payload); } catch {}
+    });
+    return { ok: true };
+  } catch (err) {
+    console.warn("[Provider]: refresh broadcast failed:", err?.message || err);
+    return { ok: false, reason: err?.message || "broadcast_failed" };
+  }
+});
+
 // Handle window focus
 ipcMain.handle("bring-to-front", () => {
   if (mainWindow) {
@@ -1086,7 +1136,6 @@ ipcMain.handle("bring-to-front", () => {
     mainWindow.focus();
   }
 });
-
 
 const setAlwaysOnTop = (window) => {
   const alwaysOnTopSetting = store.get("general.alwaysOnTop");
@@ -1433,7 +1482,9 @@ ipcMain.handle("logout", () => {
       if (result.response === 0) {
         clearAuthTokens();
         mainWindow.webContents.reload();
-        settingsDialog.close();
+        if (settingsDialog) {
+          try { settingsDialog.close(); } catch {}
+        }
       }
     });
 });

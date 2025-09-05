@@ -1,6 +1,104 @@
 import '@testing-library/jest-dom'
-import { cleanup } from '@testing-library/react'
-import { afterEach, vi } from 'vitest'
+import { cleanup, screen } from '@testing-library/react'
+import { afterEach, beforeEach, vi } from 'vitest'
+// Ensure React is in scope for any JSX that escapes transform in mocks
+import * as React from 'react'
+import { createRequire } from 'module'
+
+// Some test files rely on a Jest-style vi.requireActual. Provide a minimal shim
+// that returns the already-imported module for known ids (sync), falling back
+// to a helpful error for others.
+if (typeof vi.requireActual !== 'function') {
+  vi.requireActual = (id) => {
+    if (id === 'react') return React
+    throw new Error(
+      `[vitest.setup.renderer] vi.requireActual(${id}) is not supported. ` +
+      `Import the module directly or use vi.importActual().`
+    )
+  }
+}
+
+// Make React available globally for any code paths that still expect it
+if (typeof globalThis.React === 'undefined') {
+  globalThis.React = React
+}
+
+// Allow requiring .jsx in tests that use CommonJS require()
+try {
+  const requireCjs = createRequire(import.meta.url)
+  const Module = requireCjs('module')
+  // If not already defined, map .jsx handling to .js handler
+  if (!Module._extensions['.jsx']) {
+    Module._extensions['.jsx'] = Module._extensions['.js']
+  }
+} catch {}
+
+// Pre-mock zustand/react/shallow so components imported before test mocks still use a spy
+try {
+  vi.mock('zustand/react/shallow', () => {
+    const useShallow = vi.fn((fn) => fn)
+    return { useShallow }
+  })
+} catch {}
+
+// Pre-mock useClickOutside absolute path to avoid Node require issues with .jsx extension in tests
+try {
+  vi.mock('/home/five/Code/kicktalk-bis/src/renderer/src/utils/useClickOutside.jsx', () => ({
+    default: vi.fn(),
+  }))
+} catch {}
+
+// Provide className-based queries to match existing tests that use them
+// These augment Testing Library's screen object with convenience helpers.
+if (screen) {
+  const findAllByClass = (className, container = document) => {
+    try {
+      return Array.from(container.getElementsByClassName(className))
+    } catch {
+      return []
+    }
+  }
+
+  if (!('getAllByClassName' in screen)) {
+    screen.getAllByClassName = (className, container = document) => {
+      const els = findAllByClass(className, container)
+      if (els.length === 0) {
+        throw new Error(`Unable to find element(s) by className: ${className}`)
+      }
+      return els
+    }
+  }
+
+  if (!('getByClassName' in screen)) {
+    screen.getByClassName = (className, container = document) => {
+      const els = findAllByClass(className, container)
+      if (els.length === 0) {
+        throw new Error(`Unable to find an element by className: ${className}`)
+      }
+      if (els.length > 1) {
+        throw new Error(`Found multiple elements with className: ${className}`)
+      }
+      return els[0]
+    }
+  }
+
+  if (!('queryAllByClassName' in screen)) {
+    screen.queryAllByClassName = (className, container = document) => findAllByClass(className, container)
+  }
+
+  if (!('queryByClassName' in screen)) {
+    screen.queryByClassName = (className, container = document) => {
+      const els = findAllByClass(className, container)
+      if (els.length > 1) {
+        throw new Error(`Found multiple elements with className: ${className}`)
+      }
+      return els[0] || null
+    }
+  }
+
+  // Also expose on globalThis for any tests using global screen (defensive)
+  try { if (!globalThis.screen) globalThis.screen = screen } catch {}
+}
 
 // Mock IntersectionObserver globally
 global.IntersectionObserver = vi.fn(() => ({
@@ -31,15 +129,73 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
-// Minimal Clipboard API polyfill for tests
-if (!('clipboard' in navigator)) {
-  Object.assign(navigator, {
-    clipboard: {
-      writeText: vi.fn().mockResolvedValue(),
-      readText: vi.fn().mockResolvedValue(''),
+// Clipboard API: always ensure functions are vitest spies with mockClear
+;(() => {
+  const ensureClipboard = () => {
+    try {
+      // Create clipboard object if missing
+      if (!('clipboard' in navigator)) {
+        Object.defineProperty(navigator, 'clipboard', {
+          value: {},
+          configurable: true,
+          writable: true,
+          enumerable: true,
+        })
+      }
+
+      const obj = navigator.clipboard || {}
+
+      // Helper to ensure a spy function exists and supports .mockClear
+      const ensureSpy = (key, defaultValue) => {
+        const current = obj[key]
+        const isMock = current && typeof current === 'function' && 'mock' in current
+        if (isMock) return current
+        try {
+          // Try converting existing fn to a spy
+          if (typeof current === 'function') {
+            const spy = vi.fn(current)
+            Object.defineProperty(obj, key, { value: spy, configurable: true, writable: true })
+            return spy
+          }
+        } catch {}
+        // Define a new spy
+        const spy = vi.fn(defaultValue)
+        Object.defineProperty(obj, key, { value: spy, configurable: true, writable: true })
+        return spy
+      }
+
+      // writeText/readText defaults
+      ensureSpy('writeText', () => Promise.resolve())
+      ensureSpy('readText', () => Promise.resolve(''))
+
+      // Reassign the possibly-updated object back (in case it was created)
+      if (navigator.clipboard !== obj) {
+        try {
+          Object.defineProperty(navigator, 'clipboard', {
+            value: obj,
+            configurable: true,
+            writable: true,
+            enumerable: true,
+          })
+        } catch {}
+      }
+    } catch {
+      // As a last resort, provide a plain object
+      try {
+        Object.defineProperty(navigator, 'clipboard', {
+          value: {
+            writeText: vi.fn().mockResolvedValue(),
+            readText: vi.fn().mockResolvedValue(''),
+          },
+          configurable: true,
+          writable: true,
+          enumerable: true,
+        })
+      } catch {}
     }
-  })
-}
+  }
+  ensureClipboard()
+})()
 if (typeof globalThis.ClipboardEvent === 'undefined') {
   globalThis.ClipboardEvent = function ClipboardEvent() {}
 }
@@ -64,29 +220,65 @@ if (typeof window !== 'undefined') {
       arch: 'x64'
     }),
     settingsDialog: {
-      onData: vi.fn((callback) => {
-        // Return a cleanup function
-        return vi.fn()
-      }),
-      close: vi.fn()
+      onData: vi.fn(() => vi.fn()),
+      close: vi.fn(),
+      open: vi.fn(),
+    },
+    contextMenu: {
+      onData: vi.fn(() => vi.fn()),
     },
     notificationSounds: {
       getAvailable: vi.fn().mockResolvedValue(['default.wav', 'bells.wav']),
+      getSoundUrl: vi.fn().mockResolvedValue(''),
+      openFolder: vi.fn(),
       play: vi.fn()
+    },
+    auth: {
+      getToken: vi.fn(() => null),
+    },
+    authDialog: {
+      open: vi.fn(),
+      auth: vi.fn(),
+      close: vi.fn(),
     },
     logout: vi.fn(),
     // Add other commonly used app APIs
     userDialog: {
-      onData: vi.fn((callback) => vi.fn()),
-      onUpdate: vi.fn((callback) => vi.fn())
+      onData: vi.fn(() => vi.fn()),
+      onUpdate: vi.fn(() => vi.fn()),
+      open: vi.fn(),
+      pin: vi.fn(),
     },
     logs: {
-      onUpdate: vi.fn((callback) => vi.fn())
+      onUpdate: vi.fn(() => vi.fn()),
+      add: vi.fn(),
+      updateDeleted: vi.fn(),
+      get: vi.fn().mockResolvedValue([]),
     },
     ipc: {
       invoke: vi.fn(),
       on: vi.fn(),
       removeAllListeners: vi.fn()
+    },
+    telemetry: {
+      recordRendererMemory: vi.fn(),
+      recordDomNodeCount: vi.fn(),
+      recordSevenTVConnectionHealth: vi.fn(),
+    },
+    kick: {
+      getUserChatroomInfo: vi.fn().mockResolvedValue({ data: { id: 'user123', username: 'testuser', slug: 'testuser' } }),
+      getSelfInfo: vi.fn().mockResolvedValue({ id: 'user123', username: 'self' }),
+      getSelfChatroomInfo: vi.fn().mockResolvedValue({ data: {} }),
+      getChannelChatroomInfo: vi.fn().mockResolvedValue({ data: {} }),
+      getEmotes: vi.fn().mockResolvedValue({ data: [] }),
+      getInitialChatroomMessages: vi.fn().mockResolvedValue({ data: [] }),
+      getInitialPollInfo: vi.fn().mockResolvedValue({ data: null }),
+      getPinMessage: vi.fn().mockResolvedValue({}),
+      getUnpinMessage: vi.fn().mockResolvedValue({}),
+      getSilenceUser: vi.fn(),
+      getUnsilenceUser: vi.fn(),
+      sendMessage: vi.fn().mockResolvedValue({ success: true }),
+      sendReply: vi.fn().mockResolvedValue({ success: true }),
     }
   }
 }
@@ -172,3 +364,19 @@ afterEach(() => {
 })
 
 // Use real timers by default; individual tests can opt into fake timers when needed
+
+// Ensure clipboard spies are fresh for every test (some suites call mockClear explicitly)
+beforeEach(() => {
+  try {
+    if (navigator?.clipboard) {
+      const w = navigator.clipboard.writeText
+      if (!w || typeof w !== 'function' || !('mock' in w)) {
+        Object.defineProperty(navigator.clipboard, 'writeText', {
+          value: vi.fn().mockResolvedValue(),
+          configurable: true,
+          writable: true,
+        })
+      }
+    }
+  } catch {}
+})

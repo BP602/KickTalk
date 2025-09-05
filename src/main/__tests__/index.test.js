@@ -46,6 +46,82 @@ describe('main/index.js - Electron Main Process', () => {
     originalProcessEnv = { ...process.env }
   })
 
+  describe('Tray Menu Behavior', () => {
+    it('creates tray and toggles window visibility on click', async () => {
+      const { electron } = await setupMainWithMocks({ isDev: true })
+
+      // Tray should be created and tooltip set
+      expect(electron.Tray).toHaveBeenCalled()
+      const trayInstance = electron.Tray.mock.results[0]?.value
+      expect(trayInstance.setToolTip).toHaveBeenCalledWith('KickTalk')
+
+      // Initial context menu should be built
+      expect(electron.Menu.buildFromTemplate).toHaveBeenCalled()
+
+      // Capture tray click handler
+      const clickHandler = trayInstance.on.mock.calls.find(c => c[0] === 'click')?.[1]
+      expect(typeof clickHandler).toBe('function')
+
+      const mainWin = electron.BrowserWindow.mock.results[0]?.value
+      // First click: window is visible -> should hide
+      mainWin.isVisible = vi.fn(() => true)
+      mainWin.isMinimized = vi.fn(() => false)
+      await clickHandler()
+      expect(mainWin.hide).toHaveBeenCalled()
+      expect(trayInstance.setContextMenu).toHaveBeenCalled()
+
+      // Second click: window is not visible -> should show and focus, restore if minimized
+      mainWin.isVisible = vi.fn(() => false)
+      mainWin.isMinimized = vi.fn(() => true)
+      await clickHandler()
+      expect(mainWin.show).toHaveBeenCalled()
+      expect(mainWin.restore).toHaveBeenCalled()
+      expect(mainWin.focus).toHaveBeenCalled()
+      expect(trayInstance.setContextMenu).toHaveBeenCalled()
+    })
+
+    it('invokes app.quit on Quit menu item (telemetry disabled)', async () => {
+      const { electron } = await setupMainWithMocks({ isDev: true, telemetryEnabled: false })
+
+      // The tray context menu is built from a template; capture the first template used
+      const firstTemplate = electron.Menu.buildFromTemplate.mock.calls[0]?.[0]
+      expect(Array.isArray(firstTemplate)).toBe(true)
+
+      const quitItem = firstTemplate.find(item => item.label === 'Quit')
+      expect(quitItem).toBeDefined()
+
+      // Click the Quit menu item
+      await quitItem.click()
+
+      // With telemetry disabled, we should still quit the app
+      expect(electron.app.quit).toHaveBeenCalled()
+    })
+  })
+
+  describe('OTEL env mapping and resource attributes', () => {
+    it('maps MAIN_VITE_OTEL_* to OTEL_* and injects service metadata', async () => {
+      process.env = { ...process.env } // clone for safety
+      process.env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT = 'https://tempo.example.com'
+      process.env.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS = 'Authorization=Bearer test'
+      process.env.MAIN_VITE_OTEL_SERVICE_NAME = 'kicktalk-dev'
+      process.env.MAIN_VITE_OTEL_DEPLOYMENT_ENV = 'staging'
+
+      await setupMainWithMocks({})
+
+      // Basic mapping
+      expect(process.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('https://tempo.example.com')
+      expect(process.env.OTEL_EXPORTER_OTLP_HEADERS).toBe('Authorization=Bearer test')
+      // Deployment env preserved (not overridden by test env)
+      expect(process.env.OTEL_DEPLOYMENT_ENV).toBe('staging')
+
+      // Resource attributes should include service.name and service.version
+      // service.version should be present (from app.getVersion() or package.json)
+      const attrs = String(process.env.OTEL_RESOURCE_ATTRIBUTES || '')
+      expect(attrs).toMatch(/service\.name=kicktalk-dev/)
+      expect(attrs).toMatch(/service\.version=\d+\.\d+\.\d+/)
+    })
+  })
+
   afterEach(() => {
     restoreConsole(originalConsole)
     process.env = originalProcessEnv
@@ -280,6 +356,9 @@ describe('main/index.js - Electron Main Process', () => {
       minimize: vi.fn(),
       maximize: vi.fn(),
       isMaximized: vi.fn(() => false),
+      isVisible: vi.fn(() => true),
+      isMinimized: vi.fn(() => false),
+      focus: vi.fn(),
       restore: vi.fn(),
       setFullScreen: vi.fn(),
       isFullScreen: vi.fn(() => false),
@@ -289,7 +368,6 @@ describe('main/index.js - Electron Main Process', () => {
       setPosition: vi.fn(),
       getBounds: vi.fn(() => ({ x: 100, y: 100, width: 800, height: 600 })),
       isNormal: vi.fn(() => true),
-      isMinimized: vi.fn(() => false),
       setThumbarButtons: vi.fn()
     }
     

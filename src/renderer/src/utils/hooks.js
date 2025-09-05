@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useMemo } from "react";
-import { debounce } from "lodash";
+import debounce from "lodash/debounce";
 
 // Custom Hook for Debouncing from usehooks-ts
 export const useUnmount = (func) => {

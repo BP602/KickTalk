@@ -106,15 +106,30 @@ vi.mock('path', async () => {
 
 // Polyfill CloseEvent for Node test environment (used by WebSocket tests)
 if (typeof globalThis.CloseEvent === 'undefined') {
-  class CloseEventPolyfill {
+  class CloseEventPolyfill extends Event {
     constructor(type, init = {}) {
-      this.type = type
+      super(type)
       this.wasClean = Boolean(init.wasClean)
       this.code = init.code ?? 1000
       this.reason = init.reason ?? ''
     }
   }
   globalThis.CloseEvent = CloseEventPolyfill
+}
+
+// Polyfill ErrorEvent for Node test environment
+if (typeof globalThis.ErrorEvent === 'undefined') {
+  class ErrorEventPolyfill extends Event {
+    constructor(type, init = {}) {
+      super(type)
+      this.error = init.error
+      this.message = init.message || (init.error?.message ?? '')
+      this.filename = init.filename || ''
+      this.lineno = init.lineno || 0
+      this.colno = init.colno || 0
+    }
+  }
+  globalThis.ErrorEvent = ErrorEventPolyfill
 }
 
 // Polyfill CustomEvent for Node test environment

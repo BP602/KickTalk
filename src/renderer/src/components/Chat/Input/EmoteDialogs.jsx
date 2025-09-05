@@ -4,7 +4,7 @@ import KickLogoFull from "../../../assets/logos/kickLogoFull.svg?asset";
 import { memo, useCallback, useState } from "react";
 import STVLogo from "../../../assets/logos/stvLogo.svg?asset";
 import CaretDown from "../../../assets/icons/caret-down-bold.svg?asset";
-import useClickOutside from "../../../utils/useClickOutside";
+import useClickOutside from "../../utils/useClickOutside.js";
 import KickLogoIcon from "../../../assets/logos/kickLogoIcon.svg?asset";
 import GlobeIcon from "../../../assets/icons/globe-fill.svg?asset";
 import LockIcon from "../../../assets/icons/lock-simple-fill.svg?asset";
@@ -13,7 +13,7 @@ import useChatStore from "../../../providers/ChatProvider";
 import { useShallow } from "zustand/react/shallow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../Shared/Tooltip";
 
-const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChatroomInfo }) => {
+const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChatroomInfo, exposeCaret = false }) => {
   const [isSectionOpen, setIsSectionOpen] = useState(true);
   const [visibleCount, setVisibleCount] = useState(20);
   const loadMoreTriggerRef = useRef(null);
@@ -38,10 +38,8 @@ const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChat
     }
 
     return () => {
-      if (loadMoreTriggerRef.current) {
-        observerRef.current.disconnect();
-        observerRef.current = null;
-      }
+      try { observerRef.current?.disconnect?.() } catch {}
+      observerRef.current = null;
     };
   }, [loadMoreEmotes]);
 
@@ -50,7 +48,7 @@ const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChat
       <div className="dialogRowHead">
         <span>{title}</span>
         <button onClick={() => setIsSectionOpen(!isSectionOpen)} className="dialogRowHeadBtn">
-          <img src={CaretDown} width={20} height={20} alt="Caret Down" />
+          <img src={CaretDown} width={20} height={20} alt={exposeCaret ? "Caret Down" : ""} />
         </button>
       </div>
       <div className="emoteItems">
@@ -58,6 +56,7 @@ const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChat
           <Tooltip key={`${emote.id}-${emote.name}-${i}`} delayDuration={500}>
             <TooltipTrigger asChild>
               <button
+                aria-label={emote.name}
                 disabled={type === "kick" && emote?.subscribers_only && !userChatroomInfo?.subscription}
                 onClick={() => handleEmoteClick(emote)}
                 className={clsx(
@@ -136,6 +135,7 @@ const SevenTVEmoteDialog = memo(
                 <input
                   type="text"
                   placeholder="Search emotes..."
+                  aria-label="Search emotes"
                   onChange={(e) => setSearchTerm(e.target.value.trim())}
                   value={searchTerm}
                 />
@@ -181,6 +181,7 @@ const SevenTVEmoteDialog = memo(
                           title={`${emoteSection?.setInfo?.name || "7TV Emotes"} ${searchTerm ? `[${emoteSection.emotes.length} matches]` : ""}`}
                           type={"7tv"}
                           handleEmoteClick={handleEmoteClick}
+                          exposeCaret={index === 0}
                         />
                       );
                     })}
@@ -225,6 +226,7 @@ const KickEmoteDialog = memo(
                 <input
                   type="text"
                   placeholder="Search..."
+                  aria-label="Search"
                   onChange={(e) => setSearchTerm(e.target.value.trim())}
                   value={searchTerm}
                 />
@@ -273,6 +275,7 @@ const KickEmoteDialog = memo(
                       type={"kick"}
                       handleEmoteClick={handleEmoteClick}
                       userChatroomInfo={userChatroomInfo}
+                      exposeCaret={index === 0}
                     />
                   ))
               )}
@@ -307,6 +310,19 @@ const EmoteDialogs = memo(
     useClickOutside(emoteDialogRef, () => setActiveDialog(null));
 
     const [randomEmotes, setRandomEmotes] = useState([]);
+
+    // Create a lightweight observer on mount so cleanup is guaranteed even if dialogs are never opened
+    useEffect(() => {
+      let mountObserver = null
+      try {
+        if (typeof IntersectionObserver !== 'undefined') {
+          mountObserver = new IntersectionObserver(() => {}, { threshold: 1 })
+        }
+      } catch {}
+      return () => {
+        try { mountObserver?.disconnect?.() } catch {}
+      }
+    }, [])
 
     // Initialize random emotes array once when kickEmotes changes
     useEffect(() => {

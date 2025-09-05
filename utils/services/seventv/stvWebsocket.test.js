@@ -3,6 +3,11 @@ import StvWebSocket from './stvWebsocket'
 
 // Mock global WebSocket
 global.WebSocket = vi.fn()
+// Ensure readyState constants exist for tests
+global.WebSocket.CONNECTING = 0
+global.WebSocket.OPEN = 1
+global.WebSocket.CLOSING = 2
+global.WebSocket.CLOSED = 3
 
 describe('StvWebSocket', () => {
   let mockWebSocket
@@ -273,16 +278,15 @@ describe('StvWebSocket', () => {
         
         stvWebSocket.subscribeToUserEvents()
 
-        expect(mockWebSocket.send).toHaveBeenCalledWith(
-          JSON.stringify({
-            op: 35,
-            t: expect.any(Number),
-            d: {
-              type: 'user.*',
-              condition: { object_id: stvId }
-            }
-          })
-        )
+        const payload = JSON.parse(mockWebSocket.send.mock.calls.at(-1)[0])
+        expect(payload).toMatchObject({
+          op: 35,
+          d: {
+            type: 'user.*',
+            condition: { object_id: stvId }
+          }
+        })
+        expect(payload.t).toEqual(expect.any(Number))
         expect(consoleSpy).toHaveBeenCalledWith('[7TV]: Subscribed to user.* events')
         
         consoleSpy.mockRestore()
@@ -322,20 +326,15 @@ describe('StvWebSocket', () => {
         
         stvWebSocket.subscribeToCosmeticEvents()
 
-        expect(mockWebSocket.send).toHaveBeenCalledWith(
-          JSON.stringify({
-            op: 35,
-            t: expect.any(Number),
-            d: {
-              type: 'cosmetic.*',
-              condition: { 
-                platform: 'KICK', 
-                ctx: 'channel', 
-                id: channelKickID 
-              }
-            }
-          })
-        )
+        const payload = JSON.parse(mockWebSocket.send.mock.calls.at(-1)[0])
+        expect(payload).toMatchObject({
+          op: 35,
+          d: {
+            type: 'cosmetic.*',
+            condition: { platform: 'KICK', ctx: 'channel', id: channelKickID }
+          }
+        })
+        expect(payload.t).toEqual(expect.any(Number))
         expect(consoleSpy).toHaveBeenCalledWith('[7TV]: Subscribed to cosmetic.* events')
         
         consoleSpy.mockRestore()
@@ -363,20 +362,15 @@ describe('StvWebSocket', () => {
         
         stvWebSocket.subscribeToEntitlementEvents()
 
-        expect(mockWebSocket.send).toHaveBeenCalledWith(
-          JSON.stringify({
-            op: 35,
-            t: expect.any(Number),
-            d: {
-              type: 'entitlement.*',
-              condition: { 
-                platform: 'KICK', 
-                ctx: 'channel', 
-                id: channelKickID 
-              }
-            }
-          })
-        )
+        const payload = JSON.parse(mockWebSocket.send.mock.calls.at(-1)[0])
+        expect(payload).toMatchObject({
+          op: 35,
+          d: {
+            type: 'entitlement.*',
+            condition: { platform: 'KICK', ctx: 'channel', id: channelKickID }
+          }
+        })
+        expect(payload.t).toEqual(expect.any(Number))
         expect(consoleSpy).toHaveBeenCalledWith('[7TV]: Subscribed to entitlement.* events')
         const openEvt = dispatchSpy.mock.calls.at(-1)[0]
         expect(openEvt.type).toBe('open')
@@ -404,16 +398,15 @@ describe('StvWebSocket', () => {
       it('should send correct subscription message', () => {
         stvWebSocket.subscribeToEmoteSetEvents()
 
-        expect(mockWebSocket.send).toHaveBeenCalledWith(
-          JSON.stringify({
-            op: 35,
-            t: expect.any(Number),
-            d: {
-              type: 'emote_set.*',
-              condition: { object_id: stvEmoteSetId }
-            }
-          })
-        )
+        const payload = JSON.parse(mockWebSocket.send.mock.calls.at(-1)[0])
+        expect(payload).toMatchObject({
+          op: 35,
+          d: {
+            type: 'emote_set.*',
+            condition: { object_id: stvEmoteSetId }
+          }
+        })
+        expect(payload.t).toEqual(expect.any(Number))
       })
 
       it('should not send when WebSocket not ready', () => {
