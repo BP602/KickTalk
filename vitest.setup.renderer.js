@@ -206,6 +206,29 @@ if (typeof globalThis.ClipboardEvent === 'undefined') {
   globalThis.ClipboardEvent = function ClipboardEvent() {}
 }
 
+// Work around user-event + fake timers interaction that can hang clicks.
+// When tests opt into fake timers by passing advanceTimers to userEvent.setup,
+// prefer a synchronous click via Testing Library's fireEvent to avoid timing deadlocks.
+try {
+  vi.mock('@testing-library/user-event', async () => {
+    const actual = await vi.importActual('@testing-library/user-event')
+    const rtl = await import('@testing-library/react')
+    const setup = (options = {}) => {
+      const u = actual.default.setup(options)
+      if (options && options.advanceTimers) {
+        return {
+          ...u,
+          click: async (element, init) => {
+            rtl.fireEvent.click(element, init)
+          },
+        }
+      }
+      return u
+    }
+    return { __esModule: true, default: { ...actual.default, setup } }
+  })
+} catch {}
+
 // Mock Electron APIs that might be used in renderer
 global.electronAPI = {
   invoke: vi.fn(),
@@ -433,9 +456,21 @@ afterEach(() => {
 // Ensure clipboard spies are fresh for every test (some suites call mockClear explicitly)
 beforeEach(() => {
   try {
-    if (navigator?.clipboard) {
-      const w = navigator.clipboard.writeText
-      if (!w || typeof w !== 'function' || !('mock' in w)) {
+    if (!('clipboard' in navigator)) {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {},
+        configurable: true,
+        writable: true,
+        enumerable: true,
+      })
+    }
+    try {
+      vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+    } catch {
+      try {
+        const proto = Object.getPrototypeOf(navigator.clipboard) || navigator.clipboard
+        vi.spyOn(proto, 'writeText').mockResolvedValue()
+      } catch {
         Object.defineProperty(navigator.clipboard, 'writeText', {
           value: vi.fn().mockResolvedValue(),
           configurable: true,
@@ -443,5 +478,16 @@ beforeEach(() => {
         })
       }
     }
+    try {
+      if ('readText' in navigator.clipboard) {
+        vi.spyOn(navigator.clipboard, 'readText').mockResolvedValue('')
+      } else {
+        Object.defineProperty(navigator.clipboard, 'readText', {
+          value: vi.fn().mockResolvedValue(''),
+          configurable: true,
+          writable: true,
+        })
+      }
+    } catch {}
   } catch {}
 })

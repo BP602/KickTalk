@@ -241,14 +241,13 @@ if (typeof process.env === 'undefined') {
 if (typeof window !== 'undefined') {
   // Skip setup for browser environment
 } else {
-  // Setup environment variables for testing
+  // Setup environment flags for testing
   beforeAll(() => {
     // Ensure process.env exists
     if (!process.env) {
       process.env = {}
     }
-    
-    process.env.NODE_ENV = 'test'
+    // Expose a flag that code can use to detect Vitest without forcing NODE_ENV
     process.env.VITEST = 'true'
   })
 }
