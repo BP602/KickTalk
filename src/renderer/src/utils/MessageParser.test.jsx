@@ -1073,4 +1073,423 @@ describe('MessageParser', () => {
       }
     })
   })
-})
+
+  describe('Basic message parsing', () => {
+    it('should render plain text messages', () => {
+      const message = {
+        id: 'test-1',
+        content: 'Hello world!',
+        timestamp: Date.now()
+      }
+
+      const { container } = render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      expect(container.textContent).toBe('Hello world!')
+    })
+
+    it('should handle empty message content', () => {
+      const message = {
+        id: 'test-2',
+        content: '',
+        timestamp: Date.now()
+      }
+
+      const { container } = render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      expect(container.children).toHaveLength(0)
+    })
+
+    it('should handle null message content', () => {
+      const message = {
+        id: 'test-3',
+        content: null,
+        timestamp: Date.now()
+      }
+
+      const { container } = render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      expect(container.children).toHaveLength(0)
+    })
+
+    it('should handle undefined message', () => {
+      expect(() => {
+        render(
+          <MessageParser 
+            message={undefined}
+            sevenTVEmotes={[]}
+            sevenTVSettings={{ emotes: false }}
+            type="regular"
+            chatroomId="123"
+          />
+        )
+      }).not.toThrow()
+    })
+  })
+
+  describe('Kick emote parsing', () => {
+    it('should parse kick emotes with ID and name', () => {
+      const message = {
+        id: 'test-4',
+        content: 'Check out this emote [emote:123:coolEmote] nice!',
+        timestamp: Date.now()
+      }
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: true }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      const emote = screen.getByTestId('emote-kick')
+      expect(emote).toBeInTheDocument()
+      expect(emote).toHaveAttribute('data-emote-id', '123')
+      expect(emote).toHaveAttribute('data-emote-name', 'coolEmote')
+    })
+
+    it('should parse kick emotes with only ID', () => {
+      const message = {
+        id: 'test-5',
+        content: 'Simple emote [emote:456] here',
+        timestamp: Date.now()
+      }
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: true }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      const emote = screen.getByTestId('emote-kick')
+      expect(emote).toBeInTheDocument()
+      expect(emote).toHaveAttribute('data-emote-id', '456')
+      expect(emote).toHaveAttribute('data-emote-name', '')
+    })
+
+    it('should parse multiple kick emotes', () => {
+      const message = {
+        id: 'test-6',
+        content: '[emote:123:first] and [emote:456:second] emotes',
+        timestamp: Date.now()
+      }
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: true }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      const emotes = screen.getAllByTestId('emote-kick')
+      expect(emotes).toHaveLength(2)
+      expect(emotes[0]).toHaveAttribute('data-emote-name', 'first')
+      expect(emotes[1]).toHaveAttribute('data-emote-name', 'second')
+    })
+
+    it('should handle malformed kick emote syntax', () => {
+      const message = {
+        id: 'test-7',
+        content: '[emote:] [emote:abc] [emote:123:] text',
+        timestamp: Date.now()
+      }
+
+      const { container } = render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: true }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      // Should render as plain text since regex won't match malformed syntax
+      expect(container.textContent).toContain('[emote:]')
+      expect(container.textContent).toContain('[emote:abc]')
+      expect(container.textContent).toContain('[emote:123:]')
+    })
+  })
+
+  describe('URL parsing', () => {
+    it('should parse and create clickable links for valid URLs', () => {
+      const message = {
+        id: 'test-8',
+        content: 'Visit https://example.com for more info',
+        timestamp: Date.now()
+      }
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      const link = screen.getByRole('link')
+      expect(link).toHaveAttribute('href', 'https://example.com')
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noreferrer')
+      expect(link).toHaveTextContent('https://example.com')
+    })
+
+    it('should not create links for non-ICANN domains', () => {
+      const message = {
+        id: 'test-9',
+        content: 'Invalid link https://invalid.local here',
+        timestamp: Date.now()
+      }
+
+      const { container } = render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+      expect(container.textContent).toContain('https://invalid.local')
+    })
+
+    it('should parse multiple URLs in the same message', () => {
+      const message = {
+        id: 'test-10',
+        content: 'Check https://github.com and https://example.com',
+        timestamp: Date.now()
+      }
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      const links = screen.getAllByRole('link')
+      expect(links).toHaveLength(2)
+      expect(links[0]).toHaveAttribute('href', 'https://github.com')
+      expect(links[1]).toHaveAttribute('href', 'https://example.com')
+    })
+
+    it('should handle HTTP URLs', () => {
+      const message = {
+        id: 'test-11',
+        content: 'Visit http://example.com (insecure)',
+        timestamp: Date.now()
+      }
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="regular"
+          chatroomId="123"
+        />
+      )
+
+      const link = screen.getByRole('link')
+      expect(link).toHaveAttribute('href', 'http://example.com')
+    })
+  })
+
+  describe('Mention parsing', () => {
+    it('should parse mentions and make them bold for regular messages', () => {
+      const message = {
+        id: 'test-12',
+        content: 'Hey @testuser how are you?',
+        timestamp: Date.now()
+      }
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="regular"
+          chatroomId="123"
+          chatroomName="test-room"
+          userChatroomInfo={{}}
+          subscriberBadges={[]}
+        />
+      )
+
+      const mention = screen.getByText('@testuser')
+      expect(mention).toHaveStyle({ fontWeight: 'bold', color: '#fff' })
+      expect(mention).toHaveStyle({ cursor: 'pointer' })
+    })
+
+    it('should parse mentions in minified messages without click handlers', () => {
+      const message = {
+        id: 'test-13',
+        content: 'Hey @testuser!',
+        timestamp: Date.now()
+      }
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="minified"
+          chatroomId="123"
+        />
+      )
+
+      const mention = screen.getByText('@testuser!')
+      expect(mention).toHaveStyle({ fontWeight: 'bold', color: '#fff' })
+      expect(mention).not.toHaveStyle({ cursor: 'pointer' })
+    })
+
+    it('should parse mentions in reply messages without click handlers', () => {
+      const message = {
+        id: 'test-14',
+        content: 'Reply to @originaluser',
+        timestamp: Date.now()
+      }
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="reply"
+          chatroomId="123"
+        />
+      )
+
+      const mention = screen.getByText('@originaluser')
+      expect(mention).toHaveStyle({ fontWeight: 'bold', color: '#fff' })
+      expect(mention).not.toHaveStyle({ cursor: 'pointer' })
+    })
+
+    it('should handle mention clicks and open user dialog', async () => {
+      const mockUserData = {
+        data: {
+          id: 'user-123',
+          username: 'testuser',
+          slug: 'testuser-slug'
+        }
+      }
+
+      mockWindow.app.kick.getUserChatroomInfo.mockResolvedValue(mockUserData)
+      mockWindow.app.userDialog.open.mockResolvedValue(undefined)
+
+      const message = {
+        id: 'test-15',
+        content: 'Hello @testuser!',
+        timestamp: Date.now()
+      }
+
+      const userChatroomInfo = { role: 'member' }
+      const subscriberBadges = [{ months: 1, badge_image: { src: 'badge.png' } }]
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="regular"
+          chatroomId="123"
+          chatroomName="test-room"
+          userChatroomInfo={userChatroomInfo}
+          subscriberBadges={subscriberBadges}
+        />
+      )
+
+      const mention = screen.getByText('@testuser!')
+      fireEvent.click(mention)
+
+      await waitFor(() => {
+        expect(mockWindow.app.kick.getUserChatroomInfo).toHaveBeenCalledWith('test-room', 'testuser')
+      })
+
+      await waitFor(() => {
+        expect(mockWindow.app.userDialog.open).toHaveBeenCalledWith({
+          sender: {
+            id: 'user-123',
+            username: 'testuser',
+            slug: 'testuser-slug'
+          },
+          fetchedUser: mockUserData.data,
+          subscriberBadges,
+          chatroomId: '123',
+          userChatroomInfo,
+          cords: [0, 300]
+        })
+      })
+    })
+
+    it('should handle mention clicks when user is not found', async () => {
+      mockWindow.app.kick.getUserChatroomInfo.mockResolvedValue({ data: null })
+
+      const message = {
+        id: 'test-16',
+        content: 'Hello @nonexistent!',
+        timestamp: Date.now()
+      }
+
+      render(
+        <MessageParser 
+          message={message}
+          sevenTVEmotes={[]}
+          sevenTVSettings={{ emotes: false }}
+          type="regular"
+          chatroomId="123"
+          chatroomName="test-room"
+          userChatroomInfo={{}}
+          subscriberBadges={[]}
+        />
+      )
+
+      const mention = screen.getByText('@nonexistent!')
+      fireEvent.click(mention)
+
+      await waitFor(() => {
+        expect(mockWindow.app.kick.getUserChatroomInfo).toHaveBeenCalledWith('test-room', 'nonexistent')
+      })
+
+      // Should not open user dialog for non-existent user
+      expect(mockWindow.app

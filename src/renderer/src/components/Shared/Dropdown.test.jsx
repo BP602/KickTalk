@@ -21,8 +21,12 @@ import {
 
 // Mock Radix UI dropdown menu primitives
 vi.mock('@radix-ui/react-dropdown-menu', () => ({
-  Root: ({ children, onOpenChange, ...props }) => (
-    <div data-testid="dropdown-menu-root" {...props}>
+  Root: ({ children, onOpenChange, modal, ...props }) => (
+    <div 
+      data-testid="dropdown-menu-root" 
+      modal={modal !== undefined ? String(modal) : undefined}
+      {...props}
+    >
       {children}
     </div>
   ),
@@ -505,6 +509,23 @@ describe('Dropdown Components', () => {
       const item = screen.getByTestId('dropdown-menu-checkbox-item');
       expect(item).toHaveClass('dropdownMenuCheckboxItem custom-checkbox');
     });
+
+    it('should expose correct ARIA role and checked state', () => {
+      render(
+        <DropdownMenu>
+          <DropdownMenuTrigger>Trigger</DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuCheckboxItem checked={true}>
+              Notifications
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+
+      const item = screen.getByTestId('dropdown-menu-checkbox-item');
+      expect(item).toHaveAttribute('role', 'menuitemcheckbox');
+      expect(item).toHaveAttribute('aria-checked', 'true');
+    });
   });
 
   describe('DropdownMenuRadioGroup', () => {
@@ -592,6 +613,18 @@ describe('Dropdown Components', () => {
 
       const item = screen.getByTestId('dropdown-menu-radio-item');
       expect(item).toHaveClass('dropdownMenuRadioItem custom-radio');
+    });
+
+    it('should expose correct ARIA role for radio items', () => {
+      render(
+        <DropdownMenuRadioGroup value="light">
+          <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      );
+
+      const items = screen.getAllByTestId('dropdown-menu-radio-item');
+      items.forEach((el) => expect(el).toHaveAttribute('role', 'menuitemradio'));
     });
   });
 

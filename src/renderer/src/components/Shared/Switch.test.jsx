@@ -170,4 +170,35 @@ describe('Switch Component', () => {
     const switchElement = screen.getByRole('switch')
     expect(switchElement).toHaveClass('switch', 'switch-large')
   })
+
+  describe('Accessibility', () => {
+    it('should provide proper ARIA attributes for Switch', async () => {
+      const user = userEvent.setup();
+      const handleChange = vi.fn();
+      
+      render(
+        <div>
+          <Switch 
+            checked={false} 
+            onCheckedChange={handleChange}
+            aria-label="Enable dark mode"
+            aria-describedby="switch-description"
+          />
+          <div id="switch-description">
+            Toggles between light and dark theme
+          </div>
+        </div>
+      );
+
+      const switchElement = screen.getByRole('switch');
+      
+      expect(switchElement).toHaveAttribute('role', 'switch');
+      expect(switchElement).toHaveAttribute('aria-checked', 'false');
+      expect(switchElement).toHaveAttribute('aria-label', 'Enable dark mode');
+      expect(switchElement).toHaveAttribute('aria-describedby', 'switch-description');
+      
+      await user.click(switchElement);
+      expect(handleChange).toHaveBeenCalledWith(true);
+    });
+  });
 })

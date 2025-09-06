@@ -665,4 +665,44 @@ describe('Slider', () => {
       expect(screen.getByTestId('slider-root')).toBeInTheDocument();
     });
   });
+
+  describe('Accessibility', () => {
+    it('should provide proper ARIA attributes for Slider', async () => {
+      const user = userEvent.setup();
+      const handleChange = vi.fn();
+      
+      render(
+        <Slider
+          value={[50]}
+          onValueChange={handleChange}
+          min={0}
+          max={100}
+          step={1}
+          aria-label="Volume"
+        />
+      );
+
+      const slider = screen.getByRole('slider');
+      
+      expect(slider).toHaveAttribute('aria-valuemin', '0');
+      expect(slider).toHaveAttribute('aria-valuemax', '100');
+      expect(slider).toHaveAttribute('aria-valuenow', '50');
+      expect(slider).toHaveAttribute('aria-valuetext', '50 of 100');
+      expect(slider).toHaveAttribute('aria-label', 'Volume');
+      
+      // Test keyboard navigation
+      slider.focus();
+      await user.keyboard('{ArrowRight}');
+      expect(handleChange).toHaveBeenCalledWith([51]);
+      
+      await user.keyboard('{ArrowLeft}{ArrowLeft}');
+      expect(handleChange).toHaveBeenCalledWith([49]);
+      
+      await user.keyboard('{Home}');
+      expect(handleChange).toHaveBeenCalledWith([0]);
+      
+      await user.keyboard('{End}');
+      expect(handleChange).toHaveBeenCalledWith([100]);
+    });
+  });
 });

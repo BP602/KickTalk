@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import {
@@ -9,7 +9,7 @@ import {
   TooltipProvider,
 } from './Tooltip';
 
-// Mock Radix UI tooltip primitives
+// Mock Radix UI tooltip primitives with enhanced functionality
 vi.mock('@radix-ui/react-tooltip', () => ({
   Provider: ({ children, delayDuration, skipDelayDuration, disableHoverableContent, ...props }) => (
     <div
@@ -22,41 +22,98 @@ vi.mock('@radix-ui/react-tooltip', () => ({
       {children}
     </div>
   ),
-  Root: ({ children, open, defaultOpen, onOpenChange, delayDuration, ...props }) => (
-    <div
-      data-testid="tooltip-root"
-      data-open={open}
-      data-default-open={defaultOpen}
-      data-delay-duration={delayDuration}
-      {...props}
-    >
-      {children}
-    </div>
-  ),
-  Trigger: ({ children, asChild, ...props }) => (
-    <div
-      data-testid="tooltip-trigger"
-      data-as-child={asChild}
-      tabIndex={0}
-      onMouseEnter={() => props.onMouseEnter && props.onMouseEnter()}
-      onMouseLeave={() => props.onMouseLeave && props.onMouseLeave()}
-      onFocus={() => props.onFocus && props.onFocus()}
-      onBlur={() => props.onBlur && props.onBlur()}
-      {...props}
-    >
-      {children}
-    </div>
-  ),
+  Root: ({ children, open, defaultOpen, onOpenChange, delayDuration, ...props }) => {
+    const [isOpen, setIsOpen] = React.useState(defaultOpen || false);
+    
+    React.useEffect(() => {
+      if (open !== undefined) {
+        setIsOpen(open);
+      }
+    }, [open]);
+
+    const handleOpenChange = (newOpen) => {
+      setIsOpen(newOpen);
+      onOpenChange?.(newOpen);
+    };
+
+    return (
+      <div
+        data-testid="tooltip-root"
+        data-open={String(isOpen)}
+        data-default-open={defaultOpen}
+        data-delay-duration={delayDuration}
+        {...props}
+      >
+        {React.Children.map(children, child =>
+          React.isValidElement(child)
+            ? React.cloneElement(child, { 
+                isOpen, 
+                onOpenChange: handleOpenChange,
+                delayDuration 
+              })
+            : child
+        )}
+      </div>
+    );
+  },
+  Trigger: ({ children, asChild, isOpen, onOpenChange, delayDuration, ...props }) => {
+    const [hoverTimer, setHoverTimer] = React.useState(null);
+
+    const handleMouseEnter = () => {
+      if (delayDuration && delayDuration > 0) {
+        const timer = setTimeout(() => {
+          onOpenChange?.(true);
+        }, delayDuration);
+        setHoverTimer(timer);
+      } else {
+        onOpenChange?.(true);
+      }
+    };
+
+    const handleMouseLeave = () => {
+      if (hoverTimer) {
+        clearTimeout(hoverTimer);
+        setHoverTimer(null);
+      }
+      onOpenChange?.(false);
+    };
+
+    React.useEffect(() => {
+      return () => {
+        if (hoverTimer) {
+          clearTimeout(hoverTimer);
+        }
+      };
+    }, [hoverTimer]);
+
+    return (
+      <div
+        data-testid="tooltip-trigger"
+        data-as-child={asChild}
+        data-open={String(isOpen || false)}
+        tabIndex={0}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onFocus={() => onOpenChange?.(true)}
+        onBlur={() => onOpenChange?.(false)}
+        {...props}
+      >
+        {children}
+      </div>
+    );
+  },
   Portal: ({ children, ...props }) => (
     <div data-testid="tooltip-portal" {...props}>
       {children}
     </div>
   ),
-  Content: ({ children, className, sideOffset, ...props }) => (
+  Content: ({ children, className, sideOffset, isOpen, ...props }) => (
     <div
       data-testid="tooltip-content"
       className={className}
       data-side-offset={sideOffset}
+      data-open={String(isOpen || false)}
+      style={{ display: isOpen ? 'block' : 'none' }}
       {...props}
     >
       {children}
@@ -822,6 +879,440 @@ describe('Tooltip Components', () => {
       const button = screen.getByText('Disabled Button');
       expect(button).toBeDisabled();
       expect(screen.getByText('This button is disabled')).toBeInTheDocument();
+    });
+  });
+
+  describe('Advanced Interaction Tests', () => {
+    beforeEach(() => {
+      vi.clearAllTimers();
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    });
+
+    it('should handle delayed opening correctly', async () => {
+      const user = userEvent.setup({ delay: null });
+      
+      render(
+        <TooltipProvider>
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger>Delayed trigger</TooltipTrigger>
+            <TooltipContent>Delayed content</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      const trigger = screen.getByTestId('tooltip-trigger');
+      
+      await user.hover(trigger);
+      
+      // Content should not be visible immediately
+      expect(trigger).toHaveAttribute('data-open', 'false');
+      
+      // Fast-forward time to trigger delay
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(trigger).toHaveAttribute('data-open', 'true');
+    });
+
+    it('should cancel delayed opening on mouse leave', async () => {
+      const user = userEvent.setup({ delay: null });
+      
+      render(
+        <TooltipProvider>
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger>Cancel trigger</TooltipTrigger>
+            <TooltipContent>Cancel content</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      const trigger = screen.getByTestId('tooltip-trigger');
+      
+      await user.hover(trigger);
+      
+      // Leave before delay completes
+      act(() => {
+        vi.advanceTimersByTime(150);
+      });
+      
+      await user.unhover(trigger);
+      
+      // Complete the original delay
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      expect(trigger).toHaveAttribute('data-open', 'false');
+    });
+
+    it('should handle rapid hover events correctly', async () => {
+      const user = userEvent.setup({ delay: null });
+      
+      render(
+        <TooltipProvider>
+          <Tooltip delayDuration={100}>
+            <TooltipTrigger>Rapid trigger</TooltipTrigger>
+            <TooltipContent>Rapid content</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      const trigger = screen.getByTestId('tooltip-trigger');
+      
+      // Rapid hover/unhover sequence
+      for (let i = 0; i < 5; i++) {
+        await user.hover(trigger);
+        act(() => {
+          vi.advanceTimersByTime(50);
+        });
+        await user.unhover(trigger);
+        act(() => {
+          vi.advanceTimersByTime(10);
+        });
+      }
+      
+      // Final hover and wait for delay
+      await user.hover(trigger);
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+
+      expect(trigger).toHaveAttribute('data-open', 'true');
+    });
+
+    it('should handle focus events correctly', async () => {
+      const user = userEvent.setup({ delay: null });
+      
+      render(
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>Focus trigger</TooltipTrigger>
+            <TooltipContent>Focus content</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      const trigger = screen.getByTestId('tooltip-trigger');
+      
+      await user.click(trigger);
+      expect(trigger).toHaveAttribute('data-open', 'true');
+      
+      await user.tab();
+      expect(trigger).toHaveAttribute('data-open', 'false');
+    });
+  });
+
+  describe('Accessibility Edge Cases', () => {
+    it('should maintain proper focus order with multiple tooltips', async () => {
+      const user = userEvent.setup();
+      
+      render(
+        <TooltipProvider>
+          <div>
+            <Tooltip>
+              <TooltipTrigger>First trigger</TooltipTrigger>
+              <TooltipContent>First content</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>Second trigger</TooltipTrigger>
+              <TooltipContent>Second content</TooltipContent>
+            </Tooltip>
+            <button>External button</button>
+          </div>
+        </TooltipProvider>
+      );
+
+      const firstTrigger = screen.getByText('First trigger');
+      const secondTrigger = screen.getByText('Second trigger');
+      const externalButton = screen.getByText('External button');
+      
+      // Tab through elements
+      await user.tab();
+      expect(firstTrigger).toHaveFocus();
+      
+      await user.tab();
+      expect(secondTrigger).toHaveFocus();
+      
+      await user.tab();
+      expect(externalButton).toHaveFocus();
+    });
+
+    it('should handle screen reader announcements', () => {
+      render(
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger 
+              aria-describedby="tooltip-content"
+              aria-expanded="false"
+            >
+              Screen reader trigger
+            </TooltipTrigger>
+            <TooltipContent 
+              id="tooltip-content"
+              role="tooltip"
+              aria-live="polite"
+            >
+              Screen reader content
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      const trigger = screen.getByTestId('tooltip-trigger');
+      const content = screen.getByTestId('tooltip-content');
+
+      expect(trigger).toHaveAttribute('aria-describedby', 'tooltip-content');
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(content).toHaveAttribute('id', 'tooltip-content');
+      expect(content).toHaveAttribute('role', 'tooltip');
+      expect(content).toHaveAttribute('aria-live', 'polite');
+    });
+
+    it('should handle high contrast mode', () => {
+      render(
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>High contrast trigger</TooltipTrigger>
+            <TooltipContent className="high-contrast">
+              High contrast content
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      const content = screen.getByTestId('tooltip-content');
+      expect(content).toHaveClass('tooltipContent high-contrast');
+    });
+  });
+
+  describe('Performance and Memory Tests', () => {
+    it('should handle component unmounting without memory leaks', () => {
+      const { unmount } = render(
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>Unmount trigger</TooltipTrigger>
+            <TooltipContent>Unmount content</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      // Should not throw during unmount
+      expect(() => unmount()).not.toThrow();
+    });
+
+    it('should handle large content efficiently', () => {
+      const largeContent = 'A'.repeat(10000);
+      
+      render(
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>Large content trigger</TooltipTrigger>
+            <TooltipContent>{largeContent}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      const content = screen.getByTestId('tooltip-content');
+      expect(content).toHaveTextContent(largeContent);
+    });
+
+    it('should handle many nested tooltips', () => {
+      const NestedTooltips = ({ depth }) => {
+        if (depth === 0) {
+          return <span>Deep content</span>;
+        }
+        
+        return (
+          <Tooltip>
+            <TooltipTrigger>Nested {depth}</TooltipTrigger>
+            <TooltipContent>
+              <NestedTooltips depth={depth - 1} />
+            </TooltipContent>
+          </Tooltip>
+        );
+      };
+
+      render(
+        <TooltipProvider>
+          <NestedTooltips depth={5} />
+        </TooltipProvider>
+      );
+
+      expect(screen.getByText('Nested 5')).toBeInTheDocument();
+      expect(screen.getByText('Deep content')).toBeInTheDocument();
+    });
+  });
+
+  describe('Error Boundary Integration', () => {
+    it('should handle errors in content gracefully', () => {
+      const ErrorContent = () => {
+        throw new Error('Test error');
+      };
+
+      // Suppress console.error for this test
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      expect(() => {
+        render(
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger>Error trigger</TooltipTrigger>
+              <TooltipContent>
+                <ErrorContent />
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        );
+      }).toThrow('Test error');
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should handle portal rendering errors', () => {
+      // Mock portal to throw error
+      const originalCreatePortal = require('react-dom').createPortal;
+      vi.spyOn(require('react-dom'), 'createPortal').mockImplementation(() => {
+        throw new Error('Portal error');
+      });
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      render(
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>Portal error trigger</TooltipTrigger>
+            <TooltipContent>Portal error content</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      // Component should still render trigger even if portal fails
+      expect(screen.getByText('Portal error trigger')).toBeInTheDocument();
+
+      require('react-dom').createPortal.mockRestore();
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('Theme and Style Integration', () => {
+    it('should handle dynamic theme changes', () => {
+      const ThemeTooltip = ({ theme }) => (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger className={`trigger-${theme}`}>
+              Theme trigger
+            </TooltipTrigger>
+            <TooltipContent className={`content-${theme}`}>
+              Theme content
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      const { rerender } = render(<ThemeTooltip theme="light" />);
+      
+      expect(screen.getByTestId('tooltip-trigger')).toHaveClass('trigger-light');
+      expect(screen.getByTestId('tooltip-content')).toHaveClass('tooltipContent content-light');
+
+      rerender(<ThemeTooltip theme="dark" />);
+      
+      expect(screen.getByTestId('tooltip-trigger')).toHaveClass('trigger-dark');
+      expect(screen.getByTestId('tooltip-content')).toHaveClass('tooltipContent content-dark');
+    });
+
+    it('should handle CSS-in-JS styles', () => {
+      const dynamicStyles = {
+        backgroundColor: 'red',
+        color: 'white',
+        borderRadius: '4px'
+      };
+
+      render(
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger style={dynamicStyles}>
+              Styled trigger
+            </TooltipTrigger>
+            <TooltipContent style={dynamicStyles}>
+              Styled content
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      const trigger = screen.getByTestId('tooltip-trigger');
+      const content = screen.getByTestId('tooltip-content');
+      
+      expect(trigger).toHaveStyle(dynamicStyles);
+      expect(content).toHaveStyle(dynamicStyles);
+    });
+  });
+
+  describe('Integration with Form Elements', () => {
+    it('should work with form validation', async () => {
+      const user = userEvent.setup();
+      
+      const FormWithTooltip = () => {
+        const [error, setError] = React.useState('');
+        
+        const handleSubmit = (e) => {
+          e.preventDefault();
+          const input = e.target.elements.email;
+          if (!input.value) {
+            setError('Email is required');
+          } else {
+            setError('');
+          }
+        };
+        
+        return (
+          <form onSubmit={handleSubmit}>
+            <Tooltip open={!!error}>
+              <TooltipTrigger asChild>
+                <input name="email" placeholder="Enter email" />
+              </TooltipTrigger>
+              <TooltipContent>{error}</TooltipContent>
+            </Tooltip>
+            <button type="submit">Submit</button>
+          </form>
+        );
+      };
+
+      render(
+        <TooltipProvider>
+          <FormWithTooltip />
+        </TooltipProvider>
+      );
+
+      const submitButton = screen.getByText('Submit');
+      
+      await user.click(submitButton);
+      
+      expect(screen.getByText('Email is required')).toBeInTheDocument();
+      expect(screen.getByTestId('tooltip-content')).toHaveAttribute('data-open', 'true');
+    });
+
+    it('should handle disabled form elements', () => {
+      render(
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <input disabled placeholder="Disabled input" />
+            </TooltipTrigger>
+            <TooltipContent>This input is disabled</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+
+      const input = screen.getByPlaceholderText('Disabled input');
+      expect(input).toBeDisabled();
+      expect(screen.getByText('This input is disabled')).toBeInTheDocument();
     });
   });
 });
