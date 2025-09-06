@@ -36,7 +36,7 @@ vi.mock('../../../Shared/Slider', () => ({
       disabled={disabled}
       className={className}
       data-show-tooltip={showTooltip}
-      onChange={(e) => onValueChange([parseInt(e.target.value)])}
+      onChange={(e) => onValueChange([parseFloat(e.target.value)])}
     />
   )
 }));
@@ -86,11 +86,15 @@ vi.mock('../../../Shared/ColorPicker', () => ({
 }));
 
 vi.mock('../../../Shared/NotificationFilePicker', () => ({
-  default: ({ disabled, getOptions, onChange, settingsData }) => (
-    <div data-testid="notification-file-picker" data-disabled={disabled}>
-      <button disabled={disabled}>Select File</button>
-    </div>
-  )
+  default: ({ disabled, getOptions }) => {
+    // Invoke getOptions on render so tests can assert the API is called
+    try { getOptions?.() } catch {}
+    return (
+      <div data-testid="notification-file-picker" data-disabled={disabled}>
+        <button disabled={disabled}>Select File</button>
+      </div>
+    )
+  }
 }));
 
 // Mock assets
@@ -99,13 +103,17 @@ vi.mock('../../../../assets/icons/caret-down-fill.svg?asset', () => ({ default: 
 vi.mock('../../../../assets/icons/folder-open-fill.svg?asset', () => ({ default: 'folder-icon.svg' }));
 vi.mock('../../../../assets/icons/play-fill.svg?asset', () => ({ default: 'play-icon.svg' }));
 
-// Mock window.app
-global.window = {
-  app: {
-    notificationSounds: {
-      getAvailable: vi.fn().mockResolvedValue(['sound1.mp3', 'sound2.wav']),
-      openFolder: vi.fn()
-    }
+// Mock window.app (do not replace the window object)
+if (!global.window) {
+  // In jsdom this should already exist, but guard just in case
+  // eslint-disable-next-line no-global-assign
+  global.window = {}
+}
+global.window.app = {
+  ...(global.window.app || {}),
+  notificationSounds: {
+    getAvailable: vi.fn().mockResolvedValue(['sound1.mp3', 'sound2.wav']),
+    openFolder: vi.fn()
   }
 };
 
@@ -250,8 +258,9 @@ describe('GeneralSection', () => {
     it('should display current timestamp format', () => {
       render(<GeneralSection settingsData={defaultSettings} onChange={mockOnChange} />);
       
-      const timestampDropdown = screen.getByTestId('dropdown-menu');
-      expect(timestampDropdown).toHaveAttribute('data-value', 'h:mm');
+      const dropdowns = screen.getAllByTestId('dropdown-menu');
+      const timestampDropdown = dropdowns.find(d => d.getAttribute('data-value') === 'h:mm');
+      expect(timestampDropdown).toBeInTheDocument();
     });
 
     it('should handle timestamp format changes', async () => {
@@ -368,7 +377,8 @@ describe('ChatroomSection', () => {
       expect(slider).toHaveAttribute('min', '0');
       expect(slider).toHaveAttribute('max', '1000');
       expect(slider).toHaveAttribute('step', '100');
-      expect(slider).toHaveAttribute('defaultValue', '500');
+      // Default value should be reflected as the input's current value (string in DOM)
+      expect(slider).toHaveValue('500');
     });
 
     it('should show numeric input for chat history length', () => {
@@ -416,41 +426,40 @@ describe('ChatroomSection', () => {
     });
 
     it('should handle chat history length changes', async () => {
-      const user = userEvent.setup();
       render(<ChatroomSection settingsData={defaultSettings} onChange={mockOnChange} />);
       
       const input = screen.getByDisplayValue('400');
-      await user.clear(input);
-      await user.type(input, '600');
+      fireEvent.change(input, { target: { value: '600' } });
       
-      expect(mockOnChange).toHaveBeenCalledWith('chatHistory', {
-        ...defaultSettings.chatHistory,
-        chatHistoryLength: 600
+      await waitFor(() => {
+        const called = mockOnChange.mock.calls.some(([section, payload]) =>
+          section === 'chatHistory' && payload?.chatHistoryLength === 600
+        )
+        expect(called).toBe(true)
       });
     });
 
     it('should enforce chat history length bounds', async () => {
-      const user = userEvent.setup();
       render(<ChatroomSection settingsData={defaultSettings} onChange={mockOnChange} />);
       
       const input = screen.getByDisplayValue('400');
       
       // Test upper bound
-      await user.clear(input);
-      await user.type(input, '3000');
-      
-      expect(mockOnChange).toHaveBeenCalledWith('chatHistory', {
-        ...defaultSettings.chatHistory,
-        chatHistoryLength: 2000 // Should be clamped to max
+      fireEvent.change(input, { target: { value: '3000' } });
+      await waitFor(() => {
+        const calledMax = mockOnChange.mock.calls.some(([section, payload]) =>
+          section === 'chatHistory' && payload?.chatHistoryLength === 2000
+        )
+        expect(calledMax).toBe(true)
       });
       
       // Test lower bound
-      await user.clear(input);
-      await user.type(input, '0');
-      
-      expect(mockOnChange).toHaveBeenCalledWith('chatHistory', {
-        ...defaultSettings.chatHistory,
-        chatHistoryLength: 1 // Should be clamped to min
+      fireEvent.change(input, { target: { value: '0' } });
+      await waitFor(() => {
+        const calledMin = mockOnChange.mock.calls.some(([section, payload]) =>
+          section === 'chatHistory' && payload?.chatHistoryLength === 1
+        )
+        expect(calledMin).toBe(true)
       });
     });
   });
@@ -600,13 +609,17 @@ describe('NotificationsSection', () => {
     });
 
     it('should handle volume slider changes', () => {
-      render(<NotificationsSection settingsData={defaultSettings} onChange={mockOnChange} />);
+      const settingsWithSound = {
+        ...defaultSettings,
+        notifications: { ...defaultSettings.notifications, sound: true }
+      };
+      render(<NotificationsSection settingsData={settingsWithSound} onChange={mockOnChange} />);
       
       const slider = screen.getByTestId('slider');
       fireEvent.change(slider, { target: { value: '0.8' } });
       
       expect(mockOnChange).toHaveBeenCalledWith('notifications', {
-        ...defaultSettings.notifications,
+        ...settingsWithSound.notifications,
         volume: 0.8
       });
     });
@@ -655,10 +668,15 @@ describe('NotificationsSection', () => {
 
     it('should open notification sounds folder', async () => {
       const user = userEvent.setup();
-      render(<NotificationsSection settingsData={defaultSettings} onChange={mockOnChange} />);
+      const settingsWithSound = {
+        ...defaultSettings,
+        notifications: { ...defaultSettings.notifications, sound: true }
+      };
+      render(<NotificationsSection settingsData={settingsWithSound} onChange={mockOnChange} />);
       
-      const selectFileButton = screen.getByText(/select file/i);
-      await user.click(selectFileButton);
+      // Disambiguate between two "Select File" buttons rendered
+      const soundFileButton = document.querySelector('.soundFileName');
+      await user.click(soundFileButton);
       
       expect(window.app.notificationSounds.openFolder).toHaveBeenCalled();
     });

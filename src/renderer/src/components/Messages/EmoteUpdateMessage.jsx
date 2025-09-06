@@ -1,6 +1,10 @@
 import stvLogo from "../../assets/logos/stvLogo.svg?asset";
 
 const EmoteUpdateMessage = ({ message }) => {
+  if (!message || !message.data) {
+    return null;
+  }
+  
   return (
     <>
       {message.data.added?.length > 0 &&

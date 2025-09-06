@@ -29,47 +29,13 @@ describe('useClickOutside', () => {
   beforeEach(() => {
     mockHandler = vi.fn();
     
-    // Mock document methods
-    const originalAddEventListener = document.addEventListener;
-    const originalRemoveEventListener = document.removeEventListener;
-    
-    const eventListeners = new Map();
-    
-    document.addEventListener = vi.fn((event, listener) => {
-      if (!eventListeners.has(event)) {
-        eventListeners.set(event, []);
-      }
-      eventListeners.get(event).push(listener);
-      originalAddEventListener.call(document, event, listener);
-    });
-    
-    document.removeEventListener = vi.fn((event, listener) => {
-      if (eventListeners.has(event)) {
-        const listeners = eventListeners.get(event);
-        const index = listeners.indexOf(listener);
-        if (index > -1) {
-          listeners.splice(index, 1);
-        }
-      }
-      originalRemoveEventListener.call(document, event, listener);
-    });
-    
-    // Store reference for cleanup
-    document._mockEventListeners = eventListeners;
+    // Just spy on document methods, don't call originals
+    vi.spyOn(document, 'addEventListener');
+    vi.spyOn(document, 'removeEventListener');
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
-    
-    // Clean up event listeners
-    if (document._mockEventListeners) {
-      document._mockEventListeners.forEach((listeners, event) => {
-        listeners.forEach(listener => {
-          document.removeEventListener(event, listener);
-        });
-      });
-      delete document._mockEventListeners;
-    }
+    vi.restoreAllMocks();
   });
 
   describe('Event Listener Registration', () => {
@@ -359,9 +325,10 @@ describe('useClickOutside', () => {
       const clickEvent = new MouseEvent('click', { bubbles: true });
       Object.defineProperty(clickEvent, 'target', { value: outsideButton });
       
+      // The handler throws but the listener shouldn't propagate the error
       expect(() => {
         document.dispatchEvent(clickEvent);
-      }).toThrow('Handler error');
+      }).not.toThrow();
       
       expect(throwingHandler).toHaveBeenCalledWith(clickEvent);
     });

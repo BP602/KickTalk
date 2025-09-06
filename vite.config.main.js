@@ -7,8 +7,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@utils': resolve('utils'),
-      electron: resolve('tests/mocks/electron.js'),
-      'electron-store': resolve('tests/mocks/electron-store.js'),
     },
   },
 
@@ -21,8 +19,8 @@ export default defineConfig({
     deps: {
       optimizer: {
         ssr: {
-          // Ensure these packages are processed by Vite so vi.mock/vi.doMock can intercept CJS require()
-          include: ['electron', 'electron-store', /@opentelemetry\//]
+          // Keep opentelemetry processed; allow electron/electron-store to be mocked by tests without aliasing
+          include: [/@opentelemetry\//]
         }
       }
     },

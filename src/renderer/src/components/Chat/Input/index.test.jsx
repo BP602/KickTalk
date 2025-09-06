@@ -149,7 +149,7 @@ vi.mock('@lexical/react/LexicalComposerContext', () => {
   return {
     useLexicalComposerContext: vi.fn(() => [mockEditor])
   }
-}))
+})
 
 vi.mock('lexical', () => ({
   $getRoot: vi.fn(() => ({

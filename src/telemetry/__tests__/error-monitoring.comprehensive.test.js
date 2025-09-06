@@ -51,7 +51,7 @@ describe('Error Monitoring System Comprehensive Tests', () => {
   let originalConsole;
   let mockConsole;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     
     // Mock console methods

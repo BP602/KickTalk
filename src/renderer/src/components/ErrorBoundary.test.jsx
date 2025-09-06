@@ -137,8 +137,8 @@ describe('ErrorBoundary Component', () => {
       
       expect(screen.getByText('Something went wrong')).toBeInTheDocument()
       expect(screen.getByText('An error occurred while rendering the application.')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Show Error Details' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Reload App' })).toBeInTheDocument()
+      expect(screen.getByText('Show Error Details')).toBeInTheDocument()
+      expect(screen.getByText('Reload App')).toBeInTheDocument()
     })
 
     it('should catch ReferenceError', () => {
@@ -283,7 +283,7 @@ describe('ErrorBoundary Component', () => {
     it('should show error dialog when "Show Error Details" is clicked', async () => {
       const user = userEvent.setup()
       
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       expect(screen.getByText('Error Details')).toBeInTheDocument()
@@ -293,7 +293,7 @@ describe('ErrorBoundary Component', () => {
     it('should apply success class to show details button when dialog is open', async () => {
       const user = userEvent.setup()
       
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       expect(showDetailsButton).not.toHaveClass('success')
       
       await user.click(showDetailsButton)
@@ -304,7 +304,7 @@ describe('ErrorBoundary Component', () => {
       const user = userEvent.setup()
       
       // Open dialog first
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       expect(screen.getByText('Error Details')).toBeInTheDocument()
@@ -319,7 +319,7 @@ describe('ErrorBoundary Component', () => {
     it('should display error message in dialog content', async () => {
       const user = userEvent.setup()
       
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       const dialogContent = document.querySelector('.errorDialogContentText')
@@ -330,7 +330,7 @@ describe('ErrorBoundary Component', () => {
     it('should display component stack trace in dialog', async () => {
       const user = userEvent.setup()
       
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       const dialogContent = document.querySelector('.errorDialogContentText')
@@ -341,7 +341,7 @@ describe('ErrorBoundary Component', () => {
       const user = userEvent.setup()
       
       // Override the error state to be null (edge case)
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       // Should still render dialog without crashing
@@ -351,7 +351,7 @@ describe('ErrorBoundary Component', () => {
     it('should handle missing error info in dialog', async () => {
       const user = userEvent.setup()
       
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       // Should render dialog even with limited error information
@@ -372,14 +372,14 @@ describe('ErrorBoundary Component', () => {
       
       // Open error dialog
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
     })
 
     it('should copy error details to clipboard', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       
-      const copyButton = screen.getByRole('button', { name: 'Copy Error' })
+      const copyButton = screen.getByText('Copy Error')
       await user.click(copyButton)
       
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
@@ -390,32 +390,38 @@ describe('ErrorBoundary Component', () => {
     it('should show success state after copying', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       
-      const copyButton = screen.getByRole('button', { name: 'Copy Error' })
+      const copyButton = screen.getByText('Copy Error')
       await user.click(copyButton)
       
-      expect(copyButton).toHaveTextContent('Copied!')
-      expect(copyButton).toHaveClass('success')
+      await waitFor(() => {
+        expect(screen.getByText('Copied!')).toBeInTheDocument()
+      })
+      expect(copyButton.closest('button')).toHaveClass('errorButton', 'success')
     })
 
     it('should reset success state after 2 seconds', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       
-      const copyButton = screen.getByRole('button', { name: 'Copy Error' })
+      const copyButton = screen.getByText('Copy Error')
       await user.click(copyButton)
       
-      expect(copyButton).toHaveTextContent('Copied!')
+      await waitFor(() => {
+        expect(screen.getByText('Copied!')).toBeInTheDocument()
+      })
       
       // Fast-forward 2 seconds
       vi.advanceTimersByTime(2000)
       
-      expect(copyButton).toHaveTextContent('Copy Error')
-      expect(copyButton).not.toHaveClass('success')
+      await waitFor(() => {
+        expect(screen.getByText('Copy Error')).toBeInTheDocument()
+      })
+      expect(copyButton.closest('button')).not.toHaveClass('success')
     })
 
     it('should include component stack in copied text', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       
-      const copyButton = screen.getByRole('button', { name: 'Copy Error' })
+      const copyButton = screen.getByText('Copy Error')
       await user.click(copyButton)
       
       const [[copiedText]] = navigator.clipboard.writeText.mock.calls
@@ -430,7 +436,7 @@ describe('ErrorBoundary Component', () => {
       navigator.clipboard.writeText.mockRejectedValue(new Error('Clipboard error'))
       const consoleErrorSpy = vi.spyOn(console, 'error')
       
-      const copyButton = screen.getByRole('button', { name: 'Copy Error' })
+      const copyButton = screen.getByText('Copy Error')
       await user.click(copyButton)
       
       expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to copy error details:', expect.any(Error))
@@ -439,7 +445,7 @@ describe('ErrorBoundary Component', () => {
     it('should format error text correctly', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       
-      const copyButton = screen.getByRole('button', { name: 'Copy Error' })
+      const copyButton = screen.getByText('Copy Error')
       await user.click(copyButton)
       
       const [[copiedText]] = navigator.clipboard.writeText.mock.calls
@@ -453,7 +459,7 @@ describe('ErrorBoundary Component', () => {
       // This tests the edge case where error might be null
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       
-      const copyButton = screen.getByRole('button', { name: 'Copy Error' })
+      const copyButton = screen.getByText('Copy Error')
       await user.click(copyButton)
       
       // Should not crash
@@ -463,7 +469,7 @@ describe('ErrorBoundary Component', () => {
     it('should handle undefined errorInfo gracefully', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       
-      const copyButton = screen.getByRole('button', { name: 'Copy Error' })
+      const copyButton = screen.getByText('Copy Error')
       await user.click(copyButton)
       
       // Should still copy without component stack
@@ -483,14 +489,14 @@ describe('ErrorBoundary Component', () => {
     it('should reload the page when reload button is clicked', async () => {
       const user = userEvent.setup()
       
-      const reloadButton = screen.getByRole('button', { name: 'Reload App' })
+      const reloadButton = screen.getByText('Reload App')
       await user.click(reloadButton)
       
       expect(window.location.reload).toHaveBeenCalledTimes(1)
     })
 
     it('should have primary class on reload button', () => {
-      const reloadButton = screen.getByRole('button', { name: 'Reload App' })
+      const reloadButton = screen.getByText('Reload App')
       expect(reloadButton).toHaveClass('errorButton', 'primary')
     })
   })
@@ -600,7 +606,7 @@ describe('ErrorBoundary Component', () => {
     it('should apply correct CSS classes to error dialog', async () => {
       const user = userEvent.setup()
       
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       const dialog = document.querySelector('.errorDialog')
@@ -620,7 +626,7 @@ describe('ErrorBoundary Component', () => {
     it('should apply close button class', async () => {
       const user = userEvent.setup()
       
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       const closeButton = document.querySelector('.closeButton')
@@ -639,8 +645,8 @@ describe('ErrorBoundary Component', () => {
     })
 
     it('should have accessible button roles', () => {
-      expect(screen.getByRole('button', { name: 'Show Error Details' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Reload App' })).toBeInTheDocument()
+      expect(screen.getByText('Show Error Details')).toBeInTheDocument()
+      expect(screen.getByText('Reload App')).toBeInTheDocument()
     })
 
     it('should have accessible headings', () => {
@@ -650,7 +656,7 @@ describe('ErrorBoundary Component', () => {
     it('should have accessible dialog headings', async () => {
       const user = userEvent.setup()
       
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       expect(screen.getByRole('heading', { level: 2, name: 'Error Details' })).toBeInTheDocument()
@@ -659,8 +665,8 @@ describe('ErrorBoundary Component', () => {
     it('should support keyboard navigation', async () => {
       const user = userEvent.setup()
       
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
-      const reloadButton = screen.getByRole('button', { name: 'Reload App' })
+      const showDetailsButton = screen.getByText('Show Error Details')
+      const reloadButton = screen.getByText('Reload App')
       
       // Tab navigation
       await user.tab()
@@ -673,7 +679,7 @@ describe('ErrorBoundary Component', () => {
     it('should support keyboard interaction with dialog', async () => {
       const user = userEvent.setup()
       
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       
       // Open dialog with Enter key
       showDetailsButton.focus()
@@ -732,7 +738,7 @@ describe('ErrorBoundary Component', () => {
       )
       
       const user = userEvent.setup()
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       const dialogContent = document.querySelector('.errorDialogContentText')
@@ -811,10 +817,10 @@ describe('ErrorBoundary Component', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       
       // Open dialog and trigger copy
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
-      const copyButton = screen.getByRole('button', { name: 'Copy Error' })
+      const copyButton = screen.getByText('Copy Error')
       await user.click(copyButton)
       
       // Unmount before timeout completes
@@ -836,10 +842,10 @@ describe('ErrorBoundary Component', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       
       // Open dialog
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
-      const copyButton = screen.getByRole('button', { name: 'Copy Error' })
+      const copyButton = screen.getByText('Copy Error')
       
       // Rapid clicks
       await user.click(copyButton)
@@ -893,7 +899,7 @@ describe('ErrorBoundary Component', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       
       // Open dialog
-      const showDetailsButton = screen.getByRole('button', { name: 'Show Error Details' })
+      const showDetailsButton = screen.getByText('Show Error Details')
       await user.click(showDetailsButton)
       
       // Rapid dialog open/close

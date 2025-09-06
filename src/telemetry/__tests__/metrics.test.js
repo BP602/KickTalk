@@ -149,8 +149,10 @@ vi.mock('perf_hooks', () => ({
   PerformanceObserver: mockPerformanceObserver
 }))
 
-// Mock global process
-global.process = mockProcess
+// Do NOT replace global.process. Instead, spy/override only the needed methods per test lifecycle
+let originalHrtimeBigint
+let originalGetActiveHandles
+let originalGetActiveRequests
 
 describe('MetricsHelper', () => {
   let originalConsoleLog
@@ -169,12 +171,39 @@ describe('MetricsHelper', () => {
     // Mock Date.now for consistent timestamps
     originalDateNow = Date.now
     Date.now = vi.fn(() => 1640000000000) // Fixed timestamp
+
+    // Spy on process methods instead of replacing the entire object
+    vi.spyOn(process, 'memoryUsage').mockImplementation(mockProcess.memoryUsage)
+    vi.spyOn(process, 'cpuUsage').mockImplementation(mockProcess.cpuUsage)
+    vi.spyOn(process, 'uptime').mockImplementation(mockProcess.uptime)
+
+    // hrtime.bigint is a property on the hrtime function; replace and restore manually
+    originalHrtimeBigint = process.hrtime.bigint
+    process.hrtime.bigint = mockProcess.hrtime.bigint
+
+    // Internal helpers (best-effort; may be undefined in some environments)
+    originalGetActiveHandles = process._getActiveHandles
+    originalGetActiveRequests = process._getActiveRequests
+    try { process._getActiveHandles = mockProcess._getActiveHandles } catch {}
+    try { process._getActiveRequests = mockProcess._getActiveRequests } catch {}
   })
 
   afterEach(() => {
     console.log = originalConsoleLog
     console.warn = originalConsoleWarn
     Date.now = originalDateNow
+
+    // Restore process spies and original methods
+    try { process.hrtime.bigint = originalHrtimeBigint } catch {}
+    try {
+      if (originalGetActiveHandles !== undefined) process._getActiveHandles = originalGetActiveHandles
+      else delete process._getActiveHandles
+    } catch {}
+    try {
+      if (originalGetActiveRequests !== undefined) process._getActiveRequests = originalGetActiveRequests
+      else delete process._getActiveRequests
+    } catch {}
+    vi.restoreAllMocks()
   })
 
   describe('WebSocket Connection Metrics', () => {
@@ -503,16 +532,17 @@ describe('MetricsHelper', () => {
     it('should record startup duration', () => {
       MetricsHelper.recordStartupDuration('initialization', 2500, { phase: 'setup' })
       
-      expect(mockHistogramInstance.record).toHaveBeenCalledWith(2.5, {
+      // Attributes from the call should be merged, with later keys overriding earlier ones.
+      // Since we passed { phase: 'setup' }, it overrides the initial phase argument.
+      expect(mockHistogramInstance.record).toHaveBeenCalledWith(2.5, expect.objectContaining({
         operation: 'startup',
-        phase: 'initialization',
         phase: 'setup'
-      })
+      }))
       
       expect(mockSLOMonitor.recordLatency).toHaveBeenCalledWith(
         'APP_STARTUP_DURATION',
         2.5,
-        { phase: 'initialization', phase: 'setup' }
+        expect.objectContaining({ phase: 'setup' })
       )
     })
 

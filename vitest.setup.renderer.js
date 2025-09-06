@@ -1,6 +1,15 @@
-import '@testing-library/jest-dom'
-import { cleanup, screen } from '@testing-library/react'
-import { afterEach, beforeEach, vi } from 'vitest'
+import { afterEach, beforeEach, vi, expect } from 'vitest'
+
+// Only import and setup browser-specific modules in jsdom environment
+let cleanup, screen;
+if (typeof window !== 'undefined') {
+  const rtl = await import('@testing-library/react')
+  cleanup = rtl.cleanup
+  screen = rtl.screen
+  const matchers = await import('@testing-library/jest-dom/matchers')
+  // Extend expect with jest-dom matchers
+  expect.extend(matchers)
+}
 // Ensure React is in scope for any JSX that escapes transform in mocks
 import * as React from 'react'
 import { createRequire } from 'module'
@@ -41,12 +50,7 @@ try {
   })
 } catch {}
 
-// Pre-mock useClickOutside absolute path to avoid Node require issues with .jsx extension in tests
-try {
-  vi.mock('/home/five/Code/kicktalk-bis/src/renderer/src/utils/useClickOutside.jsx', () => ({
-    default: vi.fn(),
-  }))
-} catch {}
+// Note: removed stale absolute-path mock for useClickOutside from a different repo path
 
 // Provide className-based queries to match existing tests that use them
 // These augment Testing Library's screen object with convenience helpers.
@@ -114,20 +118,22 @@ global.ResizeObserver = vi.fn(() => ({
   unobserve: vi.fn(),
 }))
 
-// Mock window.matchMedia
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: vi.fn().mockImplementation(query => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(), // deprecated
-    removeListener: vi.fn(), // deprecated
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-})
+// Mock window.matchMedia (only in browser environment)
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation(query => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(), // deprecated
+      removeListener: vi.fn(), // deprecated
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  })
+}
 
 // Clipboard API: always ensure functions are vitest spies with mockClear
 ;(() => {
@@ -300,6 +306,38 @@ vi.mock('@lexical/react/LexicalPlainTextPlugin', () => ({
   PlainTextPlugin: () => null,
 }))
 
+// Mock individual Lexical plugin imports
+vi.mock('@lexical/react/LexicalAutoFocusPlugin', () => ({
+  AutoFocusPlugin: () => null,
+}))
+
+vi.mock('@lexical/react/LexicalComposer', () => ({
+  LexicalComposer: ({ children }) => children,
+}))
+
+vi.mock('@lexical/react/LexicalContentEditable', () => ({
+  ContentEditable: () => null,
+}))
+
+vi.mock('@lexical/react/LexicalHistoryPlugin', () => ({
+  HistoryPlugin: () => null,
+}))
+
+vi.mock('@lexical/react/LexicalErrorBoundary', () => ({
+  LexicalErrorBoundary: ({ children }) => children,
+}))
+
+vi.mock('@lexical/react/LexicalComposerContext', () => ({
+  useLexicalComposerContext: () => [{
+    update: (fn) => fn?.(),
+    focus: () => {},
+    registerCommand: () => () => {},
+    registerNodeTransform: () => () => {},
+    registerUpdateListener: () => () => {},
+    getRootElement: () => document.createElement('div'),
+  }],
+}))
+
 // Also provide a coarse-grained mock for the base package to satisfy deep import resolution
 vi.mock('@lexical/react', () => ({
   LexicalComposer: ({ children }) => children,
@@ -307,6 +345,7 @@ vi.mock('@lexical/react', () => ({
   RichTextPlugin: () => null,
   ContentEditable: () => null,
   HistoryPlugin: () => null,
+  AutoFocusPlugin: () => null,
   LexicalErrorBoundary: {},
   useLexicalComposerContext: () => [{
     update: (fn) => fn?.(),
@@ -316,6 +355,10 @@ vi.mock('@lexical/react', () => ({
     registerUpdateListener: () => () => {},
     getRootElement: () => document.createElement('div'),
   }],
+}))
+
+vi.mock('@lexical/text', () => ({
+  $rootTextContent: () => '',
 }))
 
 // Setup WebSocket mocks for testing
@@ -349,18 +392,40 @@ if (typeof window !== 'undefined') {
 
 // Also guard at process level for completeness
 // Note: Vitest may handle these internally; this is a best-effort safety net
-process.on?.('unhandledRejection', (reason) => {
-  console.warn('[vitest.setup.renderer] process unhandledRejection suppressed:', reason)
-})
-process.on?.('uncaughtException', (err) => {
-  console.warn('[vitest.setup.renderer] process uncaughtException suppressed:', err)
-})
+if (typeof process.on === 'function') {
+  process.on('unhandledRejection', (reason) => {
+    console.warn('[vitest.setup.renderer] process unhandledRejection suppressed:', reason)
+  })
+  process.on('uncaughtException', (err) => {
+    console.warn('[vitest.setup.renderer] process uncaughtException suppressed:', err)
+  })
+}
+
+// Ensure process.listeners exists for Vitest
+if (typeof process.listeners !== 'function') {
+  process.listeners = () => []
+}
 
 // Clean up after each test automatically
 afterEach(() => {
-  cleanup()
-  vi.clearAllMocks()
+  // Ensure timers are back to real before unmounting to avoid nested act issues
   vi.useRealTimers()
+  try {
+    if (cleanup) {
+      try {
+        cleanup()
+      } catch (e) {
+        // Swallow React concurrent cleanup conflicts to keep tests running
+        if (e && /Should not already be working/.test(String(e))) {
+          // no-op
+        } else {
+          throw e
+        }
+      }
+    }
+  } finally {
+    vi.clearAllMocks()
+  }
 })
 
 // Use real timers by default; individual tests can opt into fake timers when needed

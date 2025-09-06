@@ -1,7 +1,7 @@
 // export const urlRegex = /(https:\/\/[www.]?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b[-a-zA-Z0-9()@:%_+.~#?&/=]*)/gi;
 export const urlRegex = /(https?:\/\/[^\s]+)/g;
-export const kickEmoteRegex = /\[emote:(?<id>\d+)[:]?(?<name>[a-zA-Z0-9-_!]*)[:]?\]/g;
-export const kickEmoteInputRegex = /(?:^|\s)(:(?<emoteCase1>\w{3,}):)|(?:^|\s)(?<emoteCase2>\w{2,})\b/g;
+export const kickEmoteRegex = /\[emote:(?<id>\d+)(?::(?<name>[a-zA-Z0-9-_!]+))?\]/g;
+export const kickEmoteInputRegex = /(?:^|\s):(?<emoteCase1>\w{3,}):(?=\s|$)|\b(?<emoteCase2>\w{3,})\b/g;
 export const mentionRegex = /(?:^|\s)(@(?<username>[a-zA-Z0-9_]{3,})[,.]?)(?=\s|$)/g;
 export const kickClipRegex = /^https?:\/\/(www\.)?kick\.com\/.*\/clips\/.*/i;
 
@@ -12,6 +12,11 @@ const kickTalkCDN = "https://cdn.kicktalk.app";
 
 export const kickBadgeMap = {
   subscriber: (badge, subscriberBadges) => {
+    // Handle zero months edge case
+    if (badge.count === 0) {
+      return null;
+    }
+    
     if (!subscriberBadges?.length) {
       return {
         src: `${kickTalkCDN}/Badges/subscriber.svg`,
@@ -22,14 +27,24 @@ export const kickBadgeMap = {
     }
 
     const badgeData = subscriberBadges.sort((a, b) => b.months - a.months).find((b) => badge.count >= b.months);
-    return badgeData
-      ? {
-          src: badgeData.badge_image.src,
-          title: `${badge.count} Month ${badge.text}`,
-          info: `${badge.count} Month Subscriber`,
-          platform: "Kick",
-        }
-      : null;
+    
+    // Handle missing badge_image gracefully
+    if (badgeData && badgeData.badge_image?.src) {
+      return {
+        src: badgeData.badge_image.src,
+        title: `${badge.count} Month ${badge.text}`,
+        info: `${badge.count} Month Subscriber`,
+        platform: "Kick",
+      };
+    }
+    
+    // Fallback to default badge if no custom badge found or badge_image is missing
+    return {
+      src: `${kickTalkCDN}/Badges/subscriber.svg`,
+      title: `${badge.count} Month ${badge.text}`,
+      info: `${badge.count} Month Subscriber`,
+      platform: "Kick",
+    };
   },
   bot: { src: `${kickTalkCDN}/Badges/bot.svg`, title: "Bot", info: "Bot", platform: "Kick" },
   moderator: { src: `${kickTalkCDN}/Badges/moderator.svg`, title: "Moderator", info: "Moderator", platform: "Kick" },
@@ -56,22 +71,22 @@ export const kickBadgeMap = {
 
 // TODO: Finalize all possible errors returned
 export const CHAT_ERROR_CODES = {
-  ["FOLLOWERS_ONLY_ERROR"]: "You must be following this channel to send messages.",
-  ["Unauthorized"]: "You must login to chat.",
-  ["BANNED_ERROR"]: "You are banned or temporarily banned from this channel.",
-  ["SLOW_MODE_ERROR"]: "Chatroom is in slow mode. Slow down your messages.",
-  ["NO_LINKS_ERROR"]: "You are not allowed to send links in this chatroom.",
-  ["SUBSCRIBERS_ONLY_EMOTE_ERROR"]: "Message contains subscriber only emote.",
-  ["EMOTES_ONLY_ERROR"]: "Chatroom is in emote only mode. Only emotes are allowed.",
-  ["SUBSCRIBERS_ONLY_ERROR"]: "Chatroom is in subscribers only mode.",
-  ["ORIGINAL_MESSAGE_NOT_FOUND_ERROR"]: "Message cannot be replied to. It is old or no longer exists.",
-  ["CHAT_RATE_LIMIT_ERROR"]: "Rate limit triggered. Slow down.",
-  ["PINNED_MESSAGE_NOT_FOUND_ERROR"]: "Cannot pin message. It is old or no longer exists.",
+  FOLLOWERS_ONLY_ERROR: "You must be following this channel to send messages.",
+  Unauthorized: "You must login to chat.",
+  BANNED_ERROR: "You are banned or temporarily banned from this channel.",
+  SLOW_MODE_ERROR: "Chatroom is in slow mode. Slow down your messages.",
+  NO_LINKS_ERROR: "You are not allowed to send links in this chatroom.",
+  SUBSCRIBERS_ONLY_EMOTE_ERROR: "Message contains subscriber only emote.",
+  EMOTES_ONLY_ERROR: "Chatroom is in emote only mode. Only emotes are allowed.",
+  SUBSCRIBERS_ONLY_ERROR: "Chatroom is in subscribers only mode.",
+  ORIGINAL_MESSAGE_NOT_FOUND_ERROR: "Message cannot be replied to. It is old or no longer exists.",
+  CHAT_RATE_LIMIT_ERROR: "Rate limit triggered. Slow down.",
+  PINNED_MESSAGE_NOT_FOUND_ERROR: "Cannot pin message. It is old or no longer exists.",
 
   // Broadcaster Actions
-  ["USER_NOT_MODERATOR"]: "Unable to remove moderator from user. User is not a moderator.",
-  ["USER_NOT_VIP"]: "Unable to remove VIP from user. User is not a VIP.",
-  ["USER_NOT_OG"]: "Unable to remove OG from user. User is not an OG.",
+  USER_NOT_MODERATOR: "Unable to remove moderator from user. User is not a moderator.",
+  USER_NOT_VIP: "Unable to remove VIP from user. User is not a VIP.",
+  USER_NOT_OG: "Unable to remove OG from user. User is not an OG.",
 
   // Mod Actions
 };

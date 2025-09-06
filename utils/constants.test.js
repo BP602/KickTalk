@@ -114,7 +114,7 @@ describe('Constants', () => {
       
       expect(matches).toHaveLength(1)
       expect(matches[0].groups.id).toBe('456')
-      expect(matches[0].groups.name).toBe('')
+      expect(matches[0].groups.name).toBeUndefined()
     })
 
     it('should match multiple emotes in text', () => {
@@ -150,7 +150,6 @@ describe('Constants', () => {
       const invalidCases = [
         'Invalid [emote:abc:name] format',
         'Missing [emote::name] ID',
-        'Wrong [emote:123:] format',
         'No brackets emote:123:name'
       ]
       

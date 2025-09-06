@@ -154,10 +154,19 @@ const mockSearchDialog = {
 }
 
 global.window = {
+  ...global.window,
   app: {
     searchDialog: mockSearchDialog
   }
 }
+
+// Mock navigator.clipboard
+Object.defineProperty(navigator, 'clipboard', {
+  value: {
+    writeText: vi.fn()
+  },
+  writable: true
+})
 
 describe('Chat Component', () => {
   const defaultProps = {
@@ -459,17 +468,49 @@ describe('Chat Component', () => {
 
   describe('Error Handling', () => {
     it('should handle missing chatroom data gracefully', () => {
+      // Remove chatroom data before render
       mockChatStore.chatrooms = []
       
-      expect(() => render(<Chat {...defaultProps} />)).not.toThrow()
+      expect(() => {
+        render(<Chat {...defaultProps} />)
+      }).not.toThrow()
+      
+      // Restore for other tests
+      mockChatStore.chatrooms = [
+        {
+          id: 'chatroom-1',
+          slug: 'test-channel',
+          streamerData: {
+            user: { username: 'test-streamer' },
+            subscriber_badges: [
+              { id: '1', name: '1 month' },
+              { id: '2', name: '3 months' }
+            ]
+          },
+          channel7TVEmotes: [
+            { id: 'emote1', name: 'TestEmote1' },
+            { id: 'emote2', name: 'TestEmote2' }
+          ],
+          userChatroomInfo: { role: 'moderator', badges: [] },
+          isStreamerLive: true,
+          streamStatus: 'Live'
+        }
+      ]
       
       expect(screen.getByTestId('streamer-name')).toHaveTextContent('Unknown')
     })
 
     it('should handle malformed chatroom data', () => {
-      mockChatStore.chatrooms = [{ id: 'chatroom-1' }] // Missing required fields
+      // Set malformed data before render
+      const originalChatrooms = [...mockChatStore.chatrooms]
+      mockChatStore.chatrooms = [{ id: 'bad-data' }] // Missing required fields
       
-      expect(() => render(<Chat {...defaultProps} />)).not.toThrow()
+      expect(() => {
+        render(<Chat {...defaultProps} chatroomId="bad-data" />)
+      }).not.toThrow()
+      
+      // Restore original data
+      mockChatStore.chatrooms = originalChatrooms
       
       expect(screen.getByTestId('streamer-name')).toHaveTextContent('Unknown')
     })
@@ -481,25 +522,32 @@ describe('Chat Component', () => {
       })
       
       render(<Chat {...defaultProps} />)
+      const searchButton = screen.getByTestId('trigger-search')
       
       expect(() => {
-        fireEvent.click(screen.getByTestId('trigger-search'))
+        fireEvent.click(searchButton)
       }).not.toThrow()
       
       consoleSpy.mockRestore()
+      mockSearchDialog.open.mockReset()
     })
 
     it('should handle missing window.app.searchDialog', () => {
-      const originalApp = global.window.app
-      global.window.app = {}
-      
-      render(<Chat {...defaultProps} />)
+      const originalSearchDialog = window.app.searchDialog
+      delete window.app.searchDialog
       
       expect(() => {
-        fireEvent.keyDown(window, { key: 'f', ctrlKey: true })
+        render(<Chat {...defaultProps} />)
       }).not.toThrow()
       
-      global.window.app = originalApp
+      const searchButton = screen.queryByTestId('trigger-search')
+      if (searchButton) {
+        expect(() => {
+          fireEvent.click(searchButton)
+        }).not.toThrow()
+      }
+      
+      window.app.searchDialog = originalSearchDialog
     })
   })
 

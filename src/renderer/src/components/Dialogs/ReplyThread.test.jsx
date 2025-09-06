@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import ReplyThread from './ReplyThread.jsx'
+import React from 'react'
 
 // Mock static assets
 vi.mock('../../assets/icons/x-bold.svg?asset', () => ({ default: 'close-icon.svg' }))
@@ -714,7 +714,7 @@ describe('ReplyThread Component', () => {
       
       expect(() => {
         render(<ReplyThread />)
-      }).not.to Throw()
+      }).not.toThrow()
       
       window.app.replyLogs = originalLogs
     })

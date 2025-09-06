@@ -665,10 +665,11 @@ describe('KickWebSocket', () => {
         webSocketService.handleHeartbeat()
 
         expect(webSocketService.lastPingTime).toBeDefined()
-        expect(mockWebSocket.send).toHaveBeenCalledWith(
-          JSON.stringify({
+        const sent = JSON.parse(mockWebSocket.send.mock.calls.at(-1)[0])
+        expect(sent).toEqual(
+          expect.objectContaining({
             event: 'ping',
-            data: { timestamp: expect.any(Number) }
+            data: expect.objectContaining({ timestamp: expect.any(Number) })
           })
         )
       })
@@ -1044,6 +1045,8 @@ describe('KickWebSocket', () => {
       for (let i = 0; i < 5; i++) {
         if (errorHandler) {
           errorHandler(mockError)
+        } else {
+          webSocketService.handleError(mockError)
         }
       }
 

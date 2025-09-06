@@ -1,63 +1,61 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { resolve } from 'path'
 
-// Import the separate configs
-import rendererConfig from './vite.config.renderer.js'
-import mainConfig from './vite.config.main.js'
+// Determine which reporters to use
+const reporters = process.env.CI ? ['json', 'html'] : ['verbose', 'json', 'html']
+
+// Determine max forks
+const maxForks = process.env.CI ? 1 : 4
 
 export default defineConfig({
-  // Multi-project configuration
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@renderer': resolve('src/renderer/src'),
+      '@components': resolve('src/renderer/src/components'),
+      '@assets': resolve('src/renderer/src/assets'),
+      '@utils': resolve('utils'),
+      '@lexical/react': resolve('tests/mocks/lexical-react.js'),
+      'electron': resolve('tests/mocks/electron.js'),
+    },
+  },
   test: {
-    // Stop early on CI to save resources
-    bail: process.env.CI ? 1 : 0,
-    projects: [
-      // Renderer process tests (React components, hooks, utilities)
-      {
-        ...rendererConfig,
-        test: {
-          ...rendererConfig.test,
-          name: 'renderer',
-        }
-      },
-      
-      // Main process tests (Electron main, telemetry, services)
-      {
-        ...mainConfig,
-        test: {
-          ...mainConfig.test,
-          name: 'main',
-        }
-      }
-    ],
-
-    // Global test configuration
-    reporter: ['verbose', 'json', 'html'],
-    
-    // Output configuration
+    globals: true,
+    testTimeout: 20000,
+    reporters: reporters,
     outputFile: {
       json: './test-results.json',
       html: './test-report.html'
     },
-
-    // Watch/UI disabled by default to reduce overhead
-    watch: process.env.VITEST_WATCH === 'true',
-    ui: process.env.VITEST_UI === 'true',
-    
-    // Global coverage settings (can be overridden by individual projects)
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json-summary', 'html'],
-      reportsDirectory: './coverage',
-      exclude: [
-        'node_modules/',
-        'out/',
-        'dist/',
-        '**/*.config.{js,ts}',
-        '**/*.test.{js,jsx,ts,tsx}',
-        '**/*.spec.{js,jsx,ts,tsx}',
-        '**/test-utils/**',
-        'coverage/**'
-      ]
-    }
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        maxThreads: 1,
+        minThreads: 1
+      }
+    },
+    setupFiles: ['./vitest.setup.renderer.js'],
+    environmentMatchGlobs: [
+      ['src/renderer/**', 'jsdom'],
+      ['src/main/**', 'node'],
+      ['src/preload/**', 'node'],
+      ['src/telemetry/**', 'node'],
+      ['utils/**', 'node'],
+    ],
+    include: [
+      'src/**/*.{test,spec}.{js,jsx,ts,tsx}',
+      'utils/**/*.test.js'
+    ],
+    exclude: [
+      'node_modules/**',
+      'dist/**',
+      'out/**',
+      '.git/**',
+      '**/*.focused.test.*',
+      '**/test-utils.js',
+      '**/__tests__/test-utils.js'
+    ],
   }
 })

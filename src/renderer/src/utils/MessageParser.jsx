@@ -1,3 +1,4 @@
+import React from 'react';
 import { kickEmoteRegex, urlRegex, mentionRegex } from "@utils/constants";
 import Emote from "../components/Cosmetics/Emote";
 import { parse } from "tldts";
@@ -319,7 +320,12 @@ const parseMessageContent = ({
       }
 
       finalParts.push(part);
-      lastEmoteComponent = null;
+      // Check if this is an emote component for tracking zero-width emotes
+      if (React.isValidElement(part) && part.props && (part.props.type === 'kick' || part.props.type === 'stv')) {
+        lastEmoteComponent = part;
+      } else {
+        lastEmoteComponent = null;
+      }
       return;
     }
 

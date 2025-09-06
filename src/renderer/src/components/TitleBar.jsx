@@ -73,9 +73,7 @@ const TitleBar = () => {
           </div>
         )}
 
-        {settingsModalOpen && (
-          <Settings settingsModalOpen={settingsModalOpen} setSettingsModalOpen={setSettingsModalOpen} appInfo={appInfo} />
-        )}
+        {/* Settings modal is handled by window.app.settingsDialog */}
       </div>
 
       <Updater />

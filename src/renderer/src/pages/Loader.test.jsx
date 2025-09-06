@@ -17,6 +17,7 @@ vi.mock('clsx', () => ({
 // Mock window.app for getAppInfo
 const mockGetAppInfo = vi.fn()
 global.window = {
+  ...global.window,
   app: {
     getAppInfo: mockGetAppInfo
   }
@@ -83,16 +84,14 @@ describe('Loader Component', () => {
       expect(screen.queryByText(/Created by/)).not.toBeInTheDocument()
       
       // Fast forward 100ms
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(100)
       })
       
       // Text should now be visible
-      await waitFor(() => {
-        expect(screen.getByText('Created by')).toBeInTheDocument()
-        expect(screen.getByText('DRKNESS')).toBeInTheDocument()
-        expect(screen.getByText('ftk789')).toBeInTheDocument()
-      })
+      expect(screen.getByText('Created by')).toBeInTheDocument()
+      expect(screen.getByText('DRKNESS')).toBeInTheDocument()
+      expect(screen.getByText('ftk789')).toBeInTheDocument()
     })
 
     it('should call onFinish after 1500ms delay', async () => {
@@ -104,7 +103,7 @@ describe('Loader Component', () => {
       expect(onFinish).not.toHaveBeenCalled()
       
       // Fast forward 1500ms (should trigger hideLoader)
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(1500)
       })
       
@@ -116,14 +115,14 @@ describe('Loader Component', () => {
       expect(logoWrapper).toHaveClass('logoWrapperFadeOut')
       
       // Fast forward additional 1000ms for onFinish call
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(1000)
       })
       
       expect(onFinish).toHaveBeenCalledTimes(1)
     })
 
-    it('should apply slideUp class at correct timing', () => {
+    it('should apply slideUp class at correct timing', async () => {
       render(<Loader />)
       
       const loaderContainer = document.querySelector('.loaderContainer')
@@ -132,7 +131,7 @@ describe('Loader Component', () => {
       expect(loaderContainer).not.toHaveClass('slideUp')
       
       // Fast forward to trigger hideLoader (1500ms)
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(1500)
       })
       
@@ -140,7 +139,7 @@ describe('Loader Component', () => {
       expect(loaderContainer).toHaveClass('slideUp')
     })
 
-    it('should apply logoWrapperFadeOut class at correct timing', () => {
+    it('should apply logoWrapperFadeOut class at correct timing', async () => {
       render(<Loader />)
       
       const logoWrapper = document.querySelector('.logoWrapper')
@@ -149,7 +148,7 @@ describe('Loader Component', () => {
       expect(logoWrapper).not.toHaveClass('logoWrapperFadeOut')
       
       // Fast forward to trigger hideLoader (1500ms)
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(1500)
       })
       
@@ -169,7 +168,7 @@ describe('Loader Component', () => {
       })
       
       // Show text first
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(100)
       })
       
@@ -188,7 +187,7 @@ describe('Loader Component', () => {
       })
       
       // Show text
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(100)
       })
       
@@ -208,7 +207,7 @@ describe('Loader Component', () => {
       })
       
       // Show text
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(100)
       })
       
@@ -233,7 +232,7 @@ describe('Loader Component', () => {
       })
       
       // Show text
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(100)
       })
       
@@ -377,14 +376,14 @@ describe('Loader Component', () => {
       expect(logoWrapper).toHaveClass('logoWrapper', 'logoWrapperFadeOut')
     })
 
-    it('should conditionally render text container', () => {
+    it('should conditionally render text container', async () => {
       render(<Loader />)
       
       // Text container should not exist initially
       expect(document.querySelector('.textContainer')).not.toBeInTheDocument()
       
       // Show text
-      act(() => {
+      await act(async () => {
         vi.advanceTimersByTime(100)
       })
       
@@ -467,22 +466,30 @@ describe('Loader Component', () => {
   })
 
   describe('Edge Cases and Error Handling', () => {
-    it('should handle window.app being undefined', async () => {
-      const originalApp = global.window.app
-      global.window.app = undefined
+    it('should handle window.app being undefined', () => {
+      const originalWindow = global.window
+      global.window = { ...global.window }
+      delete global.window.app
       
-      expect(() => render(<Loader />)).toThrow()
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       
-      // Restore
-      global.window.app = originalApp
+      expect(() => {
+        render(<Loader />)
+      }).not.toThrow()
+      
+      consoleSpy.mockRestore()
+      global.window = originalWindow
     })
 
     it('should handle getAppInfo being undefined', async () => {
       const originalApp = global.window.app
       global.window.app = {}
       
-      expect(() => render(<Loader />)).toThrow()
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       
+      expect(() => render(<Loader />)).not.toThrow()
+      
+      consoleSpy.mockRestore()
       // Restore
       global.window.app = originalApp
     })

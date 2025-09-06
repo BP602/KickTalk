@@ -84,8 +84,10 @@ describe('LinkPreview Component', () => {
       render(<LinkPreview {...defaultProps} />)
       
       await waitFor(() => {
-        expect(screen.getByClassName('chatroomLinkPreviewWrapper')).toBeInTheDocument()
-        expect(screen.getByClassName('chatroomLinkPreview')).toBeInTheDocument()
+        const wrapper = document.querySelector('.chatroomLinkPreviewWrapper')
+        const preview = document.querySelector('.chatroomLinkPreview')
+        expect(wrapper).toBeInTheDocument()
+        expect(preview).toBeInTheDocument()
       })
     })
 
@@ -97,14 +99,16 @@ describe('LinkPreview Component', () => {
       
       render(<LinkPreview {...defaultProps} />)
       
-      expect(screen.getByClassName('chatroomLinkPreviewSkeleton')).toBeInTheDocument()
+      const skeleton = document.querySelector('.chatroomLinkPreviewSkeleton')
+      expect(skeleton).toBeInTheDocument()
     })
 
     it('should hide skeleton after data loads', async () => {
       render(<LinkPreview {...defaultProps} />)
       
       await waitFor(() => {
-        expect(screen.queryByClassName('chatroomLinkPreviewSkeleton')).not.toBeInTheDocument()
+        const skeleton = document.querySelector('.chatroomLinkPreviewSkeleton')
+        expect(skeleton).not.toBeInTheDocument()
         expect(screen.getByTestId('link-tooltip')).toBeInTheDocument()
       })
     })
@@ -147,7 +151,8 @@ describe('LinkPreview Component', () => {
       
       await waitFor(() => {
         // Skeleton should be gone even on error
-        expect(screen.queryByClassName('chatroomLinkPreviewSkeleton')).not.toBeInTheDocument()
+        const skeleton = document.querySelector('.chatroomLinkPreviewSkeleton')
+        expect(skeleton).not.toBeInTheDocument()
       })
     })
 
@@ -157,7 +162,8 @@ describe('LinkPreview Component', () => {
       render(<LinkPreview {...defaultProps} />)
       
       // Should show skeleton while waiting
-      expect(screen.getByClassName('chatroomLinkPreviewSkeleton')).toBeInTheDocument()
+      const skeleton = document.querySelector('.chatroomLinkPreviewSkeleton')
+      expect(skeleton).toBeInTheDocument()
     })
 
     it('should handle null API response', async () => {
@@ -295,13 +301,15 @@ describe('LinkPreview Component', () => {
       render(<LinkPreview {...defaultProps} />)
       
       // Should show skeleton initially
-      expect(screen.getByClassName('chatroomLinkPreviewSkeleton')).toBeInTheDocument()
+      const skeleton = document.querySelector('.chatroomLinkPreviewSkeleton')
+      expect(skeleton).toBeInTheDocument()
       
       // Resolve API call
       resolveApi(mockPreviewData)
       
       await waitFor(() => {
-        expect(screen.queryByClassName('chatroomLinkPreviewSkeleton')).not.toBeInTheDocument()
+        const skeleton = document.querySelector('.chatroomLinkPreviewSkeleton')
+        expect(skeleton).not.toBeInTheDocument()
         expect(screen.getByTestId('link-tooltip')).toBeInTheDocument()
       })
     })
@@ -328,7 +336,8 @@ describe('LinkPreview Component', () => {
       rerender(<LinkPreview url="https://kick.com/test2" />)
       
       // Should show skeleton for new URL
-      expect(screen.getByClassName('chatroomLinkPreviewSkeleton')).toBeInTheDocument()
+      const skeleton = document.querySelector('.chatroomLinkPreviewSkeleton')
+      expect(skeleton).toBeInTheDocument()
     })
   })
 

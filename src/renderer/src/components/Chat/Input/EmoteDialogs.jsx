@@ -52,28 +52,28 @@ const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChat
         </button>
       </div>
       <div className="emoteItems">
-        {emotes?.slice(0, visibleCount).map((emote, i) => (
+        {Array.isArray(emotes) && emotes.slice(0, visibleCount).map((emote, i) => (
           <Tooltip key={`${emote.id}-${emote.name}-${i}`} delayDuration={500}>
             <TooltipTrigger asChild>
               <button
-                aria-label={emote.name}
+                aria-label={emote?.name || ''}
                 disabled={type === "kick" && emote?.subscribers_only && !userChatroomInfo?.subscription}
-                onClick={() => handleEmoteClick(emote)}
+                onClick={() => handleEmoteClick?.(emote)}
                 className={clsx(
                   "emoteItem",
                   emote?.subscribers_only && !userChatroomInfo?.subscription && "emoteItemSubscriberOnly",
                 )}>
                 {type === "kick" ? (
                   <img
-                    src={`https://files.kick.com/emotes/${emote.id}/fullsize`}
-                    alt={emote.name}
+                    src={`https://files.kick.com/emotes/${emote?.id || ''}/fullsize`}
+                    alt={emote?.name || ''}
                     loading="lazy"
                     decoding="async"
                   />
                 ) : (
                   <img
-                    src={"https://cdn.7tv.app/emote/" + emote.id + "/1x.webp"}
-                    alt={emote.name}
+                    src={"https://cdn.7tv.app/emote/" + (emote?.id || '') + "/1x.webp"}
+                    alt={emote?.name || ''}
                     loading="lazy"
                     decoding="async"
                   />
@@ -91,7 +91,7 @@ const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChat
             </TooltipContent>
           </Tooltip>
         ))}
-        {visibleCount < emotes.length && <div ref={loadMoreTriggerRef} className="loadMoreTrigger" />}
+        {Array.isArray(emotes) && visibleCount < emotes.length && <div ref={loadMoreTriggerRef} className="loadMoreTrigger" />}
       </div>
     </div>
   );
@@ -108,9 +108,11 @@ const SevenTVEmoteDialog = memo(
       return sevenTVEmotes
         .map((emoteSection) => ({
           ...emoteSection,
-          emotes: (emoteSection.emotes || []).filter((emote) => emote.name.toLowerCase().includes(searchTerm.toLowerCase())),
+          emotes: (emoteSection?.emotes || []).filter(
+            (emote) => typeof emote?.name === 'string' && emote.name.toLowerCase().includes(searchTerm.toLowerCase()),
+          ),
         }))
-        .filter((section) => section.emotes && section.emotes.length > 0);
+        .filter((section) => Array.isArray(section.emotes) && section.emotes.length > 0);
     }, [sevenTVEmotes, searchTerm]);
 
     // Compute a safe avatar URL for the channel section (if present)
@@ -207,9 +209,11 @@ const KickEmoteDialog = memo(
       return kickEmotes
         .map((emoteSection) => ({
           ...emoteSection,
-          emotes: emoteSection.emotes.filter((emote) => emote.name.toLowerCase().includes(searchTerm.toLowerCase())),
+          emotes: (emoteSection?.emotes || []).filter(
+            (emote) => typeof emote?.name === 'string' && emote.name.toLowerCase().includes(searchTerm.toLowerCase()),
+          ),
         }))
-        .filter((section) => section.emotes.length > 0);
+        .filter((section) => Array.isArray(section.emotes) && section.emotes.length > 0);
     }, [kickEmotes, searchTerm]);
 
     const isChannelSet = kickEmotes?.find((emoteSection) => emoteSection?.name === "channel_set");

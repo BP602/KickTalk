@@ -83,6 +83,13 @@ vi.mock('@utils/constants', () => ({
   }
 }))
 
+// Top-level test data used in multiple suites
+const mockBadges = [
+  { type: 'moderator', count: 1, text: 'Moderator' },
+  { type: 'subscriber', count: 12, text: 'Subscriber' },
+  { type: 'bot', count: 1, text: 'Bot' }
+]
+
 describe('Badges Components', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -380,7 +387,8 @@ describe('Badges Components', () => {
       it('should use correct CDN URLs', () => {
         render(<KickTalkBadges badges={[mockKickTalkBadges[0]]} />)
         
-        const badgeImg = screen.getByAltText('KickTalk Founder')
+        const imgs = screen.getAllByAltText('KickTalk Founder')
+        const badgeImg = imgs.find(img => img.classList.contains('chatroomBadgeIcon')) || imgs[0]
         expect(badgeImg.src).toBe('https://cdn.kicktalk.app/founder.webp')
       })
 
@@ -402,12 +410,13 @@ describe('Badges Components', () => {
         render(<KickTalkBadges badges={mockKickTalkBadges} />)
         
         const badge = screen.getAllByClassName('chatroomBadge')[0]
+        const tooltips = screen.getAllByTestId('badge-tooltip')
         
         await user.hover(badge)
-        expect(screen.getByTestId('badge-tooltip')).toHaveStyle('display: block')
+        expect(tooltips[0]).toHaveStyle('display: block')
         
         await user.unhover(badge)
-        expect(screen.getByTestId('badge-tooltip')).toHaveStyle('display: none')
+        expect(tooltips[0]).toHaveStyle('display: none')
       })
     })
 
@@ -419,12 +428,20 @@ describe('Badges Components', () => {
         const { rerender } = render(<KickTalkBadges badges={badges1} />)
         
         // Should render same content
-        expect(screen.getByAltText('KickTalk Founder')).toBeInTheDocument()
+        {
+          const imgs = screen.getAllByAltText('KickTalk Founder')
+          const badgeImg = imgs.find(img => img.classList.contains('chatroomBadgeIcon')) || imgs[0]
+          expect(badgeImg).toBeInTheDocument()
+        }
         
         rerender(<KickTalkBadges badges={badges2} />)
         
         // Should still render (different array reference but same content)
-        expect(screen.getByAltText('KickTalk Founder')).toBeInTheDocument()
+        {
+          const imgs = screen.getAllByAltText('KickTalk Founder')
+          const badgeImg = imgs.find(img => img.classList.contains('chatroomBadgeIcon')) || imgs[0]
+          expect(badgeImg).toBeInTheDocument()
+        }
       })
     })
 
@@ -436,7 +453,9 @@ describe('Badges Components', () => {
         
         render(<KickTalkBadges badges={specialBadges} />)
         
-        expect(screen.getByAltText('Badge with "quotes" & symbols!')).toBeInTheDocument()
+        const imgs = screen.getAllByAltText('Badge with "quotes" & symbols!')
+        const visibleImg = imgs.find(img => img.classList.contains('chatroomBadgeIcon')) || imgs[0]
+        expect(visibleImg).toBeInTheDocument()
       })
 
       it('should handle very long badge titles', () => {
@@ -446,7 +465,9 @@ describe('Badges Components', () => {
         
         render(<KickTalkBadges badges={longTitleBadge} />)
         
-        expect(screen.getByAltText('A'.repeat(100))).toBeInTheDocument()
+        const imgs = screen.getAllByAltText('A'.repeat(100))
+        const visibleImg = imgs.find(img => img.classList.contains('chatroomBadgeIcon')) || imgs[0]
+        expect(visibleImg).toBeInTheDocument()
       })
     })
   })
@@ -463,13 +484,16 @@ describe('Badges Components', () => {
         render(<StvBadges badge={mockStvBadge} />)
         
         expect(screen.getByClassName('chatroomBadge')).toBeInTheDocument()
-        expect(screen.getByAltText('7TV Developer')).toBeInTheDocument()
+        const imgs = screen.getAllByAltText('7TV Developer')
+        expect(imgs.length).toBeGreaterThan(0)
       })
 
       it('should use provided badge URL', () => {
         render(<StvBadges badge={mockStvBadge} />)
         
-        const badgeImg = screen.getByAltText('7TV Developer')
+        const imgs = screen.getAllByAltText('7TV Developer')
+        // pick the visible badge icon element (has class chatroomBadgeIcon)
+        const badgeImg = imgs.find(img => img.classList.contains('chatroomBadgeIcon')) || imgs[0]
         expect(badgeImg.src).toBe(mockStvBadge.url)
       })
 

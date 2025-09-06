@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import React from 'react'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import EmoteDialogs from './EmoteDialogs.jsx'
+import mockUseClickOutside from '../../utils/useClickOutside.js'
+import { useShallow as mockedUseShallow } from 'zustand/react/shallow'
 
 // Mock dependencies
 vi.mock('clsx', () => ({
@@ -30,8 +33,8 @@ vi.mock('../../Shared/Tooltip', () => ({
   })
 }))
 
-// Mock useClickOutside
-vi.mock('../../../utils/useClickOutside', () => ({
+// Mock useClickOutside with the exact path used in the component
+vi.mock('../../utils/useClickOutside.js', () => ({
   default: vi.fn()
 }))
 
@@ -107,9 +110,7 @@ vi.mock('../../../providers/ChatProvider', () => ({
   })
 }))
 
-vi.mock('zustand/react/shallow', () => ({
-  useShallow: vi.fn((fn) => fn)
-}))
+// useShallow is globally mocked in vitest.setup.renderer.js; we import it above as mockedUseShallow
 
 // Mock IntersectionObserver
 const mockIntersectionObserver = vi.fn().mockImplementation((callback) => ({
@@ -155,7 +156,7 @@ describe('EmoteDialogs Component', () => {
       render(<EmoteDialogs {...defaultProps} />)
       
       const stvButton = screen.getByRole('button', { name: /7TV Emotes/i })
-      const kickButton = screen.getByRole('button')
+      const kickButton = screen.getAllByRole('button').find(btn => btn.classList.contains('kickEmoteButton'))
       
       expect(stvButton).toBeInTheDocument()
       expect(kickButton).toBeInTheDocument()
@@ -171,7 +172,7 @@ describe('EmoteDialogs Component', () => {
       render(<EmoteDialogs {...defaultProps} />)
       
       // The kick button should display a random emote
-      const kickButton = screen.getByRole('button')
+      const kickButton = screen.getAllByRole('button').find(btn => btn.classList.contains('kickEmoteButton'))
       const emoteImg = kickButton.querySelector('img.kickEmote')
       expect(emoteImg).toBeInTheDocument()
     })
@@ -687,19 +688,16 @@ describe('EmoteDialogs Component', () => {
 
   describe('Click Outside Behavior', () => {
     it('should register click outside handler', () => {
-      const mockUseClickOutside = vi.mocked(require('../../../utils/useClickOutside').default)
-      
       render(<EmoteDialogs {...defaultProps} />)
-      
-      expect(mockUseClickOutside).toHaveBeenCalledWith(
-        expect.objectContaining({ current: null }),
-        expect.any(Function)
-      )
+      expect(mockUseClickOutside).toHaveBeenCalled()
+      const [refArg, cbArg] = mockUseClickOutside.mock.calls[0]
+      expect(refArg).toEqual(expect.objectContaining({ current: expect.any(HTMLElement) }))
+      expect(typeof cbArg).toBe('function')
     })
 
     it('should close dialog when clicking outside', async () => {
       let clickOutsideCallback
-      vi.mocked(require('../../../utils/useClickOutside').default).mockImplementation((ref, callback) => {
+      mockUseClickOutside.mockImplementation((ref, callback) => {
         clickOutsideCallback = callback
       })
       
@@ -750,9 +748,7 @@ describe('EmoteDialogs Component', () => {
         }]
       }
       
-      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => {
-        return selector(storeWithoutEmojis)
-      })
+      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => selector(storeWithoutEmojis))
       
       render(<EmoteDialogs {...defaultProps} />)
       
@@ -767,18 +763,13 @@ describe('EmoteDialogs Component', () => {
 
   describe('Integration with Chat Provider', () => {
     it('should use useShallow selector', () => {
-      const mockUseShallow = vi.mocked(require('zustand/react/shallow').useShallow)
-      
       render(<EmoteDialogs {...defaultProps} />)
-      
-      expect(mockUseShallow).toHaveBeenCalled()
+      expect(mockedUseShallow).toHaveBeenCalled()
     })
 
     it('should fetch emotes for correct chatroom', () => {
       const mockChatProvider = vi.mocked(require('../../../providers/ChatProvider').default)
-      
       render(<EmoteDialogs {...defaultProps} chatroomId="test-chatroom-1" />)
-      
       expect(mockChatProvider).toHaveBeenCalledWith(expect.any(Function))
     })
 
@@ -788,9 +779,7 @@ describe('EmoteDialogs Component', () => {
         personalEmoteSets: []
       }
       
-      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => {
-        return selector(emptyStore)
-      })
+      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => selector(emptyStore))
       
       expect(() => {
         render(<EmoteDialogs {...defaultProps} chatroomId="nonexistent" />)
@@ -809,9 +798,7 @@ describe('EmoteDialogs Component', () => {
         personalEmoteSets: undefined
       }
       
-      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => {
-        return selector(storeWithUndefinedEmotes)
-      })
+      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => selector(storeWithUndefinedEmotes))
       
       expect(() => {
         render(<EmoteDialogs {...defaultProps} />)
@@ -828,9 +815,7 @@ describe('EmoteDialogs Component', () => {
         personalEmoteSets: null
       }
       
-      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => {
-        return selector(storeWithNullEmotes)
-      })
+      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => selector(storeWithNullEmotes))
       
       expect(() => {
         render(<EmoteDialogs {...defaultProps} />)
@@ -847,9 +832,7 @@ describe('EmoteDialogs Component', () => {
         personalEmoteSets: []
       }
       
-      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => {
-        return selector(storeWithEmptyEmotes)
-      })
+      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => selector(storeWithEmptyEmotes))
       
       expect(() => {
         render(<EmoteDialogs {...defaultProps} />)
@@ -878,9 +861,7 @@ describe('EmoteDialogs Component', () => {
         personalEmoteSets: []
       }
       
-      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => {
-        return selector(storeWithMalformedEmotes)
-      })
+      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => selector(storeWithMalformedEmotes))
       
       expect(() => {
         render(<EmoteDialogs {...defaultProps} />)
@@ -926,9 +907,7 @@ describe('EmoteDialogs Component', () => {
         }]
       }
       
-      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => {
-        return selector(updatedStore)
-      })
+      vi.mocked(require('../../../providers/ChatProvider').default).mockImplementation((selector) => selector(updatedStore))
       
       rerender(<EmoteDialogs {...defaultProps} />)
       
@@ -959,7 +938,7 @@ describe('EmoteDialogs Component', () => {
       const stvButton = screen.getByRole('button', { name: /7TV Emotes/i })
       await user.click(stvButton)
       
-      const emoteButton = screen.getByRole('button', { name: 'OMEGALUL' })
+      const emoteButton = await screen.findByRole('button', { name: 'OMEGALUL' })
       
       // Tab to emote button and press enter
       await user.tab()

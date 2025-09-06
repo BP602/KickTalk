@@ -232,11 +232,26 @@ if (typeof globalThis.WebSocket === 'undefined') {
   globalThis.WebSocket = MockWebSocket
 }
 
-// Setup environment variables for testing
-beforeAll(() => {
-  process.env.NODE_ENV = 'test'
-  process.env.VITEST = 'true'
-})
+// Ensure process.env exists before setup
+if (typeof process.env === 'undefined') {
+  process.env = {}
+}
+
+// Only run main setup in node environment
+if (typeof window !== 'undefined') {
+  // Skip setup for browser environment
+} else {
+  // Setup environment variables for testing
+  beforeAll(() => {
+    // Ensure process.env exists
+    if (!process.env) {
+      process.env = {}
+    }
+    
+    process.env.NODE_ENV = 'test'
+    process.env.VITEST = 'true'
+  })
+}
 
 // Clean up after each test
 afterEach(() => {

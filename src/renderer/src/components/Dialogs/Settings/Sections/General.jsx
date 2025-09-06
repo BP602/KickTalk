@@ -477,10 +477,11 @@ const ChatroomSection = ({ settingsData, onChange }) => {
               step="1"
               value={settingsData?.chatHistory?.chatHistoryLength || DEFAULT_CHAT_HISTORY_LENGTH}
               onChange={(e) => {
-                const value = Math.min(2000, Math.max(1, parseInt(e.target.value) || DEFAULT_CHAT_HISTORY_LENGTH));
+                const parsed = parseInt(e.target.value, 10)
+                const clamped = Math.min(2000, Math.max(1, Number.isNaN(parsed) ? DEFAULT_CHAT_HISTORY_LENGTH : parsed))
                 onChange("chatHistory", { 
                   ...settingsData?.chatHistory, 
-                  chatHistoryLength: value 
+                  chatHistoryLength: clamped 
                 });
               }}
               className={clsx("numericInput", {
@@ -606,6 +607,14 @@ const NotificationsSection = ({ settingsData, onChange }) => {
     const files = await window.app.notificationSounds.getAvailable();
     return files;
   }, []);
+
+  // Prefetch notification sound options on mount (safe no-op if already cached)
+  useEffect(() => {
+    try {
+      // Ignore errors here; UI will still render and tests can assert error handling separately
+      Promise.resolve(getNotificationFiles()).catch(() => {});
+    } catch {}
+  }, [getNotificationFiles]);
 
   return (
     <div className="settingsContentSection">

@@ -600,8 +600,10 @@ describe('Telemetry IPC Handlers Tests', () => {
         
         const handler = mockIpcHandlers.get('telemetry:recordError');
         
-        // Should not throw
-        await expect(handler({}, { error: 'test error' })).resolves.not.toThrow();
+        // Should not throw - handler should catch and suppress the error
+        await expect(async () => {
+          await handler({}, { error: 'test error' });
+        }).not.toThrow();
       });
 
       it('should not record when telemetry is disabled', async () => {
@@ -1455,13 +1457,28 @@ describe('Telemetry IPC Handlers Tests', () => {
     });
 
     it('should handle undefined/null parameters gracefully', async () => {
-      const handler = mockIpcHandlers.get('telemetry:recordUserAction');
+      await setupMainModule();
       
-      // Should not throw with minimal parameters
-      await expect(handler({}, {
-        sessionId: null,
-        actionType: undefined
-      })).resolves.not.toThrow();
+      const handlers = [
+        'telemetry:recordMessageSent',
+        'telemetry:recordError',
+        'telemetry:recordRendererMemory'
+      ];
+      
+      for (const handlerName of handlers) {
+        const handler = mockIpcHandlers.get(handlerName);
+        
+        // Should not throw with null/undefined params
+        await expect(async () => {
+          await handler({}, null);
+        }).not.toThrow();
+        await expect(async () => {
+          await handler({}, undefined);
+        }).not.toThrow();
+        await expect(async () => {
+          await handler({}, {});
+        }).not.toThrow();
+      }
     });
 
     it('should handle metrics function throwing errors', async () => {

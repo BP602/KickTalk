@@ -1,5 +1,6 @@
 export const LexicalComposer = ({ children }) => children
 export const PlainTextPlugin = () => null
+export const AutoFocusPlugin = () => null
 export const RichTextPlugin = () => null
 export const ContentEditable = () => null
 export const HistoryPlugin = () => null

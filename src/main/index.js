@@ -1312,9 +1312,15 @@ const loginToKick = async (method) => {
     }
 
     const checkForSessionToken = async () => {
-      const cookies = await session.defaultSession.cookies.get({ domain: "kick.com" });
-      const sessionCookie = cookies.find((cookie) => cookie.name === "session_token");
-      const kickSession = cookies.find((cookie) => cookie.name === "kick_session");
+      // Be defensive in tests/mocked environments where session or cookies may be missing
+      let cookies = []
+      try {
+        const result = await (session?.defaultSession?.cookies?.get?.({ domain: "kick.com" }))
+        if (Array.isArray(result)) cookies = result
+      } catch {}
+
+      const sessionCookie = cookies.find?.((cookie) => cookie.name === "session_token")
+      const kickSession = cookies.find?.((cookie) => cookie.name === "kick_session")
       if (sessionCookie && kickSession) {
         // Save the session token and kick session to the .env file
         const sessionToken = decodeURIComponent(sessionCookie.value);

@@ -72,6 +72,7 @@ describe('SettingsProvider', () => {
     
     // Mock window.app.store
     global.window = {
+      ...global.window,
       app: {
         store: mockElectronStore
       }

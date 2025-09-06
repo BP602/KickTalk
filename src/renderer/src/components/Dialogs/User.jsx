@@ -226,7 +226,7 @@ const User = () => {
               <button
                 className={clsx("dialogHeaderOptionsButton", isUserSilenced && "muted")}
                 disabled={
-                  kickUsername?.replaceAll("-", "_").toLowerCase() === dialogData?.sender?.username?.toLowerCase() ||
+                  (typeof kickUsername === 'string' ? kickUsername.replaceAll("-", "_").toLowerCase() : '') === dialogData?.sender?.username?.toLowerCase() ||
                   !kickUsername
                 }
                 onClick={silenceUser}>

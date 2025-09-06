@@ -125,10 +125,13 @@ const mockSettingsDialog = {
   close: vi.fn()
 }
 
-global.window.app = {
-  getAppInfo: vi.fn().mockResolvedValue(mockAppInfo),
-  settingsDialog: mockSettingsDialog,
-  logout: vi.fn()
+global.window = {
+  ...global.window,
+  app: {
+    getAppInfo: vi.fn().mockResolvedValue(mockAppInfo),
+    settingsDialog: mockSettingsDialog,
+    logout: vi.fn()
+  }
 }
 
 describe('Settings Dialog Component', () => {
