@@ -29,7 +29,18 @@ if (typeof vi.requireActual !== 'function') {
 
 // Make React available globally for any code paths that still expect it
 if (typeof globalThis.React === 'undefined') {
-  globalThis.React = React
+  // Provide a spy-friendly shim instead of the ESM namespace object
+  const ReactShim = { ...React }
+  try {
+    Object.keys(React).forEach((k) => {
+      const desc = Object.getOwnPropertyDescriptor(React, k)
+      if (desc && !desc.writable) {
+        // Redefine as writable/configurable on the shim
+        Object.defineProperty(ReactShim, k, { value: React[k], writable: true, configurable: true, enumerable: true })
+      }
+    })
+  } catch {}
+  globalThis.React = ReactShim
 }
 
 // Allow requiring .jsx in tests that use CommonJS require()
@@ -206,6 +217,55 @@ if (typeof globalThis.ClipboardEvent === 'undefined') {
   globalThis.ClipboardEvent = function ClipboardEvent() {}
 }
 
+// Ensure DOM constructor globals exist for instanceof checks (React selection)
+try {
+  if (typeof window !== 'undefined') {
+    // Ensure document.defaultView exists for React selection helpers
+    try {
+      if (!document.defaultView) {
+        Object.defineProperty(document, 'defaultView', { value: window, configurable: true })
+      }
+      // Avoid React selection instanceof checks explosion; provide safe activeElement
+      try {
+        Object.defineProperty(document, 'activeElement', { get: () => document.body || null, configurable: true })
+      } catch {}
+    } catch {}
+    const ctorKeys = [
+      'Node', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLSelectElement',
+      'Document', 'HTMLDocument', 'DocumentFragment', 'HTMLIFrameElement', 'SVGElement',
+      'ShadowRoot', 'Range', 'Selection'
+    ]
+    ctorKeys.forEach((k) => {
+      if (typeof globalThis[k] === 'undefined' && window[k]) {
+        globalThis[k] = window[k]
+      }
+    })
+
+    // Minimal Selection + Range stubs for React selection logic if missing
+    if (typeof window.getSelection !== 'function') {
+      window.getSelection = () => ({
+        removeAllRanges: () => {},
+        addRange: () => {},
+        anchorNode: null,
+        focusNode: null,
+        toString: () => ''
+      })
+    }
+    if (typeof document.createRange !== 'function') {
+      document.createRange = () => ({
+        setStart: () => {},
+        setEnd: () => {},
+        setStartBefore: () => {},
+        setEndAfter: () => {},
+        selectNode: () => {},
+        selectNodeContents: () => {},
+        collapse: () => {},
+        commonAncestorContainer: document.body || document,
+      })
+    }
+  }
+} catch {}
+
 // Work around user-event + fake timers interaction that can hang clicks.
 // When tests opt into fake timers by passing advanceTimers to userEvent.setup,
 // prefer a synchronous click via Testing Library's fireEvent to avoid timing deadlocks.
@@ -213,18 +273,49 @@ try {
   vi.mock('@testing-library/user-event', async () => {
     const actual = await vi.importActual('@testing-library/user-event')
     const rtl = await import('@testing-library/react')
-    const setup = (options = {}) => {
-      const u = actual.default.setup(options)
-      if (options && options.advanceTimers) {
-        return {
-          ...u,
-          click: async (element, init) => {
-            rtl.fireEvent.click(element, init)
-          },
-        }
+  const setup = (options = {}) => {
+    const u = actual.default.setup(options)
+    if (options && options.advanceTimers) {
+      return {
+        ...u,
+        click: async (element, init) => {
+          rtl.fireEvent.click(element, init)
+        },
+        type: async (element, text) => {
+          // Synchronously set the value and dispatch input/change events
+          const prev = element.value ?? ''
+          const next = prev + String(text)
+          rtl.fireEvent.input(element, { target: { value: next } })
+          rtl.fireEvent.change(element, { target: { value: next } })
+        },
+        clear: async (element) => {
+          rtl.fireEvent.input(element, { target: { value: '' } })
+          rtl.fireEvent.change(element, { target: { value: '' } })
+        },
+        keyboard: async (sequence) => {
+          // Handle a couple of common keys synchronously
+          const seq = String(sequence)
+          if (seq.includes('{Enter}')) {
+            rtl.fireEvent.keyDown(document.activeElement || document.body, { key: 'Enter' })
+            rtl.fireEvent.keyUp(document.activeElement || document.body, { key: 'Enter' })
+          }
+          if (seq.includes('{Escape}')) {
+            rtl.fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+            rtl.fireEvent.keyUp(document.activeElement || document.body, { key: 'Escape' })
+          }
+          if (seq.includes('{ArrowDown}')) {
+            rtl.fireEvent.keyDown(document.activeElement || document.body, { key: 'ArrowDown' })
+            rtl.fireEvent.keyUp(document.activeElement || document.body, { key: 'ArrowDown' })
+          }
+          if (seq.includes('{ArrowUp}')) {
+            rtl.fireEvent.keyDown(document.activeElement || document.body, { key: 'ArrowUp' })
+            rtl.fireEvent.keyUp(document.activeElement || document.body, { key: 'ArrowUp' })
+          }
+        },
       }
-      return u
     }
+    return u
+  }
     return { __esModule: true, default: { ...actual.default, setup } }
   })
 } catch {}

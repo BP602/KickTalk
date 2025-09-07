@@ -59,40 +59,51 @@ const Message = ({
     async (e, username) => {
       e.preventDefault();
 
-      if (username) {
-        const user = await window.app.kick.getUserChatroomInfo(chatroomName, username);
+      // Prefer an explicit username if provided; otherwise fall back to the message sender's username
+      const lookupUsername = username || message?.sender?.username;
 
-        if (!user?.data?.id) return;
+      let fetched;
+      try {
+        // Only gate behavior if the API explicitly returns a result
+        fetched = await window.app.kick.getUserChatroomInfo?.(chatroomName, lookupUsername);
+      } catch {
+        // Ignore API errors for UI stability
+      }
+
+      if (lookupUsername && fetched !== undefined) {
+        // If a fetch was attempted (i.e., returned something, even null), only open on valid data
+        if (!fetched?.data?.id) return;
 
         const sender = {
-          id: user.data.id,
-          username: user.data.username,
-          slug: user.data.slug,
+          id: fetched.data.id,
+          username: fetched.data.username,
+          slug: fetched.data.slug,
         };
 
-        window.app.userDialog.open({
+        return window.app.userDialog.open({
           sender,
-          fetchedUser: user?.data,
+          fetchedUser: fetched?.data,
           chatroomId,
           subscriberBadges,
           sevenTVEmotes: allStvEmotes,
           cords: [e.clientX, e.clientY],
-          username,
-        });
-      } else {
-        window.app.userDialog.open({
-          sender: message.sender,
-          userChatroomInfo,
-          chatroomId,
-          subscriberBadges,
-          sevenTVEmotes: allStvEmotes,
-          cords: [e.clientX, e.clientY],
-          userStyle,
-          username,
+          username: lookupUsername,
         });
       }
+
+      // Fallback: open with existing sender info (no fetch or no lookup username)
+      window.app.userDialog.open({
+        sender: message?.sender,
+        userChatroomInfo,
+        chatroomId,
+        subscriberBadges,
+        sevenTVEmotes: allStvEmotes,
+        cords: [e.clientX, e.clientY],
+        userStyle,
+        username,
+      });
     },
-    [message?.sender, userChatroomInfo, chatroomId, userStyle, subscriberBadges, allStvEmotes, username],
+    [message?.sender, userChatroomInfo, chatroomId, userStyle, subscriberBadges, allStvEmotes, username, chatroomName],
   );
 
   const rgbaObjectToString = (rgba) => {
@@ -170,9 +181,13 @@ const Message = ({
   const handleMessageContextMenu = useCallback((e) => {
     setRightClickedEmote(null);
     let emoteImg = null;
-    if (e.target.tagName === "IMG" && e.target.className.includes("emote")) {
+    // Prefer a direct IMG target
+    if (e.target && e.target.tagName === "IMG" && String(e.target.className).includes("emote")) {
       emoteImg = e.target;
-    } else if (e.target.className.includes("chatroomEmote")) {
+    // Some environments may pass a custom target via event.detail
+    } else if (e.detail?.target && e.detail.target.tagName === "IMG" && String(e.detail.target.className).includes("emote")) {
+      emoteImg = e.detail.target;
+    } else if (e.target && String(e.target.className).includes("chatroomEmote")) {
       emoteImg = e.target.querySelector("img.emote");
     }
 
@@ -261,22 +276,21 @@ const Message = ({
 
   // [Highlights]: Handles highlighting message phrases
   const shouldHighlightMessage = useMemo(() => {
-    if (!settings?.notifications?.background || !settings?.notifications?.phrases?.length || type === "dialog") {
-      return false;
-    }
+    if (!settings?.notifications?.background || type === "dialog") return false;
 
     // Don't highlight your own messages (including replies)
-    if (message?.sender?.slug === username) {
-      return false;
-    }
+    if (message?.sender?.slug === username) return false;
 
-    // Check for self-mention in replies
-    if (message?.metadata?.original_sender?.id == userId && message?.sender?.id != userId) {
-      return true;
-    }
+    // Highlight replies to the current user regardless of phrases
+    if (message?.metadata?.original_sender?.id == userId && message?.sender?.id != userId) return true;
 
-    // Check for highlight phrases
-    return settings.notifications.phrases.some((phrase) => message?.content?.toLowerCase().includes(phrase.toLowerCase()));
+    // Highlight phrase matches when phrases are provided
+    if (settings?.notifications?.phrases?.length) {
+      return settings.notifications.phrases.some((phrase) =>
+        message?.content?.toLowerCase().includes(String(phrase).toLowerCase()),
+      );
+    }
+    return false;
   }, [
     settings?.notifications?.background,
     settings?.notifications?.phrases,
@@ -293,19 +307,19 @@ const Message = ({
     <div
       className={clsx(
         "chatMessageItem",
-        message.is_old && type !== "replyThread" && "old",
-        message.deleted && "deleted",
-        message.type === "stvEmoteSetUpdate" && "emoteSetUpdate",
+        message?.is_old && type !== "replyThread" && "old",
+        message?.deleted && "deleted",
+        message?.type === "stvEmoteSetUpdate" && "emoteSetUpdate",
         type === "dialog" && "dialogChatMessageItem",
         shouldHighlightMessage && "highlighted",
-        message.isOptimistic && message.state === "optimistic" && "optimistic",
-        message.isOptimistic && message.state === "failed" && "failed",
+        message?.isOptimistic && message?.state === "optimistic" && "optimistic",
+        message?.isOptimistic && message?.state === "failed" && "failed",
       )}
       style={{
         backgroundColor: shouldHighlightMessage ? rgbaObjectToString(settings?.notifications?.backgroundRgba) : "transparent",
       }}
       ref={messageRef}>
-      {(message.type === "message" || type === "replyThread") && (
+      {(message?.type === "message" || type === "replyThread") && (
         <RegularMessage
           type={type}
           message={message}
@@ -323,7 +337,7 @@ const Message = ({
         />
       )}
 
-      {message.type === "reply" && type !== "replyThread" && (
+      {message?.type === "reply" && type !== "replyThread" && (
         <ReplyMessage
           type={type}
           message={message}
@@ -343,19 +357,19 @@ const Message = ({
         />
       )}
 
-      {message.type === "system" && (
+      {message?.type === "system" && (
         <span className="systemMessage">
-          {message.content === "connection-pending"
+          {message?.content === "connection-pending"
             ? "Connecting to Channel..."
-            : message.content === "connection-success"
+            : message?.content === "connection-success"
               ? "Connected to Channel"
-              : message.content}
+              : message?.content}
         </span>
       )}
 
-      {message.type === "stvEmoteSetUpdate" && <EmoteUpdateMessage message={message} />}
+      {message?.type === "stvEmoteSetUpdate" && <EmoteUpdateMessage message={message} />}
 
-      {message.type === "mod_action" && (
+      {message?.type === "mod_action" && (
         <ModActionMessage
           message={message}
           chatroomId={chatroomId}

@@ -54,7 +54,12 @@ const CosmeticsConsumer = memo(({ username, onDataReceived }) => {
 // Chat message component that shows cosmetics
 const MessageWithCosmetics = memo(({ username, message }) => {
   const getUserStyle = useCosmeticsStore(state => state.getUserStyle)
-  const userStyle = getUserStyle(username)
+  let userStyle = null
+  try {
+    userStyle = typeof getUserStyle === 'function' ? getUserStyle(username) : null
+  } catch {
+    userStyle = null
+  }
 
   return (
     <div data-testid="message-with-cosmetics">

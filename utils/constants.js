@@ -1,7 +1,7 @@
 // export const urlRegex = /(https:\/\/[www.]?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b[-a-zA-Z0-9()@:%_+.~#?&/=]*)/gi;
 export const urlRegex = /(https?:\/\/[^\s]+)/g;
-export const kickEmoteRegex = /\[emote:(?<id>\d+)(?::(?<name>[a-zA-Z0-9-_!]+))?\]/g;
-export const kickEmoteInputRegex = /(?:^|\s):(?<emoteCase1>\w{3,}):(?=\s|$)|\b(?<emoteCase2>\w{3,})\b/g;
+export const kickEmoteRegex = /\[emote:(?<id>\d+)(?::(?<name>[a-zA-Z0-9-_!]*):?)?\]/g;
+export const kickEmoteInputRegex = /(?:^|\s):(?<emoteCase1>\w{3,}):|\b(?<emoteCase2>\w{3,})\b/g;
 export const mentionRegex = /(?:^|\s)(@(?<username>[a-zA-Z0-9_]{3,})[,.]?)(?=\s|$)/g;
 export const kickClipRegex = /^https?:\/\/(www\.)?kick\.com\/.*\/clips\/.*/i;
 
@@ -80,7 +80,7 @@ export const CHAT_ERROR_CODES = {
   EMOTES_ONLY_ERROR: "Chatroom is in emote only mode. Only emotes are allowed.",
   SUBSCRIBERS_ONLY_ERROR: "Chatroom is in subscribers only mode.",
   ORIGINAL_MESSAGE_NOT_FOUND_ERROR: "Message cannot be replied to. It is old or no longer exists.",
-  CHAT_RATE_LIMIT_ERROR: "Rate limit triggered. Slow down.",
+  CHAT_RATE_LIMIT_ERROR: "rate limit triggered. Slow down.",
   PINNED_MESSAGE_NOT_FOUND_ERROR: "Cannot pin message. It is old or no longer exists.",
 
   // Broadcaster Actions

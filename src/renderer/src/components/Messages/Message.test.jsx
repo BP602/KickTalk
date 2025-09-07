@@ -52,8 +52,12 @@ vi.mock('./EmoteUpdateMessage', () => ({
 
 vi.mock('../Shared/ContextMenu', () => ({
   ContextMenu: ({ children }) => <div data-testid="context-menu">{children}</div>,
+  // Forward synthetic event, but prefer a provided detail payload for tests
   ContextMenuTrigger: ({ children, onContextMenu, asChild }) => (
-    <div onContextMenu={onContextMenu} data-testid="context-menu-trigger">
+    <div
+      onContextMenu={(e) => onContextMenu?.(e.detail ? { ...e, detail: e.detail } : e)}
+      data-testid="context-menu-trigger"
+    >
       {children}
     </div>
   ),
@@ -70,8 +74,12 @@ vi.mock('../Shared/ContextMenu', () => ({
 }))
 
 // Mock stores
-const mockUseChatStore = vi.fn()
-const mockUseCosmeticsStore = vi.fn()
+// Important: vi.mock factory functions are hoisted. Use vi.hoisted to
+// create references that are available to the mock factory at hoist time.
+const { mockUseChatStore, mockUseCosmeticsStore } = vi.hoisted(() => ({
+  mockUseChatStore: vi.fn(),
+  mockUseCosmeticsStore: vi.fn(),
+}))
 
 vi.mock('../../providers/ChatProvider', () => ({
   default: mockUseChatStore
@@ -105,12 +113,7 @@ const mockWindowApp = {
   }
 }
 
-// Mock clipboard
-Object.defineProperty(navigator, 'clipboard', {
-  value: {
-    writeText: vi.fn()
-  }
-})
+// Rely on global clipboard mocks from vitest.setup.renderer.js
 
 describe('Message Component', () => {
   const mockMessage = {
@@ -504,12 +507,13 @@ describe('Message Component', () => {
 
     it('should copy message content', async () => {
       const user = userEvent.setup()
+      const spy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
       render(<Message {...mockProps} />)
       
       const copyButton = screen.getByText('Copy Message')
       await user.click(copyButton)
       
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('Test message content')
+      expect(spy).toHaveBeenCalledWith('Test message content')
     })
 
     it('should open reply dialog', async () => {
@@ -581,49 +585,48 @@ describe('Message Component', () => {
   })
 
   describe('Emote Context Menu', () => {
-    it('should detect 7TV emote right-click', () => {
+    it('should detect 7TV emote right-click', async () => {
       render(<Message {...mockProps} />)
       
       const trigger = screen.getByTestId('context-menu-trigger')
+      const container = trigger.querySelector('.chatMessageItem')
       
-      // Create mock emote image
+      // Create mock emote image and inject into DOM
       const mockEmoteImg = document.createElement('img')
       mockEmoteImg.className = 'emote'
       mockEmoteImg.alt = 'OMEGALUL'
       mockEmoteImg.src = 'https://cdn.7tv.app/emote/123abc/2x.webp'
+      container.appendChild(mockEmoteImg)
       
-      const contextMenuEvent = {
-        preventDefault: vi.fn(),
-        target: mockEmoteImg
-      }
-      
-      fireEvent.contextMenu(trigger, contextMenuEvent)
+      // Right-click on the emote image (bubbles to trigger)
+      fireEvent.contextMenu(mockEmoteImg)
       
       // Verify emote context menu items appear
-      expect(screen.getByText('Open Emote Links')).toBeInTheDocument()
-      expect(screen.getByText('Copy Emote Links')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('Open Emote Links')).toBeInTheDocument()
+        expect(screen.getByText('Copy Emote Links')).toBeInTheDocument()
+      })
     })
 
-    it('should detect Kick emote right-click', () => {
+    it('should detect Kick emote right-click', async () => {
       render(<Message {...mockProps} />)
       
       const trigger = screen.getByTestId('context-menu-trigger')
+      const container = trigger.querySelector('.chatMessageItem')
       
-      // Create mock kick emote image  
+      // Create mock kick emote image and inject into DOM  
       const mockEmoteImg = document.createElement('img')
       mockEmoteImg.className = 'emote'
       mockEmoteImg.alt = 'Kappa'
       mockEmoteImg.src = 'https://files.kick.com/emotes/456def/fullsize'
+      container.appendChild(mockEmoteImg)
       
-      const contextMenuEvent = {
-        preventDefault: vi.fn(),
-        target: mockEmoteImg
-      }
-      
-      fireEvent.contextMenu(trigger, contextMenuEvent)
+      fireEvent.contextMenu(mockEmoteImg)
       
       // Verify kick emote context menu items appear
-      expect(screen.getByText('Open Kick Emote')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('Open Kick Emote')).toBeInTheDocument()
+      })
     })
 
     it('should open 7TV emote links', async () => {
@@ -634,42 +637,52 @@ describe('Message Component', () => {
       render(<Message {...mockProps} />)
       
       const trigger = screen.getByTestId('context-menu-trigger')
+      const container = trigger.querySelector('.chatMessageItem')
       
       // Setup emote detection
       const mockEmoteImg = document.createElement('img')
       mockEmoteImg.className = 'emote'
       mockEmoteImg.alt = 'OMEGALUL'
       mockEmoteImg.src = 'https://cdn.7tv.app/emote/123abc/2x.webp'
+      container.appendChild(mockEmoteImg)
       
-      fireEvent.contextMenu(trigger, { target: mockEmoteImg })
+      fireEvent.contextMenu(mockEmoteImg)
       
-      // Click 7TV link
-      const stvLinkButton = screen.getByText('7TV Link')
-      await user.click(stvLinkButton)
+      // Click 7TV link (from the Open submenu; first occurrence)
+      const stvLinkButtons = await screen.findAllByText('7TV Link')
+      await user.click(stvLinkButtons[0])
       
       expect(mockOpen).toHaveBeenCalledWith('https://7tv.app/emotes/123abc', '_blank')
+      
+      // Open specific resolutions
+      const open1xButtons = await screen.findAllByText('1x Link')
+      await user.click(open1xButtons[0])
+      expect(mockOpen).toHaveBeenCalledWith('https://cdn.7tv.app/emote/123abc/1x.webp', '_blank')
     })
 
     it('should copy 7TV emote links', async () => {
       const user = userEvent.setup()
+      const spy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
       
       render(<Message {...mockProps} />)
       
       const trigger = screen.getByTestId('context-menu-trigger')
+      const container = trigger.querySelector('.chatMessageItem')
       
       // Setup emote detection
       const mockEmoteImg = document.createElement('img')
       mockEmoteImg.className = 'emote'
       mockEmoteImg.alt = 'OMEGALUL'  
       mockEmoteImg.src = 'https://cdn.7tv.app/emote/123abc/2x.webp'
+      container.appendChild(mockEmoteImg)
       
-      fireEvent.contextMenu(trigger, { target: mockEmoteImg })
+      fireEvent.contextMenu(mockEmoteImg)
       
       // Test copying different resolutions
-      const copy1xButton = screen.getAllByText('1x Link')[1] // Second one is in copy menu
+      const copy1xButton = (await screen.findAllByText('1x Link'))[1] // Second one is in copy menu
       await user.click(copy1xButton)
       
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://cdn.7tv.app/emote/123abc/1x.webp')
+      expect(spy).toHaveBeenCalledWith('https://cdn.7tv.app/emote/123abc/1x.webp')
     })
   })
 
@@ -879,7 +892,9 @@ describe('Message Component', () => {
       render(<Message {...mockProps} settings={settingsWithInvalidRgba} />)
       
       const messageItem = screen.getByTestId('regular-message').parentElement
-      expect(messageItem).toHaveStyle('backgroundColor: transparent')
+      // Transparent background when RGBA is invalid
+      const styleAttr = (messageItem.getAttribute('style') || '').toLowerCase()
+      expect(styleAttr.includes('background-color: transparent')).toBe(true)
     })
   })
 

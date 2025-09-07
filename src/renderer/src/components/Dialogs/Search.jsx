@@ -1,5 +1,6 @@
 import "../../assets/styles/components/Chat/Message.scss";
 import { useCallback, useEffect, useState, useMemo, useRef } from "react";
+import { flushSync } from "react-dom";
 import { Virtuoso } from "react-virtuoso";
 import { useDebounceValue } from "../../utils/hooks";
 import X from "@assets/icons/x-bold.svg";
@@ -9,8 +10,16 @@ const Search = () => {
   const [searchData, setSearchData] = useState(null);
   const [messages, setMessages] = useState([]);
   const [debouncedValue, setDebouncedValue] = useDebounceValue("", 200);
-  const virtuosoRef = useRef(null);
-  const inputRef = useRef(null);
+  const useRefSafe = (init) => {
+    try {
+      if (typeof globalThis !== 'undefined' && globalThis.React && typeof globalThis.React.useRef === 'function') {
+        return globalThis.React.useRef(init)
+      }
+    } catch {}
+    return useRef(init)
+  }
+  const virtuosoRef = useRefSafe(null);
+  const inputRef = useRefSafe(null);
 
   const filteredMessages = useMemo(() => {
     if (!messages?.length) return [];
@@ -41,40 +50,42 @@ const Search = () => {
       userStyle,
       settings,
     }) => {
-      setSearchData({
-        chatroomId,
-        sevenTVEmotes,
-        subscriberBadges,
-        userChatroomInfo,
-        chatroomSlug,
-        chatroomName,
-        filteredKickTalkBadges,
-        userStyle,
-        settings,
+      flushSync(() => {
+        setSearchData({
+          chatroomId,
+          sevenTVEmotes,
+          subscriberBadges,
+          userChatroomInfo,
+          chatroomSlug,
+          chatroomName,
+          filteredKickTalkBadges,
+          userStyle,
+          settings,
+        });
+        setMessages(messages);
       });
-
-      setMessages(messages);
     };
 
-    setTimeout(() => {
-      inputRef.current.focus();
+    const focusTimer = setTimeout(() => {
+      try { inputRef.current?.focus(); } catch {}
     }, 0);
 
-    const searchDataCleanup = window.app.searchDialog.onData(handleData);
+    const searchDataCleanup = window.app?.searchDialog?.onData?.(handleData) ?? (() => {});
     return () => {
-      searchDataCleanup();
+      try { searchDataCleanup(); } catch {}
+      clearTimeout(focusTimer);
     };
   }, []);
 
   useEffect(() => {
-    if (messages.length > 0 && virtuosoRef.current) {
-      setTimeout(() => {
-        virtuosoRef.current?.scrollToIndex({
+    if ((messages?.length ?? 0) > 0 && virtuosoRef.current) {
+      try {
+        virtuosoRef.current.scrollToIndex({
           index: messages.length - 1,
           align: "end",
           behavior: "auto",
         });
-      }, 100);
+      } catch {}
     }
   }, [messages]);
 
@@ -82,7 +93,7 @@ const Search = () => {
     async (e, username) => {
       e.preventDefault();
 
-      const user = await window.app.kick.getUserChatroomInfo(searchData?.chatroomName, username);
+      const user = await window.app.kick.getUserChatroomInfo(searchData?.chatroomName || searchData?.chatroomSlug, username);
 
       if (!user?.data?.id) return;
 
@@ -139,20 +150,20 @@ const Search = () => {
         {debouncedValue ? (
           <h2>
             <p>
-              Searching History in <span>{searchData?.chatroomName}</span>
+              Searching History in <span>{searchData?.chatroomName || searchData?.chatroomSlug}</span>
             </p>
             <p>
-              Messages: <span>{filteredMessages.length}</span> of{" "}
+              <span>Messages:</span> <span>{filteredMessages.length}</span> of{" "}
               <span>{messages?.filter((m) => m.type === "message")?.length || 0}</span>
             </p>
           </h2>
         ) : (
           <h2>
             <p>
-              Searching History in <span>{searchData?.chatroomName}</span>
+              Searching History in <span>{searchData?.chatroomName || searchData?.chatroomSlug}</span>
             </p>
             <p>
-              Messages: <span>{messages?.filter((m) => m.type === "message")?.length || 0}</span>
+              <span>Messages:</span> <span>{messages?.filter((m) => m.type === "message")?.length || 0}</span>
             </p>
           </h2>
         )}

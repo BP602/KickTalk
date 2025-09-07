@@ -31,6 +31,8 @@ const useCosmeticsStore = create((set, get) => ({
             updatedAt: new Date().toISOString(),
           },
         },
+        // Nudge subscribers that depend on globalCosmetics to re-run effects/selectors
+        globalCosmetics: { ...(state.globalCosmetics || {}), badges: [...(state.globalCosmetics?.badges || [])], paints: [...(state.globalCosmetics?.paints || [])] },
       };
     });
   },
@@ -66,20 +68,18 @@ const useCosmeticsStore = create((set, get) => ({
 
   getUserBadge: (username) => {
     const transformedUsername = username.toLowerCase();
-
     const userStyle = get().userStyles[transformedUsername];
     if (!userStyle?.badgeId) return null;
-
-    return get().globalCosmetics[userStyle.badgeId];
+    const list = get().globalCosmetics?.badges || [];
+    return list.find((b) => b.id === userStyle.badgeId) || null;
   },
 
   getUserPaint: (username) => {
     const transformedUsername = username.toLowerCase();
-
     const userStyle = get().userStyles[transformedUsername];
     if (!userStyle?.paintId) return null;
-
-    return get().globalCosmetics[userStyle.paintId];
+    const list = get().globalCosmetics?.paints || [];
+    return list.find((p) => p.id === userStyle.paintId) || null;
   },
 }));
 

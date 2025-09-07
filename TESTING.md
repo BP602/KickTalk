@@ -25,6 +25,8 @@
  - Smoke (fast): npm run test:smoke (Navbar)
  - Reports (Vitest): test-results.json and test-report.html in project root
 
+**⚠️ Performance Note**: For full test suite runs, always use the quiet versions (`npm run test:main:quiet`, `npm run test:renderer:quiet`) to avoid excessive output that can cause performance issues and timeouts.
+
 ## Vitest Config (Essentials)
 
 - Multi-project: vitest.config.js composes vite.config.renderer.js and vite.config.main.js.
@@ -100,7 +102,18 @@
 - Electron mocks: if a test needs real behavior, mock only the piece you need in the test file.
 - No E2E traces: check .env MAIN_VITE_* values and main logs.
  - React act warnings: wrap updates in `act` or wait with RTL helpers; don’t assert before effects settle.
- - Vitest UI server port errors in restricted sandboxes: run without UI (`npm run test:run`).
+- Vitest UI server port errors in restricted sandboxes: run without UI (`npm run test:run`).
+
+## Low-Noise Vitest Output
+
+- Minimal reporter: `npm run test:renderer -- --reporter=dot` (dots only; errors at end).
+- Bail early: `npm run test:renderer -- --bail=1` (stop after first failure).
+- Silent logs: `npm run test:renderer -- --silent` (suppress console.log/warn).
+- Combine (good default): `npm run test:renderer -- --reporter=dot --bail=1 --silent`.
+- Shortcut: `npm run test:renderer:quiet` (dot reporter + bail=1 + silent).
+- Scope by file/dir: `npm run test:renderer -- src/renderer/src/components/Messages`.
+- Filter by test name: `npm run test:renderer -- --grep "Emote Context Menu"` or `-t "Emote Context Menu"`.
+- Machine‑readable summary: `vitest run --config vite.config.renderer.js --reporter=dot --reporter=json --outputFile=vitest.json`.
 
 ## Notes
 
@@ -119,3 +132,11 @@
 - Config store tests: electron-store constructor is mockable; code falls back to in‑memory when construction is unavailable.
 - Renderer tests: Settings component tests fully stabilized with proper window.app mocks, optional chaining in component, and single registration of onData listeners.
 - Memory footprint: Improved by limiting renderer threads and avoiding coverage/UI during local runs.
+
+## Stability Patterns (New)
+
+- Vitest hoisting: when `vi.mock()` factories reference test-level variables, define them with `vi.hoisted(() => ({ ... }))` and import them in the mock to avoid “Cannot access before initialization”.
+- Clipboard spies: setup provides a `navigator.clipboard` mock; for assertions, add `vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()` in the test to guarantee a spy.
+- Context-menu targets: for right‑click flows, append the target element (e.g., an `img.emote`) into the rendered DOM and call `fireEvent.contextMenu(img)` so bubbling delivers the correct target. If you mock a wrapper trigger, forward `event.detail` when needed.
+- Duplicate labels: when multiple menu items share the same text (e.g., two “7TV Link” buttons across submenus), use `findAllByText()` and pick the intended index, or narrow the query to a container.
+- Component null‑safety: prefer optional chaining for props like `message?.type` to keep tests resilient to intentionally missing data cases.

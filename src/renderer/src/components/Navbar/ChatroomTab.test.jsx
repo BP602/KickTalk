@@ -50,7 +50,14 @@ vi.mock('../Shared/ContextMenu', () => ({
     </div>
   ),
   ContextMenuSeparator: () => <div data-testid="context-menu-separator" />,
-  ContextMenuTrigger: ({ children }) => <div data-testid="context-menu-trigger">{children}</div>
+  ContextMenuTrigger: ({ children, onContextMenu }) => (
+    <div
+      data-testid="context-menu-trigger"
+      onContextMenu={(e) => onContextMenu?.(e.detail ? { ...e, detail: e.detail } : e)}
+    >
+      {children}
+    </div>
+  ),
 }))
 
 // Mock useChatStore with useShallow

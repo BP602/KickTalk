@@ -36,15 +36,23 @@ const MessagesHandler = memo(
       });
     }, [messages, chatroomId, silencedUserIds]);
 
+    const lastNonEmptyLengthRef = useRef(0);
     useEffect(() => {
-      if (filteredMessages.length > 0 && !isPaused) {
+      if (filteredMessages.length > 0) {
+        lastNonEmptyLengthRef.current = filteredMessages.length;
+      }
+    }, [filteredMessages]);
+
+    useEffect(() => {
+      const len = lastNonEmptyLengthRef.current;
+      if (len > 0 && !isPaused) {
         virtuosoRef.current?.scrollToIndex({
-          index: filteredMessages.length - 1,
+          index: len - 1,
           behavior: "instant",
           align: "end",
         });
       }
-    }, [chatroomId]);
+    }, [chatroomId, isPaused]);
 
     useEffect(() => {
       if (virtuosoRef.current && atBottom) {
