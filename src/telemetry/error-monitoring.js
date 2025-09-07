@@ -194,13 +194,18 @@ class CircuitBreaker {
         this.state = 'HALF_OPEN';
         this.successCount = 0;
         console.log(`[Circuit Breaker] ${this.name}: Transitioning to HALF_OPEN`);
-      } else if (!fallback) {
-        // When no fallback is provided and we are still within the recovery timeout, reject immediately
-        throw new Error(`Circuit breaker ${this.name} is OPEN`);
+      } else {
+        // Circuit breaker is OPEN - do not call the operation
+        if (fallback && typeof fallback === 'function') {
+          try {
+            return await fallback();
+          } catch (fallbackError) {
+            throw new Error(`Circuit breaker ${this.name} is OPEN and fallback failed: ${fallbackError.message}`);
+          }
+        } else {
+          throw new Error(`Circuit breaker ${this.name} is OPEN`);
+        }
       }
-      // If a fallback is provided, proceed to attempt the operation and rely on the
-      // standard fallback handling below. This allows tests to verify fallback usage
-      // even when the breaker is currently OPEN.
     }
 
     try {

@@ -1,27 +1,18 @@
 import KickTalkLogo from "../../../assets/logos/KickTalkLogo.svg?asset";
 import SignOut from "../../../assets/icons/sign-out-bold.svg?asset";
 import clsx from "clsx";
-import { useLocation, useNavigate } from "react-router-dom";
-import { useMemo, useCallback } from "react";
+import { useCallback } from "react";
 
 const sections = [
-  { key: "general", label: "General", route: "/settings/general", iconTestId: "general-icon", desc: "Basic application settings" },
-  { key: "appearance", label: "Appearance", route: "/settings/appearance", iconTestId: "appearance-icon", desc: "Customize the app appearance" },
-  { key: "chat", label: "Chat", route: "/settings/chat", iconTestId: "chat-icon", desc: "Chat display and behavior" },
-  { key: "notifications", label: "Notifications", route: "/settings/notifications", iconTestId: "notifications-icon", desc: "Notification preferences" },
-  { key: "privacy", label: "Privacy", route: "/settings/privacy", iconTestId: "privacy-icon", desc: "Privacy and security" },
-  { key: "advanced", label: "Advanced", route: "/settings/advanced", iconTestId: "advanced-icon", desc: "Advanced configuration" },
+  { key: "general", label: "General", iconTestId: "general-icon", desc: "Basic application settings" },
+  { key: "appearance", label: "Appearance", iconTestId: "appearance-icon", desc: "Customize the app appearance" },
+  { key: "chat", label: "Chat", iconTestId: "chat-icon", desc: "Chat display and behavior" },
+  { key: "notifications", label: "Notifications", iconTestId: "notifications-icon", desc: "Notification preferences" },
+  { key: "privacy", label: "Privacy", iconTestId: "privacy-icon", desc: "Privacy and security" },
+  { key: "advanced", label: "Advanced", iconTestId: "advanced-icon", desc: "Advanced configuration" },
 ];
 
-const SettingsMenu = ({ onLogout }) => {
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  const activeKey = useMemo(() => {
-    const match = sections.find((s) => location?.pathname?.startsWith(s.route));
-    return match?.key || "general";
-  }, [location?.pathname]);
-
+const SettingsMenu = ({ activeSection, setActiveSection, onLogout }) => {
   const handleKeyNav = useCallback((e) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     const buttons = Array.from(e.currentTarget.querySelectorAll('.settingsMenuList .settingsMenuSectionItemBtn'));
@@ -37,7 +28,11 @@ const SettingsMenu = ({ onLogout }) => {
       <div className="settingsMenuItems" onKeyDown={handleKeyNav}>
         <div className="settingsMenuSection">
           <div className="settingsMenuSectionItem">
-            <button className={clsx("settingsMenuSectionItemBtn", "settingsMenuSectionAppInfo", { active: false })}>
+            <button 
+              className={clsx("settingsMenuSectionItemBtn", "settingsMenuSectionAppInfo", { 
+                active: activeSection === "info" 
+              })}
+              onClick={() => setActiveSection("info")}>
               <span>About KickTalk</span>
               <img src={KickTalkLogo} width={16} height={16} alt="KickTalk Logo" />
             </button>
@@ -46,7 +41,7 @@ const SettingsMenu = ({ onLogout }) => {
 
         <ul role="list" className="settingsMenuList">
           {sections.map((s) => {
-            const active = s.key === activeKey;
+            const active = s.key === activeSection;
             const descId = `${s.key}-desc`;
             return (
               <li key={s.key} className="settingsMenuSection">
@@ -55,7 +50,7 @@ const SettingsMenu = ({ onLogout }) => {
                     className={clsx("settingsMenuSectionItemBtn", { active })}
                     aria-current={active ? "page" : undefined}
                     aria-describedby={descId}
-                    onClick={() => navigate(s.route)}>
+                    onClick={() => setActiveSection(s.key)}>
                     <span data-testid={s.iconTestId} aria-hidden="true" />
                     {s.label}
                     {/* optional badges/warnings could be conditionally injected here */}

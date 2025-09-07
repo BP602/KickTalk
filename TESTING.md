@@ -27,6 +27,8 @@
 
 **⚠️ Performance Note**: For full test suite runs, always use the quiet versions (`npm run test:main:quiet`, `npm run test:renderer:quiet`) to avoid excessive output that can cause performance issues and timeouts.
 
+**📁 Test File Naming**: Only use standard `*.test.*` or `*.spec.*` patterns. Do NOT create `.enhanced.test.*`, `.comprehensive.test.*`, or any other secondary test file variants. All tests should be in the main test files to avoid fragmentation and merge overhead.
+
 ## Vitest Config (Essentials)
 
 - Multi-project: vitest.config.js composes vite.config.renderer.js and vite.config.main.js.
@@ -54,8 +56,8 @@
 
 - Config: playwright.config.js (1 worker, retries on CI, JSON + HTML reports, traces/screenshots on failures).
 - Specs: e2e/app-launch.electron.spec.js, e2e/chat-functionality.electron.spec.js.
- - Runs the built app; starts/stops Electron automatically in tests.
- - Common flows covered: app launch, window props, basic chat UI, graceful close.
+  - Runs the built app; starts/stops Electron automatically in tests.
+  - Common flows covered: app launch, window props, basic chat UI, graceful close.
 
 ## Coverage
 
@@ -101,7 +103,7 @@
 - High memory: run without coverage/UI; keep renderer threads low (2). Use npm run test:renderer when iterating UI.
 - Electron mocks: if a test needs real behavior, mock only the piece you need in the test file.
 - No E2E traces: check .env MAIN_VITE_* values and main logs.
- - React act warnings: wrap updates in `act` or wait with RTL helpers; don’t assert before effects settle.
+  - React act warnings: wrap updates in `act` or wait with RTL helpers; don't assert before effects settle.
 - Vitest UI server port errors in restricted sandboxes: run without UI (`npm run test:run`).
 
 ## Low-Noise Vitest Output

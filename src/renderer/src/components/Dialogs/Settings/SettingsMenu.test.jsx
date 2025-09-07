@@ -25,17 +25,7 @@ vi.mock('../../../providers/SettingsProvider', () => ({
   useSettings: () => mockSettingsContextValue
 }));
 
-// Mock react-router-dom for navigation
-const mockNavigate = vi.fn();
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal();
-  const mockedUseLocation = vi.fn(() => ({ pathname: '/settings/general' }));
-  return {
-    ...actual,
-    useNavigate: () => mockNavigate,
-    useLocation: mockedUseLocation
-  };
-});
+// React Router is no longer used - removed mock
 
 // Mock the section components
 vi.mock('./Sections/General', () => ({
@@ -62,12 +52,19 @@ vi.mock('./Sections/Advanced', () => ({
   default: () => <div data-testid="advanced-section">Advanced Settings</div>
 }));
 
-const renderSettingsMenu = (settingsOverride = {}) => {
+const renderSettingsMenu = (settingsOverride = {}, props = {}) => {
   const mockSettingsContext = { ...mockSettingsContextValue, settings: { ...mockSettingsContextValue.settings, ...settingsOverride } };
+  
+  const defaultProps = {
+    activeSection: 'general',
+    setActiveSection: vi.fn(),
+    onLogout: vi.fn(),
+    ...props
+  };
   
   return render(
     <SettingsProvider value={mockSettingsContext}>
-      <SettingsMenu />
+      <SettingsMenu {...defaultProps} />
     </SettingsProvider>
   );
 };
@@ -132,12 +129,13 @@ describe('SettingsMenu', () => {
   describe('Navigation', () => {
     it('should navigate to selected section when menu item is clicked', async () => {
       const user = userEvent.setup();
-      renderSettingsMenu();
+      const mockSetActiveSection = vi.fn();
+      renderSettingsMenu({}, { setActiveSection: mockSetActiveSection });
       
       const appearanceButton = screen.getByRole('button', { name: /appearance/i });
       await user.click(appearanceButton);
       
-      expect(mockNavigate).toHaveBeenCalledWith('/settings/appearance');
+      expect(mockSetActiveSection).toHaveBeenCalledWith('appearance');
     });
 
     it('should support keyboard navigation with arrow keys', async () => {
