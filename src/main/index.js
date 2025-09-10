@@ -2393,3 +2393,22 @@ ipcMain.handle("streamlink:checkAvailable", async () => {
     return { available: false, error: error.message };
   }
 });
+
+ipcMain.handle("utils:showNotification", async (event, options) => {
+  const { dialog } = require("electron");
+  try {
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: options.type || "info",
+      title: options.title || "KickTalk",
+      message: options.message || "",
+      detail: options.detail,
+      buttons: options.buttons || ["OK"],
+      defaultId: 0,
+      cancelId: options.buttons ? options.buttons.length - 1 : 0,
+    });
+    return result;
+  } catch (error) {
+    console.error("[Utils IPC]: Error showing notification:", error);
+    return { response: 0 };
+  }
+});

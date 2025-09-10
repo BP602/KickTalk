@@ -1034,7 +1034,7 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
               <input
                 type="text"
                 readOnly
-                placeholder={streamlinkInfo.checking ? "Checking..." : (streamlinkInfo.available ? streamlinkInfo.path : "Not found")}
+                placeholder={streamlinkInfo.checking ? "Checking..." : (streamlinkInfo.available ? streamlinkInfo.path : "Not installed")}
                 value={streamlinkInfo.available ? (streamlinkInfo.path || "") : ""}
                 disabled={!settingsData?.streamlink?.enabled}
                 className={clsx("settingTextInput")}
@@ -1047,6 +1047,14 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
               >
                 {streamlinkInfo.checking ? 'Refreshing...' : 'Refresh'}
               </button>
+              {!streamlinkInfo.available && (
+                <button
+                  className="timestampFormat"
+                  onClick={() => window.app.utils.openExternal('https://streamlink.github.io/install.html')}
+                >
+                  Install Streamlink
+                </button>
+              )}
             </div>
           </div>
         </div>

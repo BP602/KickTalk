@@ -463,6 +463,7 @@ if (process.contextIsolated) {
         openExternal: (url) => shell.openExternal(url),
         launchStreamlink: async (username) => await ipcRenderer.invoke("streamlink:launch", { username }),
         checkStreamlinkAvailable: async () => await ipcRenderer.invoke("streamlink:checkAvailable"),
+        showNotification: async (options) => await ipcRenderer.invoke("utils:showNotification", options),
       },
 
       store: {
