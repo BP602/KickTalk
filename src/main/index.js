@@ -2178,8 +2178,21 @@ const findStreamlink = () => {
   for (const path of possiblePaths) {
     try {
       if (path === "streamlink" || path === "streamlink.exe") {
-        // For PATH check, we'll let spawn handle it
-        return path;
+        // For PATH check, verify the command actually exists
+        try {
+          const { spawnSync } = require("child_process");
+          const result = spawnSync(path, ["--version"], { 
+            stdio: "pipe", 
+            timeout: 5000,
+            windowsHide: true 
+          });
+          if (result.status === 0) {
+            return path;
+          }
+        } catch (pathError) {
+          // Command not found in PATH, continue
+          continue;
+        }
       } else {
         // Check if file exists for absolute paths
         if (fs.existsSync(path)) {
