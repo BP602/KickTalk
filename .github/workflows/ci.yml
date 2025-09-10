@@ -41,6 +41,12 @@ jobs:
 
       - name: Build application
         run: npm run build
+        env:
+          MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS }}
+          MAIN_VITE_OTEL_DEPLOYMENT_ENV: ci
 
   test-builds:
     runs-on: ${{ matrix.os }}
@@ -71,6 +77,12 @@ jobs:
 
       - name: Build application
         run: npm run build
+        env:
+          MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS }}
+          MAIN_VITE_OTEL_DEPLOYMENT_ENV: ci
 
       - name: Clean dist before packaging
         shell: bash

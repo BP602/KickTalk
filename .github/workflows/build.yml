@@ -52,6 +52,12 @@ jobs:
 
       - name: Build application
         run: npm run build
+        env:
+          MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS }}
+          MAIN_VITE_OTEL_DEPLOYMENT_ENV: production
 
       - name: Clean dist before packaging
         shell: bash
@@ -148,5 +154,6 @@ jobs:
         with:
           files: artifacts/**/*
           generate_release_notes: true
+          body_path: docs/Release-notes-${{ github.ref_name }}.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
