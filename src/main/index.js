@@ -635,17 +635,8 @@ ipcMain.handle("otel:get-config", async () => {
   try {
     console.log('[OTEL Config] Renderer requesting telemetry config');
     
-    // Prefer build-time env from electron-vite (import.meta.env) with runtime fallback to process.env
-    let env = process.env;
-    try {
-      // In ESM builds, import.meta.env is available via electron-vite
-      // eslint-disable-next-line no-undef
-      if (import.meta && import.meta.env) {
-        // eslint-disable-next-line no-undef
-        env = import.meta.env;
-      }
-    } catch {}
     // Check if we have OTLP configuration for IPC relay
+    const env = process.env;
     const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
                     env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
                     (env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_ENDPOINT);
@@ -690,14 +681,7 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
     console.log(`[OTEL IPC Relay][${requestId}] Received trace export from renderer`);
     console.log(`[OTEL IPC Relay][${requestId}] Payload size: ${JSON.stringify(exportJson || {}).length} chars`);
     
-    let env = process.env;
-    try {
-      // eslint-disable-next-line no-undef
-      if (import.meta && import.meta.env) {
-        // eslint-disable-next-line no-undef
-        env = import.meta.env;
-      }
-    } catch {}
+    const env = process.env;
     const base = env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_ENDPOINT || "";
     const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
                     env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
@@ -777,67 +761,6 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
   } catch (e) {
     console.error(`[OTEL IPC Relay][${requestId}] Failed:`, e.message);
     return { ok: false, reason: e.message, requestId };
-  }
-});
-
-// Telemetry health check (masked, main-only details)
-ipcMain.handle("telemetry:health", async () => {
-  try {
-    let env = process.env;
-    let source = 'runtime';
-    try {
-      // eslint-disable-next-line no-undef
-      if (import.meta && import.meta.env) {
-        // eslint-disable-next-line no-undef
-        env = import.meta.env;
-        source = 'build';
-      }
-    } catch {}
-
-    const base = env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_ENDPOINT || "";
-    const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
-                     env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
-                     (base ? `${String(base).replace(/\/$/, "")}/v1/traces` : "");
-
-    const headersRaw = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
-                       env.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS ||
-                       env.OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
-                       env.OTEL_EXPORTER_OTLP_HEADERS || "";
-
-    const deploymentEnv = env.MAIN_VITE_OTEL_DEPLOYMENT_ENV ||
-                          env.OTEL_DEPLOYMENT_ENV ||
-                          env.NODE_ENV ||
-                          "development";
-
-    const endpointPresent = Boolean(endpoint);
-    const headersPresent = Boolean(headersRaw);
-
-    // Mask headers
-    const maskedHeaders = {};
-    if (headersRaw) {
-      String(headersRaw).split(',').forEach((kv) => {
-        const idx = kv.indexOf('=');
-        if (idx > 0) {
-          const k = kv.slice(0, idx).trim();
-          const v = kv.slice(idx + 1).trim();
-          const masked = v.length <= 4 ? '*'.repeat(v.length) : `${v.slice(0, 2)}${'*'.repeat(Math.max(0, v.length - 4))}${v.slice(-2)}`;
-          if (k) maskedHeaders[k] = masked;
-        }
-      });
-    }
-
-    const ok = endpointPresent && headersPresent;
-    return {
-      ok,
-      endpointPresent,
-      headersPresent,
-      endpoint,
-      maskedHeaders,
-      deploymentEnv,
-      source
-    };
-  } catch (e) {
-    return { ok: false, reason: e?.message || String(e) };
   }
 });
 
@@ -2255,8 +2178,21 @@ const findStreamlink = () => {
   for (const path of possiblePaths) {
     try {
       if (path === "streamlink" || path === "streamlink.exe") {
-        // For PATH check, we'll let spawn handle it
-        return path;
+        // For PATH check, verify the command actually exists
+        try {
+          const { spawnSync } = require("child_process");
+          const result = spawnSync(path, ["--version"], { 
+            stdio: "pipe", 
+            timeout: 5000,
+            windowsHide: true 
+          });
+          if (result.status === 0) {
+            return path;
+          }
+        } catch (pathError) {
+          // Command not found in PATH, continue
+          continue;
+        }
       } else {
         // Check if file exists for absolute paths
         if (fs.existsSync(path)) {
@@ -2325,7 +2261,8 @@ const launchStreamlink = async (username) => {
     return new Promise((resolve, reject) => {
       const child = spawn(streamlinkPath, args, {
         detached: true,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
       });
 
       let stderr = '';
@@ -2468,5 +2405,24 @@ ipcMain.handle("streamlink:checkAvailable", async () => {
   } catch (error) {
     console.error("[Streamlink IPC]: Error checking availability:", error);
     return { available: false, error: error.message };
+  }
+});
+
+ipcMain.handle("utils:showNotification", async (event, options) => {
+  const { dialog } = require("electron");
+  try {
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: options.type || "info",
+      title: options.title || "KickTalk",
+      message: options.message || "",
+      detail: options.detail,
+      buttons: options.buttons || ["OK"],
+      defaultId: 0,
+      cancelId: options.buttons ? options.buttons.length - 1 : 0,
+    });
+    return result;
+  } catch (error) {
+    console.error("[Utils IPC]: Error showing notification:", error);
+    return { response: 0 };
   }
 });

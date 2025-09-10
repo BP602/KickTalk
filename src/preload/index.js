@@ -261,9 +261,7 @@ if (process.contextIsolated) {
         } catch (e) {
           return Promise.resolve({ success: false, reason: e?.message || 'ipc_invoke_failed' });
         }
-      },
-      // Health summary (masked) of telemetry config in main
-      getHealth: () => ipcRenderer.invoke('telemetry:health')
+      }
     });
 
     contextBridge.exposeInMainWorld("app", {
@@ -465,6 +463,7 @@ if (process.contextIsolated) {
         openExternal: (url) => shell.openExternal(url),
         launchStreamlink: async (username) => await ipcRenderer.invoke("streamlink:launch", { username }),
         checkStreamlinkAvailable: async () => await ipcRenderer.invoke("streamlink:checkAvailable"),
+        showNotification: async (options) => await ipcRenderer.invoke("utils:showNotification", options),
       },
 
       store: {

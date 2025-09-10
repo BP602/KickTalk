@@ -1,0 +1,36 @@
+name: Sync CLAUDE.md with AGENTS.md
+
+on:
+  push:
+    paths:
+      - 'AGENTS.md'
+  workflow_dispatch:
+
+jobs:
+  sync-claude-md:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Copy AGENTS.md to CLAUDE.md
+        run: cp AGENTS.md CLAUDE.md
+        
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet CLAUDE.md; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Commit and push if changed
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add CLAUDE.md
+          git commit -m "chore: sync CLAUDE.md with AGENTS.md"
+          git push

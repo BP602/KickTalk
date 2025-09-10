@@ -190,10 +190,22 @@ const StreamerInfo = memo(
           {streamlinkSettings.enabled && (
             <ContextMenuItem onSelect={async () => {
               try {
+                const { available } = await window.app.utils.checkStreamlinkAvailable();
+                if (!available) {
+                  try {
+                    await window.app.store.set("streamlink", { ...streamlinkSettings, enabled: false });
+                  } catch {}
+                  window.app.utils.showNotification({
+                    type: "warning",
+                    title: "Streamlink Not Available",
+                    message: "Streamlink is not installed. Please install it and re-enable in Settings.",
+                    buttons: ["OK"]
+                  });
+                  return;
+                }
                 const result = await window.app.utils.launchStreamlink(streamerData?.slug);
                 if (!result.success) {
                   console.error("Failed to launch Streamlink:", result.error);
-                  // Optionally show user notification here
                 }
               } catch (error) {
                 console.error("Error launching Streamlink:", error);
