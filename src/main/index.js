@@ -2261,7 +2261,8 @@ const launchStreamlink = async (username) => {
     return new Promise((resolve, reject) => {
       const child = spawn(streamlinkPath, args, {
         detached: true,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
       });
 
       let stderr = '';
