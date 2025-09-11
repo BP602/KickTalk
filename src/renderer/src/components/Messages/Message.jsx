@@ -148,7 +148,8 @@ const Message = ({
 
   const handleViewProfile = () => {
     if (message?.sender?.username) {
-      window.open(`https://kick.com/${message.sender.slug}`, "_blank");
+      const profileSlug = message.sender.slug || message.sender.username;
+      window.open(`https://kick.com/${profileSlug}`, "_blank");
     }
   };
 
@@ -416,7 +417,7 @@ const Message = ({
         <ContextMenuContent>
           {message?.content && <ContextMenuItem onSelect={handleCopyMessage}>Copy Message</ContextMenuItem>}
 
-          <ContextMenuItem onSelect={handleReply}>Reply to Message</ContextMenuItem>
+          {message?.content && <ContextMenuItem onSelect={handleReply}>Reply to Message</ContextMenuItem>}
 
           {rightClickedEmote && rightClickedEmote.type === "stv" && (
             <>

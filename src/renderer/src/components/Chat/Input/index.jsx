@@ -897,6 +897,41 @@ const ReplyCapture = ({ chatroomId, setReplyData, chatInputRef }) => {
           // Validate required fields
           if (!data.id || !data.content || !data.sender) {
             console.error('ReplyCapture: Missing required fields in reply data:', data);
+            
+            // Create dedicated error span for telemetry
+            (async () => {
+              try {
+                const { trace } = await import('@opentelemetry/api');
+                const tracer = window.__KT_TRACER__ || trace.getTracer('kicktalk-renderer-reply');
+                if (tracer) {
+                  const span = tracer.startSpan('reply_capture_validation_error');
+                  span.setAttributes({
+                    'reply.validation.error': 'missing_required_fields',
+                    'reply.data_type': data.type || 'unknown',
+                    'reply.has_id': !!data.id,
+                    'reply.has_content': !!data.content,
+                    'reply.has_sender': !!data.sender,
+                    'component': 'chat_input'
+                  });
+                  
+                  const error = new Error('ReplyCapture: Missing required fields');
+                  span.recordException(error);
+                  span.setStatus({ code: 2, message: 'Validation failed' });
+                  span.end();
+                } else {
+                  // Fallback to old recordError method
+                  window.app?.telemetry?.recordError?.(new Error('ReplyCapture: Missing required fields'), {
+                    area: 'reply_capture',
+                    data_type: data.type,
+                    has_id: !!data.id,
+                    has_content: !!data.content,
+                    has_sender: !!data.sender
+                  });
+                }
+              } catch (e) {
+                // Telemetry recording failed, but don't break the flow
+              }
+            })();
             return;
           }
 

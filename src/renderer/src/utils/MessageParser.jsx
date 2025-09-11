@@ -1,3 +1,4 @@
+import React from "react";
 import { kickEmoteRegex, urlRegex, mentionRegex } from "@utils/constants";
 import Emote from "../components/Cosmetics/Emote";
 import { parse } from "tldts";
@@ -349,7 +350,11 @@ const parseMessageContent = ({
         pendingTextParts = [];
       }
 
-      finalParts.push(part);
+      // Clone the component and add a unique key to prevent React warnings
+      const componentWithKey = React.cloneElement(part, { 
+        key: part.key || `component-${i}` 
+      });
+      finalParts.push(componentWithKey);
       lastEmoteComponent = null;
       return;
     }
