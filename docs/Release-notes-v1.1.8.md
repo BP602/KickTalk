@@ -1,16 +1,12 @@
-## 🎯 Chat & Messaging Enhancements
+# KickTalk v1.1.8 Release Notes
+
+## 🚀 New Features
 
 ### 💾 **Draft Message Persistence** (Fixes [#23](https://github.com/KickTalkOrg/KickTalk/issues/23))
 - Messages are automatically saved when switching chatrooms and restored when you return
 - Auto-saves as you type using Lexical update listeners  
 - Automatically clears drafts when messages are sent successfully
 - Per-chatroom draft storage using Map in ChatProvider state
-
-### 🖼️ **Emote Rendering Improvements** (Fixes [#38](https://github.com/KickTalkOrg/KickTalk/issues/38))
-- **Reply messages** now display emotes as images instead of plain text
-- **Reply input preview** shows emotes as images while typing in the reply input box
-- Supports both Kick and 7TV emotes in reply contexts
-- Enhanced MessageParser integration for consistent emote rendering
 
 ### 👥 **Username Mentions Autocomplete** (Fixes [#40](https://github.com/KickTalkOrg/KickTalk/issues/40))
 - @ mentions now correctly show up to 10 active chatters in dropdown
@@ -24,13 +20,38 @@
 - Default value with user override capability
 - Better memory management for long chat sessions
 
+## 🐛 Bug Fixes & Improvements
+
+### 🖼️ **Emote Rendering Improvements** (Fixes [#38](https://github.com/KickTalkOrg/KickTalk/issues/38))
+- **Reply messages** now display emotes as images instead of plain text
+- **Reply input preview** shows emotes as images while typing in the reply input box
+- Supports both Kick and 7TV emotes in reply contexts
+- Enhanced MessageParser integration for consistent emote rendering
+
 ### 🔄 **Live 7TV Emotes Update** (Fixes [#41](https://github.com/KickTalkOrg/KickTalk/issues/41))
 - Fixed live 7TV emote updates during streams
 - Corrected user ID extraction from channel emote sets
 - Improved cache invalidation and refresh triggers
 - Enhanced WebSocket connection stability and reconnection handling
 
-## 🛠️ Technical Improvements
+### 🛡️ **7TV Avatar Null Guard** (Fixes [#46](https://github.com/KickTalkOrg/KickTalk/issues/46))
+- Fixed crashes when channel avatars are missing
+- Added safety checks in EmoteDialogs component  
+- Prevents `includes` method calls on undefined channel avatars
+- Resolves crashes in IcePoseidon chat and other channels with missing avatar data
+
+### 🖥️ **Cross-Platform Icon Compatibility**
+- Improved icon handling across different operating systems
+- Enhanced Linux/macOS compatibility
+- Better resource management for platform-specific assets
+
+- Fixed chatter lookup performance in input component
+- Resolved emote rendering issues in reply contexts  
+- Improved error handling for missing 7TV data
+- Enhanced stability across platforms
+- Better development tooling and debugging capabilities
+
+## 🔧 Technical Improvements
 
 ### 📦 **Import Path Optimization**
 - Migrated to clean `@utils` and `@assets` aliases 
@@ -44,28 +65,8 @@
 - Improved error catching and code consistency
 - Better development tooling integration
 
-### 🛡️ **7TV Avatar Null Guard** (Fixes [#46](https://github.com/KickTalkOrg/KickTalk/issues/46))
-- Fixed crashes when channel avatars are missing
-- Added safety checks in EmoteDialogs component  
-- Prevents `includes` method calls on undefined channel avatars
-- Resolves crashes in IcePoseidon chat and other channels with missing avatar data
-
-### 🖥️ **Cross-Platform Icon Compatibility**
-- Improved icon handling across different operating systems
-- Enhanced Linux/macOS compatibility
-- Better resource management for platform-specific assets
-
-## 🐛 Additional Bug Fixes
-
-- Fixed chatter lookup performance in input component
-- Resolved emote rendering issues in reply contexts  
-- Improved error handling for missing 7TV data
-- Enhanced stability across platforms
-- Better development tooling and debugging capabilities
-
 ## 📊 Issues Resolved
 
-This release fixes **6 open upstream issues**:
 - [#23](https://github.com/KickTalkOrg/KickTalk/issues/23) - Draft messages not persisted when switching chatrooms
 - [#38](https://github.com/KickTalkOrg/KickTalk/issues/38) - Emotes render as text in reply message previews  
 - [#40](https://github.com/KickTalkOrg/KickTalk/issues/40) - No username suggestions in @ mentions
@@ -80,5 +81,4 @@ This release fixes **6 open upstream issues**:
 - **Draft Messages**: Draft persistence is automatic and requires no user action
 
 ---
-
 **Full Changelog**: [v1.1.7...v1.1.8](https://github.com/BP602/KickTalk/compare/v1.1.7...v1.1.8)

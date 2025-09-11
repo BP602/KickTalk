@@ -69,6 +69,13 @@
 - PRs: include description, linked issues, before/after screenshots for UI changes, and risk/telemetry notes.
 - CI hygiene: run lint/build locally; do not commit `dist/`.
 
+## Releases
+
+- When creating new releases, use `docs/Release-notes-template.md` as the structure template.
+- Create release notes file as `docs/Release-notes-v{VERSION}.md` following the template format.
+- Only include sections that have actual content (omit empty sections).
+- Update both local markdown files and GitHub release notes to match.
+
 # When you need to call tools from the shell, **use this rubric**:
 
 - Find Files: `fd`
