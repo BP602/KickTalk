@@ -897,14 +897,56 @@ const useChatStore = create((set, get) => ({
         case "App\\Events\\ChatroomUpdatedEvent":
           get().handleChatroomUpdated(chatroom.id, parsedEvent);
           break;
-        case "App\\Events\\StreamerIsLive":
+        case "App\\Events\\StreamerIsLive": {
           console.log("Streamer is live", parsedEvent);
+          console.log("[DEBUG] Current chatroom ID:", chatroom.id);
+          console.log("[DEBUG] Chatroom data:", chatroom.streamerData?.user?.username);
           get().handleStreamStatus(chatroom.id, parsedEvent, true);
+          // Add stream start message to chat
+          const streamLiveMessage = {
+            id: crypto.randomUUID(),
+            type: "stream_live",
+            content: "Stream started",
+            timestamp: new Date().toISOString(),
+            sender: {
+              id: "system",
+              username: chatroom.streamerData?.user?.username || "System"
+            },
+            metadata: {
+              streamer: chatroom.streamerData?.user?.username,
+              event_type: "live",
+              stream_title: parsedEvent.livestream?.session_title,
+              livestream_id: parsedEvent.livestream?.id
+            }
+          };
+          console.log("[DEBUG] Stream live message:", streamLiveMessage);
+          get().addMessage(chatroom.id, streamLiveMessage);
           break;
-        case "App\\Events\\StopStreamBroadcast":
+        }
+        case "App\\Events\\StopStreamBroadcast": {
           console.log("Streamer is offline", parsedEvent);
           get().handleStreamStatus(chatroom.id, parsedEvent, false);
+          // Add stream end message to chat  
+          const streamEndMessage = {
+            id: crypto.randomUUID(),
+            type: "stream_end",
+            content: "Stream ended",
+            timestamp: new Date().toISOString(),
+            sender: {
+              id: "system",
+              username: chatroom.streamerData?.user?.username || "System"
+            },
+            metadata: {
+              streamer: chatroom.streamerData?.user?.username,
+              event_type: "offline",
+              livestream_id: parsedEvent.livestream?.id,
+              channel_id: parsedEvent.livestream?.channel?.id
+            }
+          };
+          console.log("[DEBUG] Stream end message:", streamEndMessage);
+          get().addMessage(chatroom.id, streamEndMessage);
           break;
+        }
         case "App\\Events\\PinnedMessageCreatedEvent":
           get().handlePinnedMessageCreated(chatroom.id, parsedEvent);
           break;
@@ -1565,14 +1607,54 @@ const useChatStore = create((set, get) => ({
       case "App\\Events\\ChatroomUpdatedEvent":
         get().handleChatroomUpdated(chatroomId, parsedEvent);
         break;
-      case "App\\Events\\StreamerIsLive":
+      case "App\\Events\\StreamerIsLive": {
         console.log("Streamer is live", parsedEvent);
         get().handleStreamStatus(chatroomId, parsedEvent, true);
+        // Add stream start message to chat
+        const chatroom = get().chatrooms.find(c => c.id === chatroomId);
+        const streamLiveMessage = {
+          id: crypto.randomUUID(),
+          type: "stream_live",
+          content: "",
+          timestamp: new Date().toISOString(),
+          sender: {
+            id: "system",
+            username: chatroom?.streamerData?.user?.username || "System"
+          },
+          metadata: {
+            streamer: chatroom?.streamerData?.user?.username,
+            event_type: "live",
+            stream_title: parsedEvent.livestream?.session_title,
+            livestream_id: parsedEvent.livestream?.id
+          }
+        };
+        get().addMessage(chatroomId, streamLiveMessage);
         break;
-      case "App\\Events\\StopStreamBroadcast":
+      }
+      case "App\\Events\\StopStreamBroadcast": {
         console.log("Streamer is offline", parsedEvent);
         get().handleStreamStatus(chatroomId, parsedEvent, false);
+        // Add stream end message to chat  
+        const chatroom = get().chatrooms.find(c => c.id === chatroomId);
+        const streamEndMessage = {
+          id: crypto.randomUUID(),
+          type: "stream_end",
+          content: "",
+          timestamp: new Date().toISOString(),
+          sender: {
+            id: "system",
+            username: chatroom?.streamerData?.user?.username || "System"
+          },
+          metadata: {
+            streamer: chatroom?.streamerData?.user?.username,
+            event_type: "offline",
+            livestream_id: parsedEvent.livestream?.id,
+            channel_id: parsedEvent.livestream?.channel?.id
+          }
+        };
+        get().addMessage(chatroomId, streamEndMessage);
         break;
+      }
       case "App\\Events\\PinnedMessageCreatedEvent":
         get().handlePinnedMessageCreated(chatroomId, parsedEvent);
         break;
@@ -1616,11 +1698,12 @@ const useChatStore = create((set, get) => ({
       case "cosmetic.create":
         useCosmeticsStore?.getState()?.addCosmetics(body);
         break;
-      case "entitlement.create":
+      case "entitlement.create": {
         const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
         const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
         useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
         break;
+      }
       default:
         break;
     }
@@ -1710,7 +1793,6 @@ const useChatStore = create((set, get) => ({
   },
 
   addMessage: (chatroomId, message) => {
-
     set((state) => {
       const messages = state.messages[chatroomId] || [];
 

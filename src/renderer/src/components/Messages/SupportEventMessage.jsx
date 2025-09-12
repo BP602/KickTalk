@@ -3,6 +3,8 @@ import { useShallow } from "zustand/shallow";
 import useCosmeticsStore from "../../providers/CosmeticsProvider";
 import sparkleIcon from "../../assets/icons/sparkle.svg?asset";
 import giftBoxIcon from "../../assets/icons/gift-box.svg?asset";
+import recordIcon from "../../assets/icons/record-fill.svg?asset";
+import eyeSlashIcon from "../../assets/icons/eye-slash-fill.svg?asset";
 
 
 const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
@@ -53,6 +55,26 @@ const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
       return `${username} donated${amount ? ` ${amount}` : ""}!`;
     }
     
+    if (eventType === "stream_live") {
+      const streamer = metadata.streamer || username || "";
+      const streamTitle = metadata.stream_title;
+      return {
+        streamer: streamer,
+        action: "is now live",
+        streamTitle: streamTitle,
+        type: 'stream_live'
+      };
+    }
+    
+    if (eventType === "stream_end") {
+      const streamer = metadata.streamer || username || "";
+      return {
+        streamer: streamer,
+        action: "has ended the stream",
+        type: 'stream_end'
+      };
+    }
+    
     // Fallback to original format
     if (description) {
       return `${username}: ${description}`;
@@ -68,6 +90,16 @@ const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
       return metadata.reward_background_color;
     }
     
+    // Stream live uses red from navbar (live indicator color)
+    if (eventType === "stream_live") {
+      return "#ff4757"; // Red color for live
+    }
+    
+    // Stream end uses gray
+    if (eventType === "stream_end") {
+      return "#6c757d"; // Gray color for offline
+    }
+    
     // For all other events, use CSS variable for consistent theming
     return "var(--text-success)";
   };
@@ -75,7 +107,9 @@ const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
   const eventColor = getEventColors();
   const messageStyle = eventColor 
     ? { 
-        background: `linear-gradient(90deg, ${eventColor}33, rgba(255, 255, 255, 0.05))`,
+        background: eventColor.startsWith('var(') 
+          ? `linear-gradient(90deg, color-mix(in srgb, ${eventColor} 20%, transparent), rgba(255, 255, 255, 0.05))`
+          : `linear-gradient(90deg, ${eventColor}33, rgba(255, 255, 255, 0.05))`,
         borderLeft: `3px solid ${eventColor}`
       }
     : {};
@@ -83,14 +117,30 @@ const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
   const supportMessage = formatSupportMessage();
   const isRewardObject = eventType === "reward" && typeof supportMessage === "object";
   const isGiftSubObject = eventType === "subscription" && typeof supportMessage === "object" && supportMessage.type === "gift";
+  const isStreamObject = (eventType === "stream_live" || eventType === "stream_end") && typeof supportMessage === "object";
 
   return (
     <span className="supportEventMessage" style={messageStyle}>
-      {(eventType === "reward" || eventType === "subscription" || eventType === "donation") && (
+      {(eventType === "reward" || eventType === "subscription" || eventType === "donation" || eventType === "stream_live" || eventType === "stream_end") && (
         <img 
-          src={isGiftSubObject ? giftBoxIcon : sparkleIcon} 
-          className={`supportEventIcon ${isGiftSubObject ? 'giftIcon' : eventType + 'Icon'}`} 
-          alt={isGiftSubObject ? 'gift' : eventType} 
+          src={
+            isGiftSubObject ? giftBoxIcon : 
+            eventType === "stream_live" ? recordIcon :
+            eventType === "stream_end" ? eyeSlashIcon :
+            sparkleIcon
+          } 
+          className={`supportEventIcon ${
+            isGiftSubObject ? 'giftIcon' : 
+            eventType === "stream_live" ? 'streamLiveIcon' :
+            eventType === "stream_end" ? 'streamEndIcon' :
+            eventType + 'Icon'
+          }`} 
+          alt={
+            isGiftSubObject ? 'gift' : 
+            eventType === "stream_live" ? 'stream live' :
+            eventType === "stream_end" ? 'stream end' :
+            eventType
+          } 
           width="24" 
           height="24" 
         />
@@ -142,6 +192,33 @@ const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
             <span className="supportEventTotal"> ({supportMessage.total} total)</span>
           )}
           <span className="supportEventAction">!</span>
+        </span>
+      ) : isStreamObject ? (
+        <span className="supportEventContent">
+          <button 
+            className="supportEventUsername" 
+            onClick={(e) => handleOpenUserDialog?.(e, supportMessage.streamer)}
+          >
+            {supportMessage.streamer}
+          </button>
+          {supportMessage.type === 'stream_live' ? (
+            <>
+              <span className="supportEventAction"> is now </span>
+              <span className="supportEventAction" style={{ fontWeight: 'bold' }}>live</span>
+            </>
+          ) : (
+            <>
+              <span className="supportEventAction"> has </span>
+              <span className="supportEventAction" style={{ fontWeight: 'bold' }}>ended</span>
+              <span className="supportEventAction"> the stream</span>
+            </>
+          )}
+          {supportMessage.streamTitle && (
+            <>
+              <span className="supportEventAction">: </span>
+              <span className="supportEventReward">{supportMessage.streamTitle}</span>
+            </>
+          )}
         </span>
       ) : (
         <span className="supportEventContent">{supportMessage}</span>

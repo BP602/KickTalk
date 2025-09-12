@@ -581,6 +581,14 @@
     &.giftIcon {
       filter: hue-rotate(15deg) saturate(1.1); // Warm gift box tint
     }
+    
+    &.streamLiveIcon {
+      // No filter needed - using red background and record icon
+    }
+    
+    &.streamEndIcon {
+      // No filter needed - using gray background and eye-slash icon
+    }
   }
 
   .supportEventUsername {

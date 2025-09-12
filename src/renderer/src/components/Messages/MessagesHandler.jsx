@@ -112,7 +112,7 @@ const MessagesHandler = memo(
           metadata = message?.metadata || {};
         }
         const eventType = message?.type === "metadata" ? metadata?.type : message?.type;
-        if (["subscription", "donation", "reward"].includes(eventType) && !settings?.chatrooms?.showSupportEvents) {
+        if (["subscription", "donation", "reward", "stream_live", "stream_end"].includes(eventType) && !settings?.chatrooms?.showSupportEvents) {
           return false;
         }
 
