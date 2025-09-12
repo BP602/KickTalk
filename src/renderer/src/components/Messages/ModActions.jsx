@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../Shared/Tooltip";
 import { Slider } from "../Shared/Slider";
-import BanIcon from "@assets/icons/gavel-fill.svg?asset";
-import TimeoutIcon from "@assets/icons/hourglass.svg?asset";
-import UnbanIcon from "@assets/icons/circle-slash.svg?asset";
+import { GavelIcon, ClockUserIcon, UserPlusIcon } from "@phosphor-icons/react";
 import { convertSecondsToHumanReadable } from "../../utils/ChatUtils";
 import useClickOutside from "../../utils/useClickOutside";
 import clsx from "clsx";
@@ -70,7 +68,7 @@ const ModActions = ({ chatroomName, message }) => {
               <button
                 className={clsx("quickModToolsBtn", showTimeoutSlider && "active")}
                 onClick={() => handleUnbanUser(message?.sender?.username)}>
-                <img src={UnbanIcon} width={12} height={12} alt="Unban User" />
+                <UserPlusIcon size={12} aria-label="Unban User" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" sideOffset={5}>
@@ -82,7 +80,7 @@ const ModActions = ({ chatroomName, message }) => {
               <button
                 className={clsx("quickModToolsBtn", showTimeoutSlider && "active")}
                 onClick={() => setShowTimeoutSlider(true)}>
-                <img src={TimeoutIcon} width={13} height={13} alt="Timeout Slider" />
+                <ClockUserIcon size={13} aria-label="Timeout Slider" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" sideOffset={5}>
@@ -94,7 +92,7 @@ const ModActions = ({ chatroomName, message }) => {
               <button
                 className={clsx("quickModToolsBtn", showTimeoutSlider && "active")}
                 onClick={() => handleBan(message?.sender?.username, "ban")}>
-                <img src={BanIcon} width={12} height={12} alt="Ban User" />
+                <GavelIcon weight="fill" size={12} aria-label="Ban User" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" sideOffset={5}>

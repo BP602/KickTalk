@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Message from "../Messages/Message";
 import { userKickTalkBadges } from "@utils/kickTalkBadges";
-import CloseIcon from "../../assets/icons/x-bold.svg?asset";
+import { XIcon } from "@phosphor-icons/react";
 import { MessageParser } from "../../utils/MessageParser";
 import ChatInput from "../Chat/Input";
 
@@ -70,7 +70,7 @@ const ReplyThread = () => {
           <p>Reply Thread</p>
 
           <button className="replyThreadCloseBtn" onClick={() => window.app.replyThreadDialog.close()}>
-            <img src={CloseIcon} width={16} height={16} alt="Close" />
+            <XIcon size={16} weight="bold" aria-label="Close" />
           </button>
         </div>
 

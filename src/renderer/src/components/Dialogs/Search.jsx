@@ -2,7 +2,7 @@ import "../../assets/styles/components/Chat/Message.scss";
 import { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { Virtuoso } from "react-virtuoso";
 import { useDebounceValue } from "../../utils/hooks";
-import X from "@assets/icons/x-bold.svg";
+import { XIcon } from "@phosphor-icons/react";
 import RegularMessage from "../Messages/RegularMessage";
 
 const Search = () => {
@@ -157,7 +157,7 @@ const Search = () => {
           </h2>
         )}
         <button className="searchDialogCloseBtn" onClick={() => window.app.searchDialog.close()}>
-          <img src={X} width={18} height={18} alt="Close" />
+          <XIcon weight="bold" size={18} aria-label="Close" />
         </button>
       </div>
 

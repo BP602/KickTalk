@@ -1,7 +1,7 @@
 import { useMemo, memo, useState } from "react";
 import clsx from "clsx";
 import { convertSecondsToHumanReadable } from "../../../utils/ChatUtils";
-import InfoIcon from "../../../assets/icons/info-fill.svg?asset";
+import { InfoIcon } from "@phosphor-icons/react";
 
 const InfoBar = memo(
   ({ chatroomInfo, initialChatroomInfo }) => {
@@ -89,7 +89,7 @@ const InfoBar = memo(
                 className="chatInfoBarIconTooltip"
                 onMouseOver={() => setShowInfoBarTooltip(true)}
                 onMouseLeave={() => setShowInfoBarTooltip(false)}>
-                <img src={InfoIcon} alt="Info" width={16} height={16} />
+                <InfoIcon size={16} weight="fill" aria-label="InfoIcon" />
               </div>
             </div>
           </div>

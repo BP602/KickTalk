@@ -1,13 +1,11 @@
 import { useState, useMemo } from "react";
 import useChatStore from "../../providers/ChatProvider";
 import { useShallow } from "zustand/shallow";
-import TrashIcon from "../../assets/icons/trash-fill.svg?asset";
+import { TrashIcon, CaretDownIcon, ArrowUpRightIcon } from "@phosphor-icons/react";
 import "../../assets/styles/dialogs/mentions.scss";
 import clsx from "clsx";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../Shared/Dropdown";
-import CaretDownIcon from "../../assets/icons/caret-down-fill.svg?asset";
 import { MessageParser } from "../../utils/MessageParser";
-import ArrowRightIcon from "../../assets/icons/arrow-up-right-bold.svg?asset";
 import NOWWHAT from "../../assets/images/NOWWHAT.avif?asset";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -84,7 +82,7 @@ const Mentions = ({ setActiveChatroom, chatroomId }) => {
           {filteredMentions.length > 0 && (
             <button className="mentionsGlobalActionBtn" onClick={handleClearAll} title="Clear all mentions">
               <span>Clear all</span>
-              <img src={TrashIcon} alt="Clear all" width={16} height={16} />
+              <TrashIcon size={16} weight="fill" aria-label="Clear all" />
             </button>
           )}
         </div>
@@ -100,7 +98,7 @@ const Mentions = ({ setActiveChatroom, chatroomId }) => {
                   : chatrooms.find((chatroom) => chatroom.id === selectedChatroom)?.displayName ||
                     chatrooms.find((chatroom) => chatroom.id === selectedChatroom)?.username}
 
-                <img src={CaretDownIcon} alt="arrow down icon" width={16} height={16} />
+                <CaretDownIcon size={16} weight="fill" aria-label="arrow down icon" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
@@ -145,7 +143,7 @@ const Mentions = ({ setActiveChatroom, chatroomId }) => {
                         className="mentionActionBtn"
                         onClick={() => setActiveChatroom(mention.chatroomId)}
                         title="Go to channel">
-                        <img src={ArrowRightIcon} alt="Go to channel" width={14} height={14} />
+                        <ArrowUpRightIcon size={14} weight="bold" aria-label="Go to channel" />
                       </button>
                     </div>
                   </div>

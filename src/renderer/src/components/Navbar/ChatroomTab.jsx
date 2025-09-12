@@ -10,7 +10,7 @@ import {
 import clsx from "clsx";
 import useChatStore from "../../providers/ChatProvider";
 import { useShallow } from "zustand/react/shallow";
-import X from "../../assets/icons/x-bold.svg?asset";
+import { XIcon } from "@phosphor-icons/react";
 
 const ChatroomTab = memo(
   ({
@@ -134,7 +134,7 @@ const ChatroomTab = memo(
                       onRemoveChatroom(chatroom.id);
                     }}
                     aria-label="Remove chatroom">
-                    <img src={X} width={12} height={12} alt="Remove chatroom" />
+                    <XIcon size={12} aria-label="Remove chatroom" />
                   </button>
                 </div>
               </ContextMenuTrigger>

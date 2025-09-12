@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import "../../assets/styles/dialogs/UserDialog.scss";
-import ArrowUpRightIcon from "../../assets/icons/arrow-up-right-bold.svg";
+import { ArrowUpRightIcon } from "@phosphor-icons/react";
 
 const ContextMenu = (data) => {
   const [dialogData, setDialogData] = useState(null);
@@ -28,7 +28,7 @@ const ContextMenu = (data) => {
         <div className="contextMenuWrapper">
           <button className="contextMenuItem" onClick={() => window.app.utils.openExternal(dialogData?.data?.url)}>
             <span>Open Stream in Browser</span>
-            <img src={ArrowUpRightIcon} width={16} height={16} />
+            <ArrowUpRightIcon weight="bold" size={16} />
           </button>
         </div>
       )}

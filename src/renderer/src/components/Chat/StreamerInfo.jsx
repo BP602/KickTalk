@@ -2,10 +2,8 @@ import { useState, useEffect, memo, useMemo } from "react";
 import { useShallow } from "zustand/shallow";
 import clsx from "clsx";
 import useChatStore from "../../providers/ChatProvider";
-import PushPin from "../../assets/icons/push-pin-fill.svg?asset";
+import { PushPinIcon, UserIcon, Sword } from "@phosphor-icons/react";
 // import PollIcon from "../../assets/icons/poll-fill.svg?asset";
-import UserIcon from "../../assets/icons/user-fill.svg?asset";
-import ModSwordFillIcon from "../../assets/icons/sword-fill.svg?asset";
 import Pin from "./Pin";
 // import Poll from "./Poll";
 import { convertDateToHumanReadable } from "../../utils/ChatUtils";
@@ -151,7 +149,7 @@ const StreamerInfo = memo(
                     disabled: !settings?.moderation?.quickModTools,
                   })}
                   onClick={handleToggleModMode}>
-                  <img src={ModSwordFillIcon} width={20} height={20} alt="Moderator" />
+                  <Sword size={20} aria-label="Moderator" />
                 </button>
               )}
 
@@ -161,7 +159,7 @@ const StreamerInfo = memo(
                 <button
                   className={clsx("pinnedMessageBtn", pinDetails && "show", showPinnedMessage && "open")}
                   onClick={() => setShowPinnedMessage(!showPinnedMessage)}>
-                  <img src={PushPin} width={20} height={20} alt="Pin Message" />
+                  <PushPinIcon size={20} aria-label="Pin Message" />
                 </button>
               )}
 
@@ -282,7 +280,7 @@ const ChattersBtn = memo(
 
     return (
       <button onClick={handleChattersBtn} className="chattersBtn">
-        <img src={UserIcon} width={20} height={20} alt="Pin Message" />
+        <UserIcon size={20} aria-label="Chatters" />
       </button>
     );
   },

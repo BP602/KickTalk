@@ -1,5 +1,5 @@
 import { memo } from "react";
-import X from "../../../assets/icons/x-bold.svg?asset";
+import { XIcon } from "@phosphor-icons/react";
 
 const SettingsHeader = memo(
   ({ onClose, appInfo }) => {
@@ -10,7 +10,7 @@ const SettingsHeader = memo(
         </h2>
 
         <button className="settingsDialogCloseBtn" onClick={onClose}>
-          <img src={X} width={16} height={16} alt="Close" />
+          <XIcon size={16} weight="bold" aria-label="Close" />
         </button>
       </div>
     );

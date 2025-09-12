@@ -3,11 +3,8 @@ import { Switch } from "../../../Shared/Switch";
 import { Slider } from "../../../Shared/Slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../../Shared/Tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../../Shared/Dropdown";
-import InfoIcon from "../../../../assets/icons/info-fill.svg?asset";
-import CaretDownIcon from "../../../../assets/icons/caret-down-fill.svg?asset";
+import { InfoIcon, CaretDownIcon, FolderOpen } from "@phosphor-icons/react";
 import ColorPicker from "../../../Shared/ColorPicker";
-import folderOpenIcon from "../../../../assets/icons/folder-open-fill.svg?asset";
-import playIcon from "../../../../assets/icons/play-fill.svg?asset";
 import NotificationFilePicker from "../../../Shared/NotificationFilePicker";
 import clsx from "clsx";
 import { DEFAULT_CHAT_HISTORY_LENGTH } from "@utils/constants";
@@ -32,7 +29,7 @@ const GeneralSection = ({ settingsData, onChange }) => {
                 <Tooltip delayDuration={100}>
                   <TooltipTrigger asChild>
                     <button className="settingsInfoIcon">
-                      <img src={InfoIcon} width={14} height={14} alt="Info" />
+                      <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -62,7 +59,7 @@ const GeneralSection = ({ settingsData, onChange }) => {
                 <Tooltip delayDuration={100}>
                   <TooltipTrigger asChild>
                     <button className="settingsInfoIcon">
-                      <img src={InfoIcon} width={14} height={14} alt="Info" />
+                      <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -92,7 +89,7 @@ const GeneralSection = ({ settingsData, onChange }) => {
                 <Tooltip delayDuration={100}>
                   <TooltipTrigger asChild>
                     <button className="settingsInfoIcon">
-                      <img src={InfoIcon} width={14} height={14} alt="Info" />
+                      <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -123,7 +120,7 @@ const GeneralSection = ({ settingsData, onChange }) => {
                 <Tooltip delayDuration={100}>
                   <TooltipTrigger asChild>
                     <button className="settingsInfoIcon">
-                      <img src={InfoIcon} width={14} height={14} alt="Info" />
+                      <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -156,7 +153,7 @@ const GeneralSection = ({ settingsData, onChange }) => {
                 <Tooltip delayDuration={100}>
                   <TooltipTrigger asChild>
                     <button className="settingsInfoIcon">
-                      <img src={InfoIcon} width={14} height={14} alt="Info" />
+                      <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -186,7 +183,7 @@ const GeneralSection = ({ settingsData, onChange }) => {
                 <Tooltip delayDuration={100}>
                   <TooltipTrigger asChild>
                     <button className="settingsInfoIcon">
-                      <img src={InfoIcon} width={14} height={14} alt="Info" />
+                      <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -199,7 +196,7 @@ const GeneralSection = ({ settingsData, onChange }) => {
                 <DropdownMenuTrigger asChild>
                   <button className="timestampFormat">
                     {settingsData?.general?.timestampFormat === "disabled" ? "Disabled" : settingsData?.general?.timestampFormat}
-                    <img src={CaretDownIcon} width={14} height={14} alt="Chevron" />
+                    <CaretDownIcon size={14} weight="fill" aria-label="Chevron" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="bottom">
@@ -262,7 +259,7 @@ const GeneralSection = ({ settingsData, onChange }) => {
                 <Tooltip delayDuration={100}>
                   <TooltipTrigger asChild>
                     <button className="settingsInfoIcon">
-                      <img src={InfoIcon} width={14} height={14} alt="Info" />
+                      <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -277,7 +274,7 @@ const GeneralSection = ({ settingsData, onChange }) => {
                     {settingsData?.customTheme?.current === "default"
                       ? "Default"
                       : settingsData?.customTheme?.current.charAt(0).toUpperCase() + settingsData?.customTheme?.current.slice(1)}
-                    <img src={CaretDownIcon} width={14} height={14} alt="Chevron" />
+                    <CaretDownIcon size={14} weight="fill" aria-label="Chevron" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="bottom">
@@ -335,7 +332,7 @@ const ChatroomSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -368,7 +365,7 @@ const ChatroomSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -402,7 +399,7 @@ const ChatroomSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -428,11 +425,11 @@ const ChatroomSection = ({ settingsData, onChange }) => {
               active: settingsData?.chatrooms?.showInfoBar,
             })}>
             <div className="settingsItemTitleWithInfo">
-              <span className="settingsItemTitle">Show Chat Mode Info Bar</span>
+              <span className="settingsItemTitle">Show Chat Mode InfoIcon Bar</span>
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -461,7 +458,7 @@ const ChatroomSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -513,7 +510,7 @@ const CosmeticsSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -625,7 +622,7 @@ const NotificationsSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -652,15 +649,15 @@ const NotificationsSection = ({ settingsData, onChange }) => {
               active: settingsData?.notifications?.sound,
             })}>
             <div className="settingsItemTitleWithInfo">
-              <span className="settingsItemTitle">Play Sound</span>
+              <span className="settingsItemTitle">PlayIcon Sound</span>
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Play a sound when notifications are triggered</p>
+                  <p>PlayIcon a sound when notifications are triggered</p>
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -685,7 +682,7 @@ const NotificationsSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -720,7 +717,7 @@ const NotificationsSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -733,7 +730,7 @@ const NotificationsSection = ({ settingsData, onChange }) => {
               className="soundFileName"
               disabled={!settingsData?.notifications?.sound}
               onClick={() => window.app.notificationSounds.openFolder()}>
-              Select File <img src={folderOpenIcon} width={14} height={14} alt="Caret Down" />
+              Select File <FolderOpen size={14} weight="fill" aria-label="Open Folder" />
             </button>
           </div>
           <div
@@ -745,7 +742,7 @@ const NotificationsSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -773,7 +770,7 @@ const NotificationsSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -802,7 +799,7 @@ const NotificationsSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -830,7 +827,7 @@ const NotificationsSection = ({ settingsData, onChange }) => {
                 <Tooltip delayDuration={100}>
                   <TooltipTrigger asChild>
                     <button className="settingsInfoIcon">
-                      <img src={InfoIcon} width={14} height={14} alt="Info" />
+                      <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -898,7 +895,7 @@ const NotificationsSection = ({ settingsData, onChange }) => {
                 <Tooltip delayDuration={100}>
                   <TooltipTrigger asChild>
                     <button className="settingsInfoIcon">
-                      <img src={InfoIcon} width={14} height={14} alt="Info" />
+                      <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -970,7 +967,7 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -1021,7 +1018,7 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -1069,7 +1066,7 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -1083,7 +1080,7 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
                 <DropdownMenuTrigger asChild>
                   <button className="timestampFormat">
                     {settingsData?.streamlink?.quality || "best"}
-                    <img src={CaretDownIcon} width={14} height={14} alt="Chevron" />
+                    <CaretDownIcon size={14} weight="fill" aria-label="Chevron" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="bottom">
@@ -1142,7 +1139,7 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
             ) : (
               <button className="timestampFormat" disabled>
                 {settingsData?.streamlink?.quality || "best"}
-                <img src={CaretDownIcon} width={14} height={14} alt="Chevron" />
+                <CaretDownIcon size={14} weight="fill" aria-label="Chevron" />
               </button>
             )}
           </div>
@@ -1157,7 +1154,7 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -1193,7 +1190,7 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>

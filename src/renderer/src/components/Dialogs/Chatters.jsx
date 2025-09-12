@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { Virtuoso } from "react-virtuoso";
-import X from "../../assets/icons/x-bold.svg";
+import { XIcon } from "@phosphor-icons/react";
 import { useDebounceValue } from "../../utils/hooks";
 import { KickBadges } from "../Cosmetics/Badges";
 
@@ -97,7 +97,7 @@ const Chatters = () => {
         </h2>
 
         <button className="chattersCloseBtn" onClick={() => window.app.chattersDialog.close()}>
-          <img src={X} width={18} height={18} alt="Close" />
+          <XIcon weight="bold" size={18} aria-label="Close" />
         </button>
       </div>
 

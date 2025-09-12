@@ -3,12 +3,9 @@ import clsx from "clsx";
 import KickLogoFull from "../../../assets/logos/kickLogoFull.svg?asset";
 import { memo, useCallback, useState } from "react";
 import STVLogo from "../../../assets/logos/stvLogo.svg?asset";
-import CaretDown from "../../../assets/icons/caret-down-bold.svg?asset";
+import { CaretDownIcon, GlobeIcon, LockIcon, UserIcon } from "@phosphor-icons/react";
 import useClickOutside from "../../../utils/useClickOutside";
 import KickLogoIcon from "../../../assets/logos/kickLogoIcon.svg?asset";
-import GlobeIcon from "../../../assets/icons/globe-fill.svg?asset";
-import LockIcon from "../../../assets/icons/lock-simple-fill.svg?asset";
-import UserIcon from "../../../assets/icons/user-fill.svg?asset";
 import useChatStore from "../../../providers/ChatProvider";
 import { useShallow } from "zustand/react/shallow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../Shared/Tooltip";
@@ -50,7 +47,7 @@ const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChat
       <div className="dialogRowHead">
         <span>{title}</span>
         <button onClick={() => setIsSectionOpen(!isSectionOpen)} className="dialogRowHeadBtn">
-          <img src={CaretDown} width={20} height={20} alt="Caret Down" />
+          <CaretDownIcon size={20} weight="bold" aria-label="Caret Down" />
         </button>
       </div>
       <div className="emoteItems">
@@ -82,7 +79,7 @@ const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChat
 
                 {emote?.subscribers_only && !userChatroomInfo?.subscription && (
                   <div className="emoteItemSubscriberLock">
-                    <img src={LockIcon} alt="Subscriber" width={16} height={16} />
+                    <LockIcon size={16} weight="fill" aria-label="Subscriber" />
                   </div>
                 )}
               </button>
@@ -145,7 +142,7 @@ const SevenTVEmoteDialog = memo(
                   <button
                     className={clsx("dialogHeadMenuItem", currentSection === "personal" && "active")}
                     onClick={() => setCurrentSection(currentSection === "personal" ? null : "personal")}>
-                    <img src={UserIcon} height={24} width={24} alt="Personal Emotes" />
+                    <UserIcon size={24} weight="fill" aria-label="Personal Emotes" />
                   </button>
                 )}
                 {sevenTVEmotes?.find((set) => set.type === "channel" && set?.emotes?.length > 0) && (
@@ -159,7 +156,7 @@ const SevenTVEmoteDialog = memo(
                   <button
                     className={clsx("dialogHeadMenuItem", currentSection === "global" && "active")}
                     onClick={() => setCurrentSection(currentSection === "global" ? null : "global")}>
-                    <img src={GlobeIcon} height={24} width={24} alt="Global Emotes" />
+                    <GlobeIcon size={24} weight="fill" aria-label="Global Emotes" />
                   </button>
                 )}
               </div>
@@ -241,7 +238,7 @@ const KickEmoteDialog = memo(
                   <button
                     className={clsx("dialogHeadMenuItem", currentSection === "Global" && "active")}
                     onClick={() => setCurrentSection(currentSection === "Global" ? null : "Global")}>
-                    <img src={GlobeIcon} height={24} width={24} alt="Global Emotes" />
+                    <GlobeIcon size={24} weight="fill" aria-label="Global Emotes" />
                   </button>
                 )}
                 {kickEmotes?.find((set) => set.name === "Emojis" && set?.emotes?.length > 0) && (

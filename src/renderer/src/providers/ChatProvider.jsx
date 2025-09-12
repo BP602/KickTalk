@@ -114,7 +114,7 @@ const detectCorruptedChatroomData = (chatroom) => {
   }
   
   // Case 3: Old structure with user at wrong level (Scenario 2)
-  // Check if we have an array but the channel set is missing user data
+  // CheckIcon if we have an array but the channel set is missing user data
   if (Array.isArray(chatroom.channel7TVEmotes)) {
     const channelSet = chatroom.channel7TVEmotes.find(set => set.type === "channel");
     if (channelSet && !channelSet.user) {
@@ -394,7 +394,7 @@ const useChatStore = create((set, get) => ({
     const connections = get().connections;
     const chatrooms = get().chatrooms;
     
-    // Check if using shared connection manager
+    // CheckIcon if using shared connection manager
     if (connectionManager) {
       const span = startSpan('seventv.connection_health_check', {
         'chatrooms.count': chatrooms.length,
@@ -648,7 +648,7 @@ const useChatStore = create((set, get) => ({
           msg.state === MESSAGE_STATES.OPTIMISTIC
         );
         if (stillOptimistic) {
-          console.warn('[Optimistic]: Reply timeout, marking as failed:', optimisticReply.tempId);
+          console.warn('[Optimistic]: ReplyIcon timeout, marking as failed:', optimisticReply.tempId);
           get().updateMessageState(chatroomId, optimisticReply.tempId, MESSAGE_STATES.FAILED);
         }
       }, 30000);
@@ -706,10 +706,10 @@ const useChatStore = create((set, get) => ({
       window.app?.telemetry?.recordMessageSent(chatroomId, 'reply', duration, true, streamerName);
       endSpanOk(opSpan);
 
-      // Reply sent successfully - it will be confirmed when we receive it back via WebSocket
+      // ReplyIcon sent successfully - it will be confirmed when we receive it back via WebSocket
       return true;
     } catch (error) {
-      console.error('[Send Reply]: Error sending reply:', error);
+      console.error('[Send ReplyIcon]: Error sending reply:', error);
       endSpanError(opSpan, error);
 
       // Record failed reply send with error details
@@ -1087,7 +1087,7 @@ const useChatStore = create((set, get) => ({
       const response = await window.app.kick.getSelfChatroomInfo(chatroom?.streamerData?.slug);
 
       if (!response?.data) {
-        console.log("[Initial User Chatroom Info]: No data received, skipping update");
+        console.log("[Initial UserIcon Chatroom InfoIcon]: No data received, skipping update");
         return;
       }
 
@@ -1145,12 +1145,12 @@ const useChatStore = create((set, get) => ({
 
     fetchEmotes();
 
-    // Fetch Initial Chatroom Info
+    // Fetch Initial Chatroom InfoIcon
     const fetchInitialChatroomInfo = async () => {
       const response = await window.app.kick.getChannelChatroomInfo(chatroom?.streamerData?.slug);
 
       if (!response?.data) {
-        console.log("[Initial Chatroom Info]: No data received, skipping update");
+        console.log("[Initial Chatroom InfoIcon]: No data received, skipping update");
         return;
       }
 
@@ -1214,7 +1214,7 @@ const useChatStore = create((set, get) => ({
       const response = await window.app.kick.getInitialPollInfo(chatroom?.streamerData?.slug);
 
       if (!response) {
-        console.log("[Initial Poll Info]: No response received, skipping update");
+        console.log("[Initial Poll InfoIcon]: No response received, skipping update");
         return;
       }
 
@@ -1614,7 +1614,7 @@ const useChatStore = create((set, get) => ({
       const messageTime = new Date(message.created_at || message.timestamp).getTime();
       if (Date.now() - messageTime > 5000) return;
 
-      // Check if it's a reply to user's message first
+      // CheckIcon if it's a reply to user's message first
       if (message?.metadata?.original_sender?.id == userId && message?.sender?.id != userId) {
         if (notificationSettings?.sound) {
           get().playNotificationSound(chatroomId, message, notificationSettings);
@@ -1623,7 +1623,7 @@ const useChatStore = create((set, get) => ({
         return;
       }
 
-      // Check for direct @mention of current user's username (case-insensitive)
+      // CheckIcon for direct @mention of current user's username (case-insensitive)
       if (username && message?.content) {
         try {
           // Use cached regex if username hasn't changed, otherwise rebuild
@@ -1692,7 +1692,7 @@ const useChatStore = create((set, get) => ({
         isRead: isRead,
       };
 
-      // Check if this is a confirmation of an optimistic message (regular or reply)
+      // CheckIcon if this is a confirmation of an optimistic message (regular or reply)
       if (!newMessage.isOptimistic && (newMessage.type === "message" || newMessage.type === "reply")) {
         const optimisticIndex = messages.findIndex(msg => 
             msg.isOptimistic &&
@@ -1773,7 +1773,7 @@ const useChatStore = create((set, get) => ({
     set((state) => {
       const chatters = state.chatters[chatroomId] || [];
 
-      // Check if chatter already exists
+      // CheckIcon if chatter already exists
       if (chatters?.some((c) => c.id === chatter.id)) {
         return state;
       }
@@ -1791,7 +1791,7 @@ const useChatStore = create((set, get) => ({
     try {
       const savedChatrooms = JSON.parse(localStorage.getItem("chatrooms")) || [];
 
-      // Check for duplicate chatroom
+      // CheckIcon for duplicate chatroom
       const isDuplicate = savedChatrooms.some(
         (chatroom) =>
           chatroom.username.toLowerCase() === username.toLowerCase() ||
@@ -2274,7 +2274,7 @@ const useChatStore = create((set, get) => ({
 
     const personalEmoteSets = get().personalEmoteSets;
 
-    // Check if we have either channel emotes OR this is a personal set update
+    // CheckIcon if we have either channel emotes OR this is a personal set update
     const isPersonalSetUpdate = personalEmoteSets?.some((set) => body.id === set.setInfo?.id);
     
     if (!channelEmoteSet?.emotes && !isPersonalSetUpdate) {
@@ -2934,7 +2934,7 @@ if (window.location.pathname === "/" || window.location.pathname.endsWith("index
       return;
     }
 
-    // Check for auth tokens before starting presence updates
+    // CheckIcon for auth tokens before starting presence updates
     const authTokens = window.app.auth.getToken();
     if (!authTokens?.token || !authTokens?.session) {
       console.log("[7tv Presence]: No auth tokens available, skipping presence update initialization");

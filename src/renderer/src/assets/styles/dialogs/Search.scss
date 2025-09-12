@@ -48,12 +48,14 @@
       background-color: #ffffff21;
       border-color: #ffffff37;
 
-      > img {
+      > img,
+      > svg {
         opacity: 1;
       }
     }
 
-    img {
+    img,
+    svg {
       opacity: 0.5;
       transition: opacity 0.2s ease-in-out;
     }
@@ -106,12 +108,14 @@
       background-color: #ffffff21;
       border-color: #ffffff37;
 
-      > img {
+      > img,
+      > svg {
         opacity: 1;
       }
     }
 
-    img {
+    img,
+    svg {
       opacity: 0.5;
       transition: opacity 0.2s ease-in-out;
     }

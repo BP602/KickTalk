@@ -3,18 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { userKickTalkBadges } from "@utils/kickTalkBadges";
 import clsx from "clsx";
 import Message from "../Messages/Message";
-import Pin from "../../assets/icons/push-pin-fill.svg?asset";
-import ArrowUpRight from "../../assets/icons/arrow-up-right-bold.svg?asset";
-import Copy from "../../assets/icons/copy-simple-fill.svg?asset";
-import BanIcon from "../../assets/icons/gavel-fill.svg?asset";
-import UnbanIcon from "../../assets/icons/circle-slash.svg?asset";
-import Check from "../../assets/icons/check-bold.svg?asset";
+import { PushPinIcon, ArrowUpRightIcon, CopyIcon, GavelIcon, UserPlusIcon, CheckIcon } from "@phosphor-icons/react";
 import { KickBadges, KickTalkBadges, StvBadges } from "../Cosmetics/Badges";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../Shared/Tooltip";
 
-// TODO: Add Kick Talk Badges to User Dialog
-// TODO: Add Paints to User Dialog
-// TODO: Add Slider/Custom Timeout to User Dialog
+// TODO: Add Kick Talk Badges to UserIcon Dialog
+// TODO: Add Paints to UserIcon Dialog
+// TODO: Add Slider/Custom Timeout to UserIcon Dialog
 
 const User = () => {
   const [dialogData, setDialogData] = useState(null);
@@ -75,7 +70,7 @@ const User = () => {
 
       setUserLogs(messages);
 
-      // Fetch User Profile in Channel
+      // Fetch UserIcon Profile in Channel
       if (!fetchedUser) {
         const { data: user } = await window.app.kick.getUserChatroomInfo(currentChatroom?.slug, sender?.username);
         setUserProfile(user);
@@ -83,7 +78,7 @@ const User = () => {
         setUserProfile(fetchedUser);
       }
 
-      // Silenced User Data
+      // Silenced UserIcon Data
       const silencedUsersData = JSON.parse(localStorage.getItem("silencedUsers")) || { data: [] };
       setSilencedUsers(silencedUsersData);
 
@@ -94,7 +89,7 @@ const User = () => {
       await window.app.userDialog.pin(pinned || false);
       setIsDialogPinned(pinned || false);
     } catch (error) {
-      console.error("[User Dialog]: Error loading user dialog data:", error);
+      console.error("[UserIcon Dialog]: Error loading user dialog data:", error);
     }
   };
 
@@ -232,7 +227,7 @@ const User = () => {
                 onClick={silenceUser}>
                 <span>{isUserSilenced ? "Unmute User" : "Mute User"}</span>
                 <div className="checkBox">
-                  <img src={Check} width={14} height={14} alt="Check" />
+                  <CheckIcon weight="bold" size={14} aria-label="Check" />
                 </div>
               </button>
               <button
@@ -242,7 +237,7 @@ const User = () => {
                   const transformedUsername = dialogData?.sender?.username.toLowerCase();
                   window.open(`https://kick.com/${transformedUsername}`, "_blank", "noopener,noreferrer");
                 }}>
-                Open Channel <img src={ArrowUpRight} width={18} height={18} />
+                Open Channel <ArrowUpRightIcon weight="bold" size={18} aria-hidden="true" />
               </button>
             </div>
 
@@ -255,7 +250,7 @@ const User = () => {
                       onClick={() => {
                         window.app.modActions.getUnbanUser(dialogData?.chatroom?.username, dialogData?.sender?.username);
                       }}>
-                      <img src={UnbanIcon} width={16} height={16} alt="Unban" />
+                      <UserPlusIcon size={16} aria-label="Unban" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -292,7 +287,7 @@ const User = () => {
                       onClick={() => {
                         window.app.modActions.getBanUser(dialogData?.chatroom?.username, dialogData?.sender?.username);
                       }}>
-                      <img src={BanIcon} width={16} height={16} alt="Ban" />
+                      <GavelIcon weight="fill" size={16} aria-label="Ban" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -305,12 +300,12 @@ const User = () => {
 
           <div className="dialogOptions">
             <button className={clsx("dialogOptionsButton", isDialogPinned ? "pinned" : "")} onClick={handlePinToggle}>
-              <img src={Pin} width={16} height={16} alt="Pin" />
+              <PushPinIcon weight="fill" size={16} aria-label="Pin" />
             </button>
             <button
               className="dialogOptionsButton"
               onClick={() => navigator.clipboard.writeText(dialogData?.sender?.username ?? "N/A")}>
-              <img src={Copy} width={16} height={16} alt="Copy" />
+              <CopyIcon weight="fill" size={16} aria-label="Copy" />
             </button>
           </div>
         </div>

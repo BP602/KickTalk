@@ -2,9 +2,7 @@
 
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-import CircleIcon from "@assets/icons/circle-bold.svg?asset";
-import CaretRightIcon from "@assets/icons/caret-right-fill.svg?asset";
-import CheckIcon from "@assets/icons/check-bold.svg?asset";
+import { CircleIcon, CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
 import clsx from "clsx";
 
 import "@assets/styles/components/Dropdown.scss";
@@ -49,7 +47,7 @@ function DropdownMenuCheckboxItem({ className, children, checked, ...props }) {
     <DropdownMenuPrimitive.CheckboxItem className={clsx("dropdownMenuCheckboxItem", className)} checked={checked} {...props}>
       <span className="indicator">
         <DropdownMenuPrimitive.ItemIndicator>
-          <img src={CheckIcon} alt="Check" width={16} height={16} />
+          <CheckIcon weight="bold" size={16} aria-label="Check" />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -66,7 +64,7 @@ function DropdownMenuRadioItem({ className, children, ...props }) {
     <DropdownMenuPrimitive.RadioItem className={clsx("dropdownMenuRadioItem", className)} {...props}>
       <span className="indicator">
         <DropdownMenuPrimitive.ItemIndicator>
-          <img src={CircleIcon} alt="Circle" width={16} height={16} />
+          <CircleIcon weight="bold" size={16} aria-label="CircleIcon" />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -94,7 +92,7 @@ function DropdownMenuSubTrigger({ className, inset, children, ...props }) {
   return (
     <DropdownMenuPrimitive.SubTrigger data-inset={inset} className={clsx("dropdownMenuSubTrigger", className)} {...props}>
       {children}
-      <img src={CaretRightIcon} alt="Caret Right" width={16} height={16} />
+      <CaretRightIcon weight="fill" size={16} aria-label="Caret Right" />
     </DropdownMenuPrimitive.SubTrigger>
   );
 }

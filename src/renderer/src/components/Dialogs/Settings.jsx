@@ -5,10 +5,8 @@ import { Switch } from "../Shared/Switch";
 import { Slider } from "../Shared/Slider";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../Shared/Tooltip";
 import clsx from "clsx";
-import X from "../../assets/icons/x-bold.svg?asset";
-import InfoIcon from "../../assets/icons/info-fill.svg?asset";
+import { XIcon, InfoIcon, SignOutIcon } from "@phosphor-icons/react";
 import KickTalkLogo from "../../assets/logos/KickTalkLogo.svg?asset";
-import SignOut from "../../assets/icons/sign-out-bold.svg?asset";
 import ColorPicker from "../Shared/ColorPicker";
 import darkProfilePic from "../../assets/app/darkProfilePic.jpg";
 import ftkProfilePic from "../../assets/app/ftk789ProfilePic.jpg";
@@ -91,7 +89,7 @@ const Settings = () => {
           <h2>Settings</h2>
 
           <button className="settingsDialogCloseBtn" onClick={() => window.app.settingsDialog.close()}>
-            <img src={X} width={16} height={16} alt="Close" />
+            <XIcon size={16} weight="bold" aria-label="Close" />
           </button>
         </div>
         <div className="settingsDialogContainer">
@@ -153,7 +151,7 @@ const Settings = () => {
             <div className="settingsMenuFooter">
               <button className="settingsMenuFooterBtn" onClick={handleLogout}>
                 <span>Sign Out</span>
-                <img src={SignOut} width={16} height={16} alt="Sign Out" />
+                <SignOutIcon size={16} weight="bold" aria-label="Sign Out" />
               </button>
             </div>
           </div>
@@ -190,7 +188,7 @@ const Settings = () => {
                         <div className="settingsContentAboutDevSocials">
                           <a href="https://x.com/drkerco" target="_blank" rel="noopener noreferrer">
                             <span>Open Twitter</span>
-                            <img src={XLogo} width={12} height={12} alt="X-Twitter Logo" />
+                            <img src={XLogo} width={12} height={12} alt="XIcon-Twitter Logo" />
                           </a>
                           <a href="https://kick.com/drkness-x" target="_blank" rel="noopener noreferrer">
                             <span>Open Channel</span>
@@ -217,7 +215,7 @@ const Settings = () => {
                         <div className="settingsContentAboutDevSocials">
                           <a href="https://x.com/ftk789yt" target="_blank" rel="noopener noreferrer">
                             <span>Open Twitter</span>
-                            <img src={XLogo} width={12} height={12} alt="X-Twitter Logo" />
+                            <img src={XLogo} width={12} height={12} alt="XIcon-Twitter Logo" />
                           </a>
                           <a href="https://kick.com/ftk789" target="_blank" rel="noopener noreferrer">
                             <span>Open Channel</span>
@@ -275,7 +273,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -305,7 +303,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -335,7 +333,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -365,7 +363,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -393,7 +391,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -440,7 +438,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -479,7 +477,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -554,7 +552,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -580,15 +578,15 @@ const Settings = () => {
                           active: settingsData?.notifications?.sound,
                         })}>
                         <div className="settingsItemTitleWithInfo">
-                          <span className="settingsItemTitle">Play Sound</span>
+                          <span className="settingsItemTitle">PlayIcon Sound</span>
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p>Play a sound when notifications are triggered</p>
+                              <p>PlayIcon a sound when notifications are triggered</p>
                             </TooltipContent>
                           </Tooltip>
                         </div>
@@ -613,7 +611,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -651,7 +649,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -680,7 +678,7 @@ const Settings = () => {
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <button className="settingsInfoIcon">
-                                <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -708,7 +706,7 @@ const Settings = () => {
                             <Tooltip delayDuration={100}>
                               <TooltipTrigger asChild>
                                 <button className="settingsInfoIcon">
-                                  <img src={InfoIcon} width={14} height={14} alt="Info" />
+                                  <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                                 </button>
                               </TooltipTrigger>
                               <TooltipContent>

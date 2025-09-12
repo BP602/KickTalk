@@ -1,10 +1,7 @@
 import { clsx } from "clsx";
 import { memo, useEffect, useRef, useState } from "react";
 import dayjs from "dayjs";
-import CaretDown from "../../assets/icons/caret-down-bold.svg?asset";
-import CloseIcon from "../../assets/icons/x-bold.svg?asset";
-import TrashIcon from "../../assets/icons/trash-fill.svg?asset";
-import TrophyIcon from "../../assets/icons/trophy.svg?asset";
+import { CaretDownIcon, XIcon, TrashIcon, TrophyIcon } from "@phosphor-icons/react";
 import duration from "dayjs/plugin/duration";
 
 dayjs.extend(duration);
@@ -177,20 +174,19 @@ const Poll = memo(
           </div>
           <div className="pollActions">
             <button onClick={() => setIsPollExpanded(!isPollExpanded)}>
-              <img
-                src={CaretDown}
-                width={16}
-                height={16}
-                alt="Expand Poll"
+              <CaretDownIcon
+                size={16}
+                weight="bold"
+                aria-label="Expand Poll"
                 style={{ transform: isPollExpanded ? "rotate(180deg)" : "none" }}
               />
             </button>
             <button onClick={() => setShowPollMessage(!showPollMessage)}>
-              <img src={CloseIcon} width={14} height={14} alt="Close Poll" />
+              <XIcon size={14} weight="bold" aria-label="Close Poll" />
             </button>
             {canModerate && (
               <button onClick={modDeletePoll}>
-                <img src={TrashIcon} width={14} height={14} alt="Delete Poll" />
+                <TrashIcon size={14} weight="fill" aria-label="Delete Poll" />
               </button>
             )}
           </div>
@@ -222,7 +218,7 @@ const Poll = memo(
                       {hasVoted && <span id="pollOptionVotedLabel">VOTED</span>}
                       {isWinner && (
                         <span id="pollOptionWonLabel">
-                          WON <img src={TrophyIcon} width={14} height={14} alt="Trophy" />
+                          WON <TrophyIcon weight="fill" size={14} aria-label="TrophyIcon" />
                         </span>
                       )}
                     </div>

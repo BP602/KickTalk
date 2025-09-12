@@ -1,8 +1,7 @@
 import { memo, useState } from "react";
 import { clsx } from "clsx";
 import { MessageParser } from "../../utils/MessageParser";
-import CaretDown from "../../assets/icons/caret-down-bold.svg?asset";
-import PushPinSlash from "../../assets/icons/push-pin-slash-fill.svg?asset";
+import { CaretDownIcon, PushPinSlashIcon } from "@phosphor-icons/react";
 import dayjs from "dayjs";
 import { KickBadges } from "../Cosmetics/Badges";
 
@@ -36,17 +35,16 @@ const Pin = memo(
             </div>
             <div className="pinnedMessageActions">
               <button onClick={() => setIsPinnedMessageOpen(!isPinnedMessageOpen)}>
-                <img
-                  src={CaretDown}
-                  width={16}
-                  height={16}
-                  alt="Expand Pinned Message"
+                <CaretDownIcon
+                  size={16}
+                  weight="bold"
+                  aria-label="Expand Pinned Message"
                   style={{ transform: isPinnedMessageOpen ? "rotate(180deg)" : "none" }}
                 />
               </button>
               {canModerate && (
                 <button onClick={() => setShowPinnedMessage(false)}>
-                  <img src={PushPinSlash} width={16} height={16} alt="Hide Pinned Message" />
+                  <PushPinSlashIcon size={16} weight="fill" aria-label="Hide Pinned Message" />
                 </button>
               )}
             </div>

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KickTalk Icon Conversion Comparison</title>
+    <style>
+      :root {
+        --bg: #0f1115; --card: #151922; --muted: #aeb6c2; --text: #e8ecf1; --border: #2a2f3a;
+      }
+      html, body { background: var(--bg); color: var(--text); margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+      .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+      h1 { font-size: 20px; margin: 0 0 12px; }
+      .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #1f2937; color: #c9d3e0; font-size: 12px; margin-left: 8px; }
+      .summary { color: var(--muted); margin-bottom: 16px; }
+      .header { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 10px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 10px; align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+      .thumb, .ph { display: inline-flex; align-items: center; gap: 10px; }
+      .thumb img { width: 28px; height: 28px; object-fit: contain; filter: invert(92%) sepia(10%) saturate(78%) hue-rotate(176deg) brightness(98%) contrast(92%); }
+      .label { color: var(--muted); font-size: 12px; }
+      .file { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>KickTalk Icon Conversion Comparison <span id="count" class="pill"></span></h1>
+      <div class="summary">Original SVG assets vs new Phosphor React icons.</div>
+      <div id="app"></div>
+    </div>
+
+    <script type="module">
+      import React from "https://esm.sh/react@18";
+      import { createRoot } from "https://esm.sh/react-dom@18/client";
+      import * as Ph from "https://esm.sh/@phosphor-icons/react@2?deps=react@18";
+
+      // Minimal, high-confidence pairs derived from diffs/usage
+      const data = [
+        { label: "Close", file: "src/renderer/src/assets/icons/x-bold.svg", icon: "XIcon", weight: "bold" },
+        { label: "Settings", file: "src/renderer/src/assets/icons/gear-fill.svg", icon: "GearIcon", weight: "fill" },
+        { label: "Minimize", file: "src/renderer/src/assets/icons/minus-bold.svg", icon: "MinusIcon", weight: "bold" },
+        { label: "Maximize", file: "src/renderer/src/assets/icons/square-bold.svg", icon: "SquareIcon", weight: "bold" },
+        { label: "Download Update", file: "src/renderer/src/assets/icons/cloud-arrow-down-fill.svg", icon: "CloudArrowDownIcon", weight: "fill" },
+        { label: "Add", file: "src/renderer/src/assets/icons/plus-bold.svg", icon: "PlusIcon", weight: "bold" },
+        { label: "Open Folder", file: "src/renderer/src/assets/icons/folder-open-fill.svg", icon: "FolderOpen", weight: "fill" },
+        { label: "Bell", file: "src/renderer/src/assets/icons/notification-bell.svg", icon: "BellIcon", weight: "fill" },
+        { label: "Chat", file: "src/renderer/src/assets/icons/message-bubble.svg", icon: "ChatCenteredTextIcon", weight: "fill" },
+        { label: "Caret Down", file: "src/renderer/src/assets/icons/caret-down-fill.svg", icon: "CaretDownIcon", weight: "fill" },
+        { label: "Caret Right", file: "src/renderer/src/assets/icons/caret-right-fill.svg", icon: "CaretRightIcon", weight: "fill" },
+        { label: "Check", file: "src/renderer/src/assets/icons/check-bold.svg", icon: "CheckIcon", weight: "bold" },
+        { label: "Circle", file: "src/renderer/src/assets/icons/circle-bold.svg", icon: "CircleIcon", weight: "bold" },
+        { label: "Pinned", file: "src/renderer/src/assets/icons/push-pin-fill.svg", icon: "PushPinIcon", weight: "fill" },
+        { label: "Unpin", file: "src/renderer/src/assets/icons/push-pin-slash-fill.svg", icon: "PushPinSlashIcon", weight: "fill" },
+        { label: "Copy", file: "src/renderer/src/assets/icons/copy-simple-fill.svg", icon: "CopyIcon", weight: "fill" },
+        { label: "Refresh", file: "src/renderer/src/assets/icons/arrow-clockwise-fill.svg", icon: "ArrowClockwiseIcon", weight: "fill" },
+        { label: "Open in Browser", file: "src/renderer/src/assets/icons/arrow-up-right-bold.svg", icon: "ArrowUpRightIcon", weight: "bold" },
+        { label: "Info", file: "src/renderer/src/assets/icons/info-fill.svg", icon: "InfoIcon", weight: "fill" },
+        { label: "Globe", file: "src/renderer/src/assets/icons/globe-fill.svg", icon: "GlobeIcon", weight: "fill" },
+        { label: "Lock", file: "src/renderer/src/assets/icons/lock-simple-fill.svg", icon: "LockIcon", weight: "fill" },
+        { label: "User", file: "src/renderer/src/assets/icons/user-fill.svg", icon: "UserIcon", weight: "fill" },
+        { label: "Scroll", file: "src/renderer/src/assets/icons/mouse-scroll-fill.svg", icon: "MouseScroll", weight: "fill" },
+        { label: "Trash", file: "src/renderer/src/assets/icons/trash-fill.svg", icon: "TrashIcon", weight: "fill" },
+        { label: "Trophy", file: "src/renderer/src/assets/icons/trophy.svg", icon: "TrophyIcon", weight: "fill" },
+        { label: "Ghost", file: "src/renderer/src/assets/icons/ghost-fill.svg", icon: "GhostIcon", weight: "fill" },
+        { label: "Sign Out", file: "src/renderer/src/assets/icons/sign-out-bold.svg", icon: "SignOutIcon", weight: "bold" },
+        { label: "Reply", file: "src/renderer/src/assets/icons/reply-fill.svg", icon: "ArrowBendUpLeft", weight: "regular" },
+        { label: "Ban", file: "src/renderer/src/assets/icons/gavel-fill.svg", icon: "GavelIcon", weight: "fill" },
+        { label: "Timeout", file: "src/renderer/src/assets/icons/hourglass.svg", icon: "ClockUserIcon", weight: "regular" },
+        { label: "Unban", file: "src/renderer/src/assets/icons/circle-slash.svg", icon: "UserPlusIcon", weight: "regular" },
+      ];
+
+      function resolvePhosphor(name){
+        return Ph[name] || Ph[name?.replace(/Icon$/, "")] || Ph[name + "Icon"] || null;
+      }
+
+      function Row({ item }){
+        const Comp = resolvePhosphor(item.icon);
+        return (
+          React.createElement("div", { className: "row" },
+            React.createElement("div", { className: "thumb" },
+              React.createElement("img", { src: item.file, alt: `${item.label} (original)` }),
+              React.createElement("div", { className: "label" }, item.label)
+            ),
+            React.createElement("div", { className: "ph" },
+              Comp
+                ? React.createElement(Comp, { size: 28, weight: item.weight || "regular", color: "#e8ecf1", "aria-label": `${item.label} (Phosphor)` })
+                : React.createElement("span", { className: "label" }, `Not found: ${item.icon}`)
+            ),
+            React.createElement("div", { className: "file" }, `${item.file}  →  ${item.icon}${item.weight ? ` (${item.weight})` : ""}`)
+          )
+        );
+      }
+
+      function App(){
+        const valid = data.filter(Boolean);
+        const badge = document.getElementById("count");
+        if (badge) badge.textContent = `${valid.length} pairs`;
+        return (
+          React.createElement(React.Fragment, null,
+            React.createElement("div", { className: "header" },
+              React.createElement("div", null, "Original SVG"),
+              React.createElement("div", null, "Phosphor"),
+              React.createElement("div", null, "Mapping")
+            ),
+            valid.map((item, idx) => React.createElement(Row, { key: idx, item }))
+          )
+        );
+      }
+
+      createRoot(document.getElementById("app")).render(React.createElement(App));
+    </script>
+  </body>
+  </html>

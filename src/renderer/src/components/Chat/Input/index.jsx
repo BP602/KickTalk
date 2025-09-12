@@ -32,8 +32,7 @@ import EmoteDialogs from "./EmoteDialogs";
 import { useShallow } from "zustand/react/shallow";
 import { EmoteNode } from "./EmoteNode";
 import { kickEmoteInputRegex } from "@utils/constants";
-import XIcon from "../../../assets/icons/x-bold.svg?asset";
-import LockIcon from "../../../assets/icons/lock-simple-fill.svg?asset";
+import { XIcon, LockIcon } from "@phosphor-icons/react";
 import InfoBar from "./InfoBar";
 import { MessageParser } from "../../../utils/MessageParser";
 
@@ -133,7 +132,7 @@ const EmoteSuggestions = memo(
                   />
                   {emote?.subscribers_only && !userChatroomInfo?.subscription && (
                     <div className="emoteItemSubscriberLock">
-                      <img src={LockIcon} alt="Subscriber" width={16} height={16} />
+                      <LockIcon size={16} weight="fill" aria-label="Subscriber" />
                     </div>
                   )}
                 </div>
@@ -626,7 +625,7 @@ const KeyHandler = ({ chatroomId, onSendMessage, isReplyThread, allStvEmotes, re
           const anchor = selection.anchor;
           const anchorNode = anchor.getNode();
 
-          // Check if the paragraph contains an emote-like text
+          // CheckIcon if the paragraph contains an emote-like text
           if (anchorNode.getType() === "paragraph") {
             const textContent = anchorNode.getTextContent();
             const emoteMatch = textContent.match(/\[emote:(\d+):([^\]]+)\]/);
@@ -659,7 +658,7 @@ const KeyHandler = ({ chatroomId, onSendMessage, isReplyThread, allStvEmotes, re
           if (!$isRangeSelection(selection)) {
             const renderTime = performance.now() - updateStartTime;
             
-            // Check if we should emit telemetry based on duration and throttling
+            // CheckIcon if we should emit telemetry based on duration and throttling
             const telemetryUtils = window.__KT_TELEMETRY_UTILS__;
             if (telemetryUtils?.shouldEmitLexicalUpdate?.(renderTime)) {
               updateSpan = startSpan('chat.input.lexical_update', {
@@ -992,7 +991,7 @@ const ReplyHandler = ({ chatroomId, getReplyData, clearReplyData, allStvEmotes, 
             </span>
 
             <button className="replyInputCloseButton" onClick={() => clearReplyData()}>
-              <img src={XIcon} alt="Close" width={16} height={16} />
+              <XIcon size={16} weight="bold" aria-label="Close" />
             </button>
           </div>
           <div className="replyInputBoxContent">

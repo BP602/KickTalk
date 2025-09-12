@@ -219,7 +219,8 @@
     padding: 4px;
     transition: background-color 0.2s ease;
 
-    > img {
+    > img,
+    > svg {
       opacity: 0.5;
       transition: opacity 0.2s ease;
     }

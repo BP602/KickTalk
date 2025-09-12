@@ -19,7 +19,7 @@ const startSpan = (name, attributes = {}) => {
       }
     }
     
-    // Check telemetry level requirements
+    // CheckIcon telemetry level requirements
     if (utils?.shouldEmitTelemetry && !utils.shouldEmitTelemetry(name, attributes, 'NORMAL')) {
       return null;
     }
@@ -369,7 +369,7 @@ const parseMessageContent = ({
         const emoteData = getEmoteData(textPart, sevenTVEmotes, chatroomId || message?.chatroom_id);
 
         if (emoteData) {
-          // Check if this is a zero width emote and we have a previous emote
+          // CheckIcon if this is a zero width emote and we have a previous emote
           if (emoteData.isZeroWidth && lastEmoteComponent) {
             const prevEmoteProps = lastEmoteComponent.props;
             const updatedOverlaid = {

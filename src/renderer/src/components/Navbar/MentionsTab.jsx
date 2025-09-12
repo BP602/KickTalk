@@ -1,7 +1,6 @@
 import { memo } from "react";
 import clsx from "clsx";
-import X from "../../assets/icons/x-bold.svg?asset";
-import NotificationIcon from "../../assets/icons/notification-bell.svg?asset";
+import { XIcon, BellIcon } from "@phosphor-icons/react";
 
 const MentionsTab = memo(({ currentChatroomId, onSelectChatroom, onRemoveMentionsTab }) => {
     return (
@@ -14,12 +13,10 @@ const MentionsTab = memo(({ currentChatroomId, onSelectChatroom, onRemoveMention
         }}
       className={clsx("chatroomStreamer", currentChatroomId === "mentions" && "chatroomStreamerActive")}>
         <div className="streamerInfo">
-          <img
+          <BellIcon
             className="profileImage"
-            src={NotificationIcon}
-            width={20}
-            height={20}
-            alt="Mentions"
+            weight="fill" size={20}
+            aria-label="Mentions"
           />
           <span>Mentions</span>
         </div>
@@ -30,7 +27,7 @@ const MentionsTab = memo(({ currentChatroomId, onSelectChatroom, onRemoveMention
             onRemoveMentionsTab();
           }}
         aria-label="Remove mentions tab">
-          <img src={X} width={12} height={12} alt="Remove mentions tab" />
+          <XIcon size={12} weight="bold" aria-label="Remove mentions tab" />
         </button>
       </div>
     );

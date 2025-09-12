@@ -1,5 +1,5 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../../Shared/Tooltip";
-import InfoIcon from "../../../../assets/icons/info-fill.svg?asset";
+import { InfoIcon } from "@phosphor-icons/react";
 import clsx from "clsx";
 import { Switch } from "../../../Shared/Switch";
 
@@ -22,11 +22,11 @@ const ModerationSection = ({ settingsData, onChange }) => {
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">
-                    <img src={InfoIcon} width={14} height={14} alt="Info" />
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <img src={InfoIcon} width={14} height={14} alt="Quick Mod Tools" />
+                  <InfoIcon size={14} weight="fill" aria-label="Quick Mod Tools" />
                   <p>Enable quick moderation tools in chat messages</p>
                 </TooltipContent>
               </Tooltip>

@@ -2,13 +2,10 @@ import "@assets/styles/components/Navbar.scss";
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useChatStore from "../providers/ChatProvider";
-import Plus from "@assets/icons/plus-bold.svg?asset";
-import X from "@assets/icons/x-bold.svg?asset";
+import { PlusIcon, XIcon, BellIcon, ChatCenteredTextIcon } from "@phosphor-icons/react";
 import useClickOutside from "../utils/useClickOutside";
 import { useSettings } from "../providers/SettingsProvider";
 import { DragDropContext, Droppable } from "@hello-pangea/dnd";
-import NotificationIcon from "@assets/icons/notification-bell.svg?asset";
-import MessageIcon from "@assets/icons/message-bubble.svg?asset";
 import ChatroomTab from "./Navbar/ChatroomTab";
 import MentionsTab from "./Navbar/MentionsTab";
 
@@ -264,7 +261,7 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
                       }}
                       disabled={isConnecting}>
                       <span>Add</span>
-                      <img src={Plus} width={16} height={16} alt="Add chatroom" />
+                      <PlusIcon weight="bold" size={16} aria-label="Add chatroom" />
                     </button>
                   </div>
                 )}
@@ -280,19 +277,19 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
                 <button
                   onClick={() => setActiveSection("chatroom")}
                   className={clsx("navbarDialogOptionBtn", activeSection === "chatroom" && "active")}>
-                  <img src={MessageIcon} width={24} height={24} alt="Add chatroom" />
+                  <ChatCenteredTextIcon weight="fill" size={24} aria-label="Add chatroom" />
                   <span>Chatroom</span>
                 </button>
                 <button
                   onClick={() => setActiveSection("mentions")}
                   className={clsx("navbarDialogOptionBtn", activeSection === "mentions" && "active")}>
-                  <img src={NotificationIcon} width={24} height={24} alt="Notifications" />
+                  <BellIcon weight="fill" size={24} aria-label="Notifications" />
                   <span>Mentions</span>
                 </button>
               </div>
 
               <button className="navbarDialogClose" onClick={() => setShowNavbarDialog(false)} aria-label="Close Add Mentions">
-                <img src={X} width={16} height={16} alt="Close Add Mentions" />
+                <XIcon weight="bold" size={16} aria-label="Close Add Mentions" />
               </button>
             </div>
 
@@ -351,7 +348,7 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
               }}
               disabled={isConnecting}>
               Add
-              <img src={Plus} width={16} height={16} alt="Add chatroom" />
+              <PlusIcon weight="bold" size={16} aria-label="Add chatroom" />
             </button>
           </div>
         )}

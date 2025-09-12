@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import log from "electron-log";
-import downloadIcon from "@assets/icons/cloud-arrow-down-fill.svg?asset";
+import { CloudArrowDownIcon } from "@phosphor-icons/react";
 
 const Updater = () => {
   const [updateStatus, setUpdateStatus] = useState("idle");
@@ -94,7 +94,7 @@ const Updater = () => {
             <span>v {updateInfo?.version}</span>
             <div className="updaterMainContent">
               <h4>{text}</h4>
-              <img src={downloadIcon} alt="download" />
+              <CloudArrowDownIcon weight="fill" size={16} aria-label="download" />
             </div>
           </button>
         )}

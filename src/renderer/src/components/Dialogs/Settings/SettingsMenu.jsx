@@ -1,5 +1,5 @@
 import KickTalkLogo from "../../../assets/logos/KickTalkLogo.svg?asset";
-import SignOut from "../../../assets/icons/sign-out-bold.svg?asset";
+import { SignOutIcon } from "@phosphor-icons/react";
 import clsx from "clsx";
 
 const SettingsMenu = ({ activeSection, setActiveSection, onLogout }) => (
@@ -68,7 +68,7 @@ const SettingsMenu = ({ activeSection, setActiveSection, onLogout }) => (
     <div className="settingsMenuFooter">
       <button className="settingsMenuFooterBtn" onClick={onLogout}>
         <span>Sign Out</span>
-        <img src={SignOut} width={16} height={16} alt="Sign Out" />
+        <SignOutIcon size={16} weight="bold" aria-label="Sign Out" />
       </button>
     </div>
   </div>

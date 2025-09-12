@@ -2,10 +2,7 @@ import { memo, useCallback, useMemo } from "react";
 import { MessageParser } from "../../utils/MessageParser";
 import { KickBadges, KickTalkBadges, StvBadges } from "../Cosmetics/Badges";
 import { getTimestampFormat } from "../../utils/ChatUtils";
-import CopyIcon from "@assets/icons/copy-simple-fill.svg?asset";
-import ReplyIcon from "@assets/icons/reply-fill.svg?asset";
-import Pin from "@assets/icons/push-pin-fill.svg?asset";
-import RetryIcon from "@assets/icons/arrow-clockwise-fill.svg?asset";
+import { CopyIcon, ArrowBendUpLeft, PushPinIcon, ArrowClockwiseIcon } from "@phosphor-icons/react";
 import clsx from "clsx";
 import ModActions from "./ModActions";
 import useChatStore from "../../providers/ChatProvider";
@@ -142,10 +139,10 @@ const RegularMessage = memo(
             // Show retry and copy buttons for failed messages
             <>
               <button onClick={handleRetryMessage} className="chatMessageActionButton" title="Retry sending message">
-                <img src={RetryIcon} alt="Retry Message" width={16} height={16} loading="lazy" />
+                <ArrowClockwiseIcon weight="fill" size={16} aria-label="Retry Message" />
               </button>
               <button onClick={handleCopyMessage} className="chatMessageActionButton">
-                <img src={CopyIcon} alt="Copy Message" width={16} height={16} loading="lazy" />
+                <CopyIcon weight="fill" size={16} aria-label="Copy Message" />
               </button>
             </>
           ) : (
@@ -153,18 +150,18 @@ const RegularMessage = memo(
             <>
               {canModerate && !message?.deleted && (
                 <button onClick={handlePinMessage} className="chatMessageActionButton">
-                  <img src={Pin} alt="Pin Message" width={16} height={16} loading="lazy" />
+                  <PushPinIcon weight="fill" size={16} aria-label="Pin Message" />
                 </button>
               )}
 
               {!message?.deleted && (
                 <button onClick={handleReply} className="chatMessageActionButton">
-                  <img src={ReplyIcon} alt={`Reply to ${message?.sender?.username}`} width={16} height={16} loading="lazy" />
+                  <ArrowBendUpLeft weight="fill" size={16} aria-label={`Reply to ${message?.sender?.username}`} />
                 </button>
               )}
 
               <button onClick={handleCopyMessage} className="chatMessageActionButton">
-                <img src={CopyIcon} alt="Copy Message" width={16} height={16} loading="lazy" />
+                <CopyIcon weight="fill" size={16} aria-label="Copy Message" />
               </button>
             </>
           )}

@@ -3,7 +3,7 @@ import "../../assets/styles/dialogs/AuthDialog.scss";
 import GoogleIcon from "../../assets/logos/googleLogo.svg?asset";
 import AppleIcon from "../../assets/logos/appleLogo.svg?asset";
 import KickIconIcon from "../../assets/logos/kickLogoIcon.svg?asset";
-import GhostIcon from "../../assets/icons/ghost-fill.svg?asset";
+import { GhostIcon } from "@phosphor-icons/react";
 const Auth = () => {
   const handleAuthLogin = (type) => {
     switch (type) {
@@ -50,7 +50,7 @@ const Auth = () => {
         <div className="authLoginOption">
           <button className="authAnonymousButton" onClick={() => handleAuthLogin("anonymous")}>
             Continue anonymous
-            <img src={GhostIcon} width={20} height={20} alt="Ghost" />
+            <GhostIcon size={20} weight="fill" aria-label="GhostIcon" />
           </button>
         </div>
       </div>

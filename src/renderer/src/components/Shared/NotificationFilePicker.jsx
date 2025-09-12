@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./Dropdown";
-import caretDownIcon from "@assets/icons/caret-down-fill.svg?asset";
-import playIcon from "@assets/icons/play-fill.svg?asset";
+import { CaretDownIcon, PlayIcon } from "@phosphor-icons/react";
 const NotificationFilePicker = ({ getOptions, onChange, settingsData, disabled }) => {
   const [options, setOptions] = useState([]);
   const [name, setName] = useState("default");
@@ -59,12 +58,12 @@ const NotificationFilePicker = ({ getOptions, onChange, settingsData, disabled }
               console.error("Error loading sound file:", error);
             });
         }}>
-        <img src={playIcon} width={14} height={14} alt="Play" />
+        <PlayIcon size={14} weight="fill" aria-label="PlayIcon" />
       </button>
       <DropdownMenu onOpenChange={handleOpenChange}>
         <DropdownMenuTrigger disabled={disabled} asChild>
           <button className="soundFileName">
-            {name} <img src={caretDownIcon} width={14} height={14} alt="Caret Down" />
+            {name} <CaretDownIcon size={14} weight="fill" aria-label="Caret Down" />
           </button>
         </DropdownMenuTrigger>
 

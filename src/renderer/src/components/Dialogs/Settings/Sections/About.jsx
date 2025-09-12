@@ -35,7 +35,7 @@ const AboutSection = ({ appInfo }) => {
               <div className="settingsContentAboutDevSocials">
                 <a href="https://x.com/drkerco" target="_blank" rel="noopener noreferrer">
                   <span>Open Twitter</span>
-                  <img src={XLogo} width={12} height={12} alt="X-Twitter Logo" />
+                  <img src={XLogo} width={12} height={12} alt="XIcon-Twitter Logo" />
                 </a>
                 <a href="https://kick.com/drkness-x" target="_blank" rel="noopener noreferrer">
                   <span>Open Channel</span>
@@ -62,7 +62,7 @@ const AboutSection = ({ appInfo }) => {
               <div className="settingsContentAboutDevSocials">
                 <a href="https://x.com/ftk789yt" target="_blank" rel="noopener noreferrer">
                   <span>Open Twitter</span>
-                  <img src={XLogo} width={12} height={12} alt="X-Twitter Logo" />
+                  <img src={XLogo} width={12} height={12} alt="XIcon-Twitter Logo" />
                 </a>
                 <a href="https://kick.com/ftk789" target="_blank" rel="noopener noreferrer">
                   <span>Open Channel</span>

@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
-import Minus from "@assets/icons/minus-bold.svg?asset";
-import Square from "@assets/icons/square-bold.svg?asset";
-import X from "@assets/icons/x-bold.svg?asset";
-import GearIcon from "@assets/icons/gear-fill.svg?asset";
+import { MinusIcon, SquareIcon, XIcon, GearIcon } from "@phosphor-icons/react";
 
 import "@assets/styles/components/TitleBar.scss";
 import clsx from "clsx";
@@ -53,7 +50,7 @@ const TitleBar = () => {
             }>
             <span className="titleBarUsername">{currentUser?.username || "Loading..."}</span>
             <div className="titleBarDivider" />
-            <img className="titleBarSettingsIcon" src={GearIcon} width={16} height={16} alt="Settings" />
+            <GearIcon weight="fill" className="titleBarSettingsIcon" size={16} aria-label="Settings" />
           </button>
         ) : (
           <div className="titleBarLoginBtn">
@@ -68,7 +65,7 @@ const TitleBar = () => {
                   userData: currentUser,
                 })
               }>
-              <img src={GearIcon} width={16} height={16} alt="Settings" />
+              <GearIcon weight="fill" size={16} aria-label="Settings" />
             </button>
           </div>
         )}
@@ -83,13 +80,13 @@ const TitleBar = () => {
       <div className="titleBarRight">
         <div className="titleBarControls">
           <button className="minimize" onClick={() => window.app.minimize()}>
-            <img src={Minus} width={12} height={12} alt="Minimize" />
+            <MinusIcon weight="bold" size={12} aria-label="Minimize" />
           </button>
           <button className="maximize" onClick={() => window.app.maximize()}>
-            <img src={Square} width={12} height={12} alt="Maximize" />
+            <SquareIcon weight="bold" size={12} aria-label="Maximize" />
           </button>
           <button className="close" onClick={() => window.app.close()}>
-            <img src={X} width={14} height={14} alt="Close" />
+            <XIcon weight="bold" size={14} aria-label="Close" />
           </button>
         </div>
       </div>

@@ -201,6 +201,11 @@
       background-color: rgb(212, 0, 0);
     }
   }
+
+  /* Ensure close icon stays themed (not global .close red) */
+  > .close {
+    color: var(--text-primary);
+  }
 }
 
 .titleBarSettings {

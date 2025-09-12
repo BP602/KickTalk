@@ -2,7 +2,7 @@ import { memo, useMemo, useEffect, useState, useRef, useCallback } from "react";
 import { Virtuoso } from "react-virtuoso";
 import useChatStore from "../../providers/ChatProvider";
 import Message from "./Message";
-import MouseScroll from "../../assets/icons/mouse-scroll-fill.svg?asset";
+import { MouseScroll } from "@phosphor-icons/react";
 
 const MessagesHandler = memo(
   ({
@@ -181,7 +181,7 @@ const MessagesHandler = memo(
         {!atBottom && (
           <div className="scrollToBottomBtn" onClick={togglePause}>
             Scroll To Bottom
-            <img src={MouseScroll} width={24} height={24} alt="Scroll To Bottom" />
+            <MouseScroll weight="fill" size={24} aria-label="MouseScroll To Bottom" />
           </div>
         )}
       </div>

@@ -50,7 +50,7 @@ const Message = ({
     }
   }
 
-  // Check if user can moderate
+  // CheckIcon if user can moderate
   const canModerate = useMemo(
     () => userChatroomInfo?.is_broadcaster || userChatroomInfo?.is_moderator || userChatroomInfo?.is_super_admin,
     [userChatroomInfo],
@@ -213,7 +213,7 @@ const Message = ({
     existingKickTalkBadges?.find((badge) => badge.username.toLowerCase() === message?.sender?.username?.toLowerCase())?.badges ||
     [];
 
-  // Check if user is a donator
+  // CheckIcon if user is a donator
   const donatorBadges = useMemo(() => {
     if (!message?.sender?.username) return [];
 
@@ -275,14 +275,14 @@ const Message = ({
       return false;
     }
 
-    // Check for self-mention in replies
+    // CheckIcon for self-mention in replies
     if (settings?.notifications?.background) {
       if (message?.metadata?.original_sender?.id == userId && message?.sender?.id != userId) {
         return true;
       }
     }
 
-    // Check for direct @mention of current user (case-insensitive),
+    // CheckIcon for direct @mention of current user (case-insensitive),
     // treating '-' and '_' as interchangeable and enforcing boundaries
     if (settings?.notifications?.background && mentionRegex) {
       const content = message?.content?.toLowerCase() || "";
@@ -291,7 +291,7 @@ const Message = ({
       }
     }
 
-    // Check for highlight phrases (only if configured and background highlighting enabled)
+    // CheckIcon for highlight phrases (only if configured and background highlighting enabled)
     if (settings?.notifications?.background && settings?.notifications?.phrases?.length) {
       return settings.notifications.phrases.some((phrase) =>
         message?.content?.toLowerCase().includes(phrase.toLowerCase()),
