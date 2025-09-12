@@ -1,5 +1,7 @@
 # Kick Talk
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/BP602/KickTalk)
+
 An Application for Kick to enhance your experience as a chatter.
 
 Designed & Developed by Dark
