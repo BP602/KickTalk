@@ -404,7 +404,7 @@ const Message = ({
         />
       )}
 
-      {isSupportEvent && <SupportEventMessage message={{ ...message, metadata: parsedMetadata }} />}
+      {isSupportEvent && <SupportEventMessage message={{ ...message, metadata: parsedMetadata }} handleOpenUserDialog={handleOpenUserDialog} />}
     </div>
   );
 

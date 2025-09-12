@@ -565,11 +565,37 @@
   .supportEventIcon {
     flex-shrink: 0;
     opacity: 0.8;
+    
+    &.subscriptionIcon {
+      filter: hue-rotate(240deg) saturate(1.2); // Purple tint
+    }
+    
+    &.donationIcon {
+      filter: hue-rotate(160deg) saturate(1.1); // Green tint  
+    }
+    
+    &.rewardIcon {
+      filter: hue-rotate(45deg) saturate(1.3); // Gold tint
+    }
+    
+    &.giftIcon {
+      filter: hue-rotate(15deg) saturate(1.1); // Warm gift box tint
+    }
   }
 
   .supportEventUsername {
     font-weight: 700;
     color: #ffffff;
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    cursor: pointer;
+    
+    &:hover {
+      text-decoration: underline;
+    }
   }
 
   .supportEventAction {
@@ -584,6 +610,17 @@
 
   .supportEventCost {
     font-weight: 400;
+    opacity: 0.7;
+    font-size: 0.9em;
+  }
+
+  .supportEventCount {
+    font-weight: 700;
+    color: inherit;
+  }
+
+  .supportEventTotal {
+    font-weight: 700;
     opacity: 0.7;
     font-size: 0.9em;
   }

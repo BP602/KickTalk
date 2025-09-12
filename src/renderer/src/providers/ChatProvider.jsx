@@ -1524,13 +1524,14 @@ const useChatStore = create((set, get) => ({
         type: supportType,
         chatroom_id: chatroomId,
         timestamp: new Date().toISOString(),
-        sender: parsedEvent?.sender || { username: parsedEvent?.username },
+        sender: parsedEvent?.sender || { username: parsedEvent?.username || parsedEvent?.gifter_username },
         metadata: {
           ...parsedEvent,
           username:
             parsedEvent?.username ||
             parsedEvent?.user?.username ||
-            parsedEvent?.sender?.username,
+            parsedEvent?.sender?.username ||
+            parsedEvent?.gifter_username,
           message:
             parsedEvent?.message ||
             parsedEvent?.description ||

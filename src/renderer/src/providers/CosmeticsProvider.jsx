@@ -36,6 +36,7 @@ const useCosmeticsStore = create((set, get) => ({
   },
 
   getUserStyle: (username) => {
+    if (!username) return null;
     const transformedUsername = username.toLowerCase();
     const userStyle = get().userStyles[transformedUsername];
 

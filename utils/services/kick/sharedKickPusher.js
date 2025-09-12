@@ -283,8 +283,8 @@ class SharedKickPusher extends EventTarget {
           jsonData.event === `App\\Events\\UserBannedEvent` ||
           jsonData.event === `App\\Events\\UserUnbannedEvent` ||
           jsonData.event === `App\\Events\\ChannelSubscriptionEvent` ||
-          jsonData.event === `App\\Events\\LuckyUsersWhoGotGiftSubscriptionsEvent` ||
           jsonData.event === `App\\Events\\GiftsLeaderboardUpdated` ||
+          jsonData.event === `App\\Events\\GiftedSubscriptionsEvent` ||
           /Subscription|Donation|Tip|Reward/.test(jsonData.event)
         ) {
           const chatroomId = this.extractChatroomIdFromChannel(jsonData.channel);
@@ -327,7 +327,8 @@ class SharedKickPusher extends EventTarget {
           jsonData.event === `App\\Events\\PinnedMessageDeletedEvent` ||
           jsonData.event === `App\\Events\\ChatroomUpdatedEvent` ||
           jsonData.event === `App\\Events\\PollUpdateEvent` ||
-          jsonData.event === `App\\Events\\PollDeleteEvent`
+          jsonData.event === `App\\Events\\PollDeleteEvent` ||
+          jsonData.event === `App\\Events\\LuckyUsersWhoGotGiftSubscriptionsEvent`
         ) {
           // First try mapping from chatroom channel name
           const chatroomId = this.extractChatroomIdFromChannel(jsonData.channel);
