@@ -41,7 +41,9 @@
     "dist": "npm run build && electron-builder --publish=never",
     "dist:win": "npm run build && electron-builder --win --publish=never",
     "dist:mac": "npm run build && electron-builder --mac --publish=never",
-    "dist:linux": "npm run build && electron-builder --linux --publish=never"
+    "dist:linux": "npm run build && electron-builder --linux --publish=never",
+    "collect-events": "node scripts/event-collection/event-collector.js",
+    "analyze-events": "node scripts/event-collection/event-analyzer.js"
   },
   "repository": "https://github.com/KickTalkOrg/KickTalk",
   "publish": {
@@ -94,6 +96,7 @@
     "react-router-dom": "^7.4.0",
     "react-virtuoso": "^4.12.7",
     "tldts": "^7.0.7",
+    "ws": "^8.18.3",
     "zustand": "^5.0.3"
   },
   "devDependencies": {

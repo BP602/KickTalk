@@ -1,0 +1,301 @@
+#!/usr/bin/env node
+
+const WebSocket = require('ws');
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Kick Event Collector
+ * Connects to popular Kick channels via WebSocket and logs all events for analysis
+ */
+
+class KickEventCollector {
+  constructor() {
+    this.ws = null;
+    this.socketId = null;
+    this.connectedChannels = new Set();
+    this.eventCount = 0;
+    this.logFile = `kick-events-${new Date().toISOString().slice(0, 10)}.jsonl`;
+    this.lastEventTime = Date.now();
+    this.heartbeatInterval = null;
+    
+    // Real IDs provided by user - mix of chatroom IDs and streamer IDs
+    this.allRealIds = [
+      1466067, 668, 2915525, 2907820, 2587387, 2579856, 67262278, 66973867, 10127341, 9975231,
+      2381527, 27670567, 875396, 875062, 35211, 35210, 5541527, 5512091
+    ];
+    
+    this.channelData = new Map();
+    
+    // Since we don't know which IDs are chatroom vs streamer IDs,
+    // we'll subscribe to both patterns for each ID
+    this.allRealIds.forEach((id, index) => {
+      this.channelData.set(`id_${id}`, { 
+        id: id,
+        slug: `id_${id}` 
+      });
+    });
+  }
+
+  async fetchChannelData(slug) {
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'kick.com',
+        path: `/api/v2/channels/${slug}`,
+        method: 'GET',
+        headers: {
+          'User-Agent': 'KickEventCollector/1.0',
+          'Accept': 'application/json'
+        }
+      };
+
+      const req = https.request(options, (res) => {
+        let data = '';
+        
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        
+        res.on('end', () => {
+          try {
+            const jsonData = JSON.parse(data);
+            if (jsonData.data) {
+              resolve({
+                streamerId: jsonData.data.id,
+                chatroomId: jsonData.data.chatroom.id,
+                livestreamId: jsonData.data.livestream?.id,
+                slug: jsonData.data.slug,
+                username: jsonData.data.username,
+                isLive: jsonData.data.livestream !== null
+              });
+            } else {
+              reject(new Error(`No data for ${slug}: ${data}`));
+            }
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      req.setTimeout(10000, () => {
+        req.destroy();
+        reject(new Error(`Timeout fetching ${slug}`));
+      });
+
+      req.end();
+    });
+  }
+
+  async loadChannelData() {
+    console.log('Using provided IDs (mix of chatroom and streamer IDs)...');
+    console.log(`Loaded ${this.channelData.size} IDs to monitor`);
+    
+    // Print the IDs we'll monitor
+    for (const [slug, data] of this.channelData) {
+      console.log(`✓ ID ${data.id} - will try both streamer and chatroom patterns`);
+    }
+    console.log('');
+  }
+
+  connect() {
+    console.log('Connecting to Kick WebSocket...');
+    
+    this.ws = new WebSocket(
+      "wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=8.4.0-rc2&flash=false"
+    );
+
+    this.ws.on('open', () => {
+      console.log('✓ Connected to Kick WebSocket');
+      this.startHeartbeat();
+    });
+
+    this.ws.on('message', (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        this.handleMessage(message);
+      } catch (error) {
+        console.error('Error parsing message:', error.message);
+      }
+    });
+
+    this.ws.on('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+
+    this.ws.on('close', () => {
+      console.log('WebSocket connection closed');
+      this.stopHeartbeat();
+      // Attempt to reconnect after 5 seconds
+      setTimeout(() => {
+        console.log('Attempting to reconnect...');
+        this.connect();
+      }, 5000);
+    });
+  }
+
+  handleMessage(message) {
+    // Handle connection establishment
+    if (message.event === "pusher:connection_established") {
+      const data = JSON.parse(message.data);
+      this.socketId = data.socket_id;
+      console.log(`✓ Connection established. Socket ID: ${this.socketId}`);
+      
+      // Start subscribing to channels
+      setTimeout(() => {
+        this.subscribeToChannels();
+      }, 1000);
+      return;
+    }
+
+    // Handle subscription success
+    if (message.event === "pusher_internal:subscription_succeeded") {
+      this.connectedChannels.add(message.channel);
+      console.log(`✓ Subscribed to: ${message.channel}`);
+      return;
+    }
+
+    // Log all interesting events
+    if (this.isInterestingEvent(message)) {
+      this.logEvent(message);
+    }
+  }
+
+  subscribeToChannels() {
+    console.log('\nSubscribing to channels...');
+    
+    // For each ID, subscribe to both streamer channel patterns AND chatroom patterns
+    // since we don't know which type each ID is
+    for (const [slug, data] of this.channelData) {
+      const channels = [
+        // Streamer channel patterns (in case this ID is a streamer ID)
+        `channel_${data.id}`,
+        `channel.${data.id}`,
+        // Chatroom patterns (in case this ID is a chatroom ID)  
+        `chatrooms.${data.id}`,
+        `chatrooms.${data.id}.v2`,
+        `chatroom_${data.id}`
+      ];
+
+      channels.forEach(channel => {
+        this.subscribe(channel);
+      });
+
+      console.log(`Subscribed to all patterns for ID ${data.id}`);
+    }
+    
+    console.log(`Total subscriptions: ${this.channelData.size * 5} = ${this.channelData.size * 5} channels`);
+  }
+
+  subscribe(channel) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        event: "pusher:subscribe",
+        data: { auth: "", channel }
+      }));
+    }
+  }
+
+  isInterestingEvent(message) {
+    // Skip internal Pusher events
+    if (message.event && message.event.startsWith('pusher')) {
+      return false;
+    }
+
+    // We want all App\Events\ events and any others
+    return message.event && (
+      message.event.startsWith('App\\Events\\') ||
+      message.event.includes('Event') ||
+      message.event.includes('Support') ||
+      message.event.includes('Reward') ||
+      message.event.includes('Donation') ||
+      message.event.includes('Subscription') ||
+      message.event.includes('Follow') ||
+      message.event.includes('Tip')
+    );
+  }
+
+  logEvent(message) {
+    this.eventCount++;
+    this.lastEventTime = Date.now();
+    
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      event: message.event,
+      channel: message.channel,
+      data: message.data ? JSON.parse(message.data) : null,
+      raw: message
+    };
+
+    // Console output for monitoring
+    console.log(`[${this.eventCount}] ${message.event} on ${message.channel}`);
+    
+    // Write to log file
+    fs.appendFileSync(this.logFile, JSON.stringify(logEntry) + '\n');
+  }
+
+  startHeartbeat() {
+    this.stopHeartbeat(); // Clear any existing heartbeat
+    
+    // Check connection health every 30 seconds
+    this.heartbeatInterval = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastEvent = now - this.lastEventTime;
+      
+      // If no events for more than 2 minutes and we think we're connected, force reconnect
+      if (timeSinceLastEvent > 120000 && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        console.log(`⚠️  No events for ${Math.round(timeSinceLastEvent / 1000)}s, forcing reconnect...`);
+        this.ws.close();
+      }
+      
+      // Also check if websocket is in a bad state
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        console.log(`⚠️  WebSocket in bad state (${this.ws?.readyState}), reconnecting...`);
+        this.connect();
+      }
+    }, 30000);
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  async start() {
+    console.log('🚀 Starting Kick Event Collector\n');
+    
+    try {
+      await this.loadChannelData();
+      this.connect();
+      
+      // Set up graceful shutdown
+      process.on('SIGINT', () => {
+        console.log(`\n🛑 Shutting down. Collected ${this.eventCount} events.`);
+        console.log(`📁 Events saved to: ${this.logFile}`);
+        if (this.ws) {
+          this.ws.close();
+        }
+        process.exit(0);
+      });
+
+      // Status update every 60 seconds
+      setInterval(() => {
+        console.log(`📊 Status: ${this.eventCount} events collected, ${this.connectedChannels.size} channels connected`);
+      }, 60000);
+      
+    } catch (error) {
+      console.error('Failed to start collector:', error);
+      process.exit(1);
+    }
+  }
+}
+
+// Start the collector
+const collector = new KickEventCollector();
+collector.start();
