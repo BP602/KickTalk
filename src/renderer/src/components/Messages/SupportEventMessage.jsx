@@ -1,10 +1,7 @@
 import { memo } from "react";
 import { useShallow } from "zustand/shallow";
 import useCosmeticsStore from "../../providers/CosmeticsProvider";
-import sparkleIcon from "../../assets/icons/sparkle.svg?asset";
-import giftBoxIcon from "../../assets/icons/gift-box.svg?asset";
-import recordIcon from "../../assets/icons/record-fill.svg?asset";
-import eyeSlashIcon from "../../assets/icons/eye-slash-fill.svg?asset";
+import { Sparkle as SparkleIcon, Gift as GiftIcon, Record as RecordIcon, EyeSlash as EyeSlashIcon } from "@phosphor-icons/react";
 
 
 const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
@@ -122,28 +119,25 @@ const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
   return (
     <span className="supportEventMessage" style={messageStyle}>
       {(eventType === "reward" || eventType === "subscription" || eventType === "donation" || eventType === "stream_live" || eventType === "stream_end") && (
-        <img 
-          src={
-            isGiftSubObject ? giftBoxIcon : 
-            eventType === "stream_live" ? recordIcon :
-            eventType === "stream_end" ? eyeSlashIcon :
-            sparkleIcon
-          } 
+        <span
           className={`supportEventIcon ${
             isGiftSubObject ? 'giftIcon' : 
             eventType === "stream_live" ? 'streamLiveIcon' :
             eventType === "stream_end" ? 'streamEndIcon' :
             eventType + 'Icon'
-          }`} 
-          alt={
-            isGiftSubObject ? 'gift' : 
-            eventType === "stream_live" ? 'stream live' :
-            eventType === "stream_end" ? 'stream end' :
-            eventType
-          } 
-          width="24" 
-          height="24" 
-        />
+          }`}
+          aria-hidden
+        >
+          {isGiftSubObject ? (
+            <GiftIcon size={24} aria-label="gift" />
+          ) : eventType === "stream_live" ? (
+            <RecordIcon size={24} weight="fill" aria-label="stream live" />
+          ) : eventType === "stream_end" ? (
+            <EyeSlashIcon size={24} weight="fill" aria-label="stream end" />
+          ) : (
+            <SparkleIcon size={24} aria-label={eventType} />
+          )}
+        </span>
       )}
       
       {isRewardObject ? (
