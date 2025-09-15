@@ -4,6 +4,7 @@ import { useSettings } from "../../../providers/SettingsProvider";
 
 import { TooltipProvider } from "../../Shared/Tooltip";
 import { GeneralSection, ChatroomSection, NotificationsSection, CosmeticsSection, ExternalPlayersSection } from "./Sections/General";
+import { ChatEventsSection } from "./Sections/ChatEvents";
 import SettingsHeader from "./SettingsHeader";
 import SettingsMenu from "./SettingsMenu";
 import AboutSection from "./Sections/About";
@@ -75,6 +76,11 @@ const Settings = () => {
             {activeSection === "externalPlayers" && (
               <>
                 <ExternalPlayersSection settingsData={settingsData} onChange={changeSetting} />
+              </>
+            )}
+            {activeSection === "chatEvents" && (
+              <>
+                <ChatEventsSection settingsData={settingsData} onChange={changeSetting} />
               </>
             )}
             {activeSection === "moderation" && (

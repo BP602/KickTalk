@@ -96,6 +96,8 @@ const MessagesHandler = memo(
         //   return null;
         // }
 
+        const eventVisibility = settings?.chatrooms?.eventVisibility;
+
         // Hide mod actions if the setting is disabled
         if (message?.type === "mod_action" && !settings?.chatrooms?.showModActions) {
           return false;
@@ -112,7 +114,42 @@ const MessagesHandler = memo(
           metadata = message?.metadata || {};
         }
         const eventType = message?.type === "metadata" ? metadata?.type : message?.type;
-        if (["subscription", "donation", "reward", "stream_live", "stream_end"].includes(eventType) && !settings?.chatrooms?.showSupportEvents) {
+        const oldSupportToggleDisabled =
+          ["subscription", "donation", "reward", "stream_live", "stream_end", "host", "raid", "goal_progress"].includes(eventType) &&
+          settings?.chatrooms?.showSupportEvents === false;
+
+        const mapEventToVisibilityKey = (type) => {
+          switch (type) {
+            case "subscription":
+              return "subscriptions";
+            case "donation":
+            case "reward":
+              return "rewards";
+            case "stream_live":
+            case "stream_end":
+              return "streamStatus";
+            case "host":
+              return "hosts";
+            case "raid":
+              return "raids";
+            case "goal_progress":
+              return "goalProgress";
+            case "moderation": {
+              if (metadata?.action === "timed_out") return "timeouts";
+              return "bans";
+            }
+            default:
+              return null;
+          }
+        };
+
+        const visibilityKey = mapEventToVisibilityKey(eventType);
+        const visibilityExplicitlyHidden =
+          visibilityKey && eventVisibility && Object.prototype.hasOwnProperty.call(eventVisibility, visibilityKey)
+            ? eventVisibility[visibilityKey] === false
+            : false;
+
+        if (visibilityExplicitlyHidden || (!eventVisibility && oldSupportToggleDisabled)) {
           return false;
         }
 

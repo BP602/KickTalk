@@ -3,7 +3,7 @@ import "@assets/styles/loader.css";
 import Klogo from "@assets/icons/K.svg";
 import clsx from "clsx";
 
-const Loader = ({ onFinish }) => {
+const Loader = ({ onFinish = () => {} }) => {
   const [showText, setShowText] = useState(false);
   const [hideLoader, setHideLoader] = useState(false);
   const [appVersion, setAppVersion] = useState(null);

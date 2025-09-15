@@ -156,6 +156,15 @@ const withAuth = async (func) => {
   return func(authSession.token, authSession.session);
 };
 
+const sanitizeAxiosResponse = (response) => {
+  if (!response) return null;
+  const { data, status } = response;
+  return {
+    status: typeof status === "number" ? status : null,
+    data: data ?? null,
+  };
+};
+
 // Simple readiness bridge for the renderer (contextIsolation-safe)
 let __preloadReady = false;
 let __preloadWaiters = [];
@@ -163,7 +172,28 @@ const __signalPreloadReady = () => {
   __preloadReady = true;
   try {
     __preloadWaiters.forEach((cb) => {
-      try { cb(); } catch {}
+      try {
+        const result = cb();
+        if (result && typeof result.then === 'function') {
+          result.catch((err) => {
+            console.error('[Preload:onReady] Callback rejected:', err);
+            ipcRenderer.invoke('telemetry:recordError', {
+              error: err?.message || String(err),
+              stack: err?.stack,
+              component: 'preload_onReady',
+              type: 'promise_rejection',
+            }).catch(() => {});
+          });
+        }
+      } catch (err) {
+        console.error('[Preload:onReady] Callback threw:', err);
+        ipcRenderer.invoke('telemetry:recordError', {
+          error: err?.message || String(err),
+          stack: err?.stack,
+          component: 'preload_onReady',
+          type: 'exception',
+        }).catch(() => {});
+      }
     });
   } finally {
     __preloadWaiters = [];
@@ -413,7 +443,10 @@ if (process.contextIsolated) {
       kick: {
         getChannelInfo,
         getChannelChatroomInfo,
-        getInitialPollInfo: (channelName) => withAuth((token, session) => getInitialPollInfo(channelName, token, session)),
+        getInitialPollInfo: async (channelName) => {
+          const response = await withAuth((token, session) => getInitialPollInfo(channelName, token, session));
+          return sanitizeAxiosResponse(response);
+        },
         sendMessage: (channelId, message) =>
           withAuth((token, session) => sendMessageToChannel(channelId, message, token, session)),
         sendReply: (channelId, message, metadata = {}) =>
@@ -429,9 +462,18 @@ if (process.contextIsolated) {
           }
         },
         getEmotes: (chatroomName) => getKickEmotes(chatroomName),
-        getSelfChatroomInfo: (chatroomName) => withAuth((token, session) => getSelfChatroomInfo(chatroomName, token, session)),
-        getUserChatroomInfo: (chatroomName, username) => getUserChatroomInfo(chatroomName, username),
-        getInitialChatroomMessages: (channelID) => getInitialChatroomMessages(channelID),
+        getSelfChatroomInfo: async (chatroomName) => {
+          const response = await withAuth((token, session) => getSelfChatroomInfo(chatroomName, token, session));
+          return sanitizeAxiosResponse(response);
+        },
+        getUserChatroomInfo: async (chatroomName, username) => {
+          const response = await getUserChatroomInfo(chatroomName, username);
+          return sanitizeAxiosResponse(response);
+        },
+        getInitialChatroomMessages: async (channelID) => {
+          const response = await getInitialChatroomMessages(channelID);
+          return sanitizeAxiosResponse(response);
+        },
         getSilenceUser: (userId) => withAuth((token, session) => getSilenceUser(userId, token, session)),
         getUnsilenceUser: (userId) => withAuth((token, session) => getUnsilenceUser(userId, token, session)),
         getPinMessage: (data) => withAuth((token, session) => getPinMessage(data, token, session)),

@@ -19,6 +19,13 @@ class KickEventCollector {
     this.logFile = `kick-events-${new Date().toISOString().slice(0, 10)}.jsonl`;
     this.lastEventTime = Date.now();
     this.heartbeatInterval = null;
+
+    // Smart sampling state
+    this.eventTypeCounts = new Map();
+    this.lastRegularMessageTime = 0;
+    this.regularMessageInterval = 60 * 60 * 1000; // Sample regular messages every hour
+    this.savedEventCount = 0;
+    this.skippedEventCount = 0;
     
     // Real IDs provided by user - mix of chatroom IDs and streamer IDs
     this.allRealIds = [
@@ -219,21 +226,75 @@ class KickEventCollector {
     );
   }
 
+  getDetailedEventType(event, data) {
+    const baseEventType = event;
+
+    // Enhanced classification for ChatMessageEvent
+    if (baseEventType === 'App\\Events\\ChatMessageEvent' && data) {
+      if (data.type) {
+        if (data.type === 'celebration' && data.metadata?.celebration?.type) {
+          const celebrationType = data.metadata.celebration.type;
+          return `App\\Events\\ChatMessageEvent (${data.type} - ${celebrationType})`;
+        }
+        if (data.type === 'message') {
+          return `App\\Events\\ChatMessageEvent (regular)`;
+        }
+        return `App\\Events\\ChatMessageEvent (${data.type})`;
+      }
+    }
+
+    return baseEventType;
+  }
+
+  shouldSampleEvent(eventType, data) {
+    const now = Date.now();
+
+    // Always sample non-regular events (rare/important events)
+    if (!eventType.includes('(regular)')) {
+      return true;
+    }
+
+    // For regular messages, sample every hour
+    if (now - this.lastRegularMessageTime >= this.regularMessageInterval) {
+      this.lastRegularMessageTime = now;
+      return true;
+    }
+
+    return false;
+  }
+
   logEvent(message) {
     this.eventCount++;
     this.lastEventTime = Date.now();
-    
+
+    const data = message.data ? JSON.parse(message.data) : null;
+    const detailedEventType = this.getDetailedEventType(message.event, data);
+
+    // Update event type counts
+    this.eventTypeCounts.set(detailedEventType, (this.eventTypeCounts.get(detailedEventType) || 0) + 1);
+
+    // Smart sampling decision
+    if (!this.shouldSampleEvent(detailedEventType, data)) {
+      // Still count and log to console, but don't write to file
+      this.skippedEventCount++;
+      console.log(`[${this.eventCount}] ${detailedEventType} on ${message.channel} (SKIPPED)`);
+      return;
+    }
+
+    this.savedEventCount++;
+
     const logEntry = {
       timestamp: new Date().toISOString(),
       event: message.event,
       channel: message.channel,
-      data: message.data ? JSON.parse(message.data) : null,
-      raw: message
+      data: data,
+      raw: message,
+      detailedEventType: detailedEventType
     };
 
     // Console output for monitoring
-    console.log(`[${this.eventCount}] ${message.event} on ${message.channel}`);
-    
+    console.log(`[${this.eventCount}] ${detailedEventType} on ${message.channel} (SAVED)`);
+
     // Write to log file
     fs.appendFileSync(this.logFile, JSON.stringify(logEntry) + '\n');
   }
@@ -267,6 +328,14 @@ class KickEventCollector {
     }
   }
 
+  getEventStats() {
+    return {
+      saved: this.savedEventCount,
+      skipped: this.skippedEventCount,
+      compressionRatio: this.eventCount > 0 ? (this.skippedEventCount / this.eventCount * 100).toFixed(1) : 0
+    };
+  }
+
   async start() {
     console.log('🚀 Starting Kick Event Collector\n');
     
@@ -276,8 +345,16 @@ class KickEventCollector {
       
       // Set up graceful shutdown
       process.on('SIGINT', () => {
-        console.log(`\n🛑 Shutting down. Collected ${this.eventCount} events.`);
-        console.log(`📁 Events saved to: ${this.logFile}`);
+        const stats = this.getEventStats();
+        console.log(`\n🛑 Shutting down. Processed ${this.eventCount} events total.`);
+        console.log(`📁 Saved ${stats.saved} events (${stats.compressionRatio}% compression) to: ${this.logFile}`);
+        console.log(`📊 Final event type counts:`);
+
+        const sortedTypes = Array.from(this.eventTypeCounts.entries()).sort((a, b) => b[1] - a[1]);
+        sortedTypes.slice(0, 10).forEach(([type, count]) => {
+          console.log(`   ${type}: ${count}`);
+        });
+
         if (this.ws) {
           this.ws.close();
         }
@@ -286,7 +363,9 @@ class KickEventCollector {
 
       // Status update every 60 seconds
       setInterval(() => {
-        console.log(`📊 Status: ${this.eventCount} events collected, ${this.connectedChannels.size} channels connected`);
+        const stats = this.getEventStats();
+        console.log(`📊 Status: ${this.eventCount} total events, ${stats.saved} saved (${stats.skipped} skipped), ${this.connectedChannels.size} channels`);
+        console.log(`📊 Event types: ${Array.from(this.eventTypeCounts.entries()).map(([type, count]) => `${type}=${count}`).slice(0, 3).join(', ')}`);
       }, 60000);
       
     } catch (error) {

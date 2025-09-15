@@ -154,6 +154,13 @@ try {
     recordConnectionError: metricsModule.MetricsHelper?.recordConnectionError || (() => {}),
     recordReconnection: metricsModule.MetricsHelper?.recordReconnection || (() => {}),
     recordChatroomSwitch: metricsModule.MetricsHelper?.recordChatroomSwitch || (() => {}),
+    startUserSession: metricsModule.MetricsHelper?.startUserSession || (() => {}),
+    endUserSession: metricsModule.MetricsHelper?.endUserSession || (() => {}),
+    recordUserAction: metricsModule.MetricsHelper?.recordUserAction || (() => {}),
+    recordFeatureUsage: metricsModule.MetricsHelper?.recordFeatureUsage || (() => {}),
+    recordChatEngagement: metricsModule.MetricsHelper?.recordChatEngagement || (() => {}),
+    recordConnectionQuality: metricsModule.MetricsHelper?.recordConnectionQuality || (() => {}),
+    getUserAnalyticsData: metricsModule.MetricsHelper?.getUserAnalyticsData || (() => ({})),
     // 7TV metrics
     recordSevenTVConnectionHealth: metricsModule.MetricsHelper?.recordSevenTVConnectionHealth || (() => {}),
     recordSevenTVWebSocketCreated: metricsModule.MetricsHelper?.recordSevenTVWebSocketCreated || (() => {}),

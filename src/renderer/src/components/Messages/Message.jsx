@@ -118,7 +118,17 @@ const Message = ({
   }, [message?.metadata]);
 
   const eventType = message?.type === "metadata" ? parsedMetadata?.type : message?.type;
-  const isSupportEvent = ["subscription", "donation", "reward", "stream_live", "stream_end"].includes(eventType);
+  const isSupportEvent = [
+    "subscription",
+    "donation",
+    "reward",
+    "stream_live",
+    "stream_end",
+    "moderation",
+    "host",
+    "raid",
+    "goal_progress",
+  ].includes(eventType);
 
   // Remove useCallback for these since message changes constantly
   const handleCopyMessage = () => {

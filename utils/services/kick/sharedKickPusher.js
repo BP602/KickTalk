@@ -247,6 +247,10 @@ class SharedKickPusher extends EventTarget {
               const streamerId = info?.streamerId ?? null;
               const streamerName = info?.chatroomData?.streamerData?.user?.username || `chatroom_${chatroomId}`;
               window.app?.telemetry?.recordWebSocketConnection?.(chatroomId, streamerId, true, streamerName);
+
+              // Trigger immediate chatroom state refresh for each connected chatroom
+              // This ensures we get current emote mode, slow mode, etc. status
+              this.refreshChatroomState(chatroomId, info?.chatroomData);
             }
           } catch (_) {}
 
@@ -622,6 +626,35 @@ class SharedKickPusher extends EventTarget {
       }
     }
     return ids;
+  }
+
+  // Refresh chatroom state to get current mode information
+  async refreshChatroomState(chatroomId, chatroomData) {
+    if (!chatroomData?.streamerData?.slug) {
+      console.warn('[SharedKickPusher] Cannot refresh state: missing streamer slug for chatroom', chatroomId);
+      return;
+    }
+
+    setTimeout(async () => {
+      try {
+        console.log('[SharedKickPusher] Fetching current chatroom state after connection:', chatroomId);
+        const latestChatroom = await window.app.kick.getChannelChatroomInfo(chatroomData.streamerData.slug);
+
+        if (latestChatroom?.chatroom) {
+          console.log('[SharedKickPusher] Updating chatroom modes from fresh API data:', latestChatroom.chatroom);
+
+          // Dispatch chatroom updated event to trigger UI updates
+          this.dispatchEvent(new CustomEvent('chatroom-updated', {
+            detail: {
+              chatroomId: chatroomId,
+              data: latestChatroom.chatroom
+            }
+          }));
+        }
+      } catch (error) {
+        console.warn('[SharedKickPusher] Failed to refresh chatroom state:', error?.message || error);
+      }
+    }, 1500); // Same delay as individual connection
   }
 
   close() {

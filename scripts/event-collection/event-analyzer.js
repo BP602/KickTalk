@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 
 /**
  * Kick Event Analyzer
@@ -11,41 +12,72 @@ const path = require('path');
 class KickEventAnalyzer {
   constructor(logFile) {
     this.logFile = logFile;
-    this.events = [];
+    this.eventSamples = new Map(); // Store samples per event type
     this.eventTypes = new Map();
     this.channelTypes = new Map();
     this.eventDefinitions = new Map();
+    this.totalEventsProcessed = 0;
+    this.maxSamplesPerType = 100; // Keep up to 100 samples per event type
   }
 
-  loadEvents() {
+  async loadEvents() {
     if (!fs.existsSync(this.logFile)) {
       throw new Error(`Log file not found: ${this.logFile}`);
     }
 
     console.log(`Loading events from ${this.logFile}...`);
-    
-    const content = fs.readFileSync(this.logFile, 'utf8');
-    const lines = content.trim().split('\n');
-    
-    for (const line of lines) {
+
+    const fileStream = fs.createReadStream(this.logFile);
+    const rl = readline.createInterface({
+      input: fileStream,
+      crlfDelay: Infinity
+    });
+
+    let lineCount = 0;
+    let processedCount = 0;
+
+    for await (const line of rl) {
+      lineCount++;
+
+      if (line.trim() === '') continue;
+
       try {
         const event = JSON.parse(line);
-        this.events.push(event);
-        
+
         // Enhanced event type classification
         const eventType = this.getDetailedEventType(event);
         this.eventTypes.set(eventType, (this.eventTypes.get(eventType) || 0) + 1);
-        
+
+        // Store samples per event type (up to maxSamplesPerType for each type)
+        if (!this.eventSamples.has(eventType)) {
+          this.eventSamples.set(eventType, []);
+        }
+        const samples = this.eventSamples.get(eventType);
+        if (samples.length < this.maxSamplesPerType) {
+          samples.push(event);
+        }
+
         // Count channel types
         const channelType = this.getChannelType(event.channel);
         this.channelTypes.set(channelType, (this.channelTypes.get(channelType) || 0) + 1);
-        
+
+        processedCount++;
+
+        // Progress indicator for large files
+        if (processedCount % 100000 === 0) {
+          console.log(`  Processed ${processedCount} events...`);
+        }
+
       } catch (error) {
         console.warn('Skipping malformed line:', line.substring(0, 100));
       }
     }
-    
-    console.log(`✓ Loaded ${this.events.length} events`);
+
+    this.totalEventsProcessed = processedCount;
+    console.log(`✓ Processed ${processedCount} events from ${lineCount} lines`);
+
+    const totalSamples = Array.from(this.eventSamples.values()).reduce((sum, samples) => sum + samples.length, 0);
+    console.log(`✓ Keeping ${totalSamples} sample events across ${this.eventSamples.size} event types`);
   }
 
   getDetailedEventType(event) {
@@ -124,17 +156,18 @@ class KickEventAnalyzer {
   }
 
   analyzeEventStructure(eventType) {
-    const samples = this.events
-      .filter(e => e.event === eventType)
-      .slice(0, 3); // Take first 3 samples
-    
-    if (samples.length === 0) return;
-    
+    const samples = this.eventSamples.get(eventType) || [];
+
+    if (samples.length === 0) {
+      console.warn(`No samples found for event type: ${eventType}`);
+      return;
+    }
+
     const structure = this.extractStructure(samples[0].data);
     this.eventDefinitions.set(eventType, {
       count: this.eventTypes.get(eventType),
       structure: structure,
-      samples: samples.map(s => s.data)
+      samples: samples.slice(0, 2).map(s => s.data) // Include 2 samples max
     });
   }
 
@@ -164,9 +197,12 @@ class KickEventAnalyzer {
   generateDefinitions() {
     console.log('\n📝 Generating Event Definitions\n');
     
+    const totalSamples = Array.from(this.eventSamples.values()).reduce((sum, samples) => sum + samples.length, 0);
     const definitions = {
       generated: new Date().toISOString(),
-      totalEvents: this.events.length,
+      totalEvents: this.totalEventsProcessed,
+      sampleEvents: totalSamples,
+      eventTypeCount: this.eventSamples.size,
       eventTypes: Object.fromEntries(this.eventTypes),
       channelTypes: Object.fromEntries(this.channelTypes),
       definitions: {}
@@ -244,11 +280,10 @@ class KickEventAnalyzer {
 
   getChannelsForEvent(eventType) {
     const channels = new Set();
-    
-    this.events
-      .filter(e => e.event === eventType)
-      .forEach(e => channels.add(this.getChannelType(e.channel)));
-    
+    const samples = this.eventSamples.get(eventType) || [];
+
+    samples.forEach(e => channels.add(this.getChannelType(e.channel)));
+
     return [...channels];
   }
 
@@ -268,7 +303,9 @@ class KickEventAnalyzer {
   generateMarkdownReport(definitions) {
     let md = '# Kick Event Definitions\n\n';
     md += `Generated: ${definitions.generated}\n`;
-    md += `Total Events Collected: ${definitions.totalEvents}\n\n`;
+    md += `Total Events Processed: ${definitions.totalEvents}\n`;
+    md += `Event Types Discovered: ${definitions.eventTypeCount}\n`;
+    md += `Sample Events for Analysis: ${definitions.sampleEvents}\n\n`;
     
     md += '## Event Type Statistics\n\n';
     for (const [eventType, count] of Object.entries(definitions.eventTypes)) {
@@ -301,15 +338,15 @@ class KickEventAnalyzer {
     return md;
   }
 
-  run() {
+  async run() {
     try {
-      this.loadEvents();
+      await this.loadEvents();
       this.analyzeEvents();
-      
+
       const timestamp = new Date().toISOString().slice(0, 10);
       const outputFile = `kick-event-definitions-${timestamp}.json`;
       this.saveResults(outputFile);
-      
+
     } catch (error) {
       console.error('Analysis failed:', error.message);
       process.exit(1);
@@ -320,14 +357,17 @@ class KickEventAnalyzer {
 // Command line usage
 if (require.main === module) {
   const logFile = process.argv[2];
-  
+
   if (!logFile) {
     console.log('Usage: node event-analyzer.js <log-file.jsonl>');
     process.exit(1);
   }
-  
+
   const analyzer = new KickEventAnalyzer(logFile);
-  analyzer.run();
+  analyzer.run().catch(error => {
+    console.error('Analysis failed:', error.message);
+    process.exit(1);
+  });
 }
 
 module.exports = KickEventAnalyzer;

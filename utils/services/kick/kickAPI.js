@@ -496,7 +496,7 @@ const getChannelChatroomInfo = async (channelName) => {
       credentials: "include",
     });
 
-    return response;
+    return response.data;
   } catch (error) {
     if (channelName.includes("_")) {
       const transformedChannelName = channelName.replaceAll("_", "-");
