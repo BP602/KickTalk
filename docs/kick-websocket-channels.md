@@ -32,6 +32,12 @@ These IDs are different; subscribing with the wrong one yields no events.
   - `App\Events\UserUnbannedEvent`
 - Sometimes also carries channel-level updates (e.g., `ChatroomUpdatedEvent`, polls/pins), but do not rely on it for live/on‑off.
 
+Observed (support via ChatMessageEvent):
+
+- Kick can emit subscription-like signals as `App\\Events\\ChatMessageEvent` with `type: "celebration"` and details in `metadata.celebration`.
+  - Examples: `metadata.celebration.type = subscription_started | subscription_renewed | subscription_resumed`, with `total_months` present.
+  - Recommended: classify these as support `subscription` events and normalize months from `total_months`.
+
 3) `chatroom_<chatroomId>` (public, legacy/alias)
 
 - Legacy alias occasionally used in some deployments. Rarely carries unique events today but we include it for completeness.
@@ -84,6 +90,12 @@ Headers/Cookies: valid Kick session (Authorization: Bearer <session_token>, cook
 - Incoming events are mapped to chatrooms by parsing the channel name or by matching `streamerId`/`livestreamId` to known chatrooms.
 - Unknown/unmapped events are logged and reported to telemetry for analysis.
 
+Classification guidance:
+
+- Use a rule-based classifier that considers both WebSocket `event` and ChatMessageEvent subtypes:
+  - Explicit support events (name matches `Subscription|Donation|Tip|Reward`) → support categories.
+  - ChatMessageEvent with `type: "celebration"` and `metadata.celebration.type` starting with `subscription_` → support: `subscription`.
+
 ## Quick ID discovery
 
 - `GET https://kick.com/api/v2/channels/<slug>` →
@@ -95,4 +107,3 @@ Headers/Cookies: valid Kick session (Authorization: Bearer <session_token>, cook
 
 - Channel usage can change; treat the above as what’s observed today. Keep both dot/underscore variants for channel-level events.
 - Private livestream channels require valid auth and only exist while a stream is live.
-

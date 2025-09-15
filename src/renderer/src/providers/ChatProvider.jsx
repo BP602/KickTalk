@@ -49,6 +49,21 @@ const endSpanError = (span, err) => {
 // a one-shot reconcile after reconnect (no periodic polling).
 const __wsConnectedOnce = new Map();
 
+// Deduplicate support-like events that may arrive via different paths
+// (e.g., explicit Subscription events and ChatMessageEvent with type "celebration").
+const __supportEventDedup = new Set();
+const SUPPORT_DEDUPE_TTL_MS = 15 * 1000;
+const addSupportDedup = (key) => {
+  try {
+    if (__supportEventDedup.has(key)) return false;
+    __supportEventDedup.add(key);
+    setTimeout(() => __supportEventDedup.delete(key), SUPPORT_DEDUPE_TTL_MS);
+    return true;
+  } catch {
+    return true;
+  }
+};
+
 // Lightweight renderer health reporter (behind telemetry.enabled)
 const startRendererHealthReporting = (intervalMs = 30000) => {
   let timer = null;
@@ -1347,6 +1362,23 @@ const useChatStore = create((set, get) => ({
           console.error("[ChatProvider] Error handling kick channel event:", error);
         }
       },
+      onKickRaw: (event) => {
+        try {
+          const { chatroomId, event: wsEvent, channel } = event.detail || {};
+          if (chatroomId && wsEvent) {
+            // Wide-net telemetry for unknown/mapped events
+            window.app?.telemetry?.recordError?.(new Error('Kick raw event'), {
+              component: 'kick_websocket_shared',
+              operation: 'raw_event',
+              websocket_event: wsEvent,
+              websocket_channel: channel,
+              chatroom_id: chatroomId,
+            });
+          }
+        } catch (error) {
+          console.error("[ChatProvider] Error handling kick raw event:", error);
+        }
+      },
       onKickConnection: (event) => {
         try {
           get().handleKickConnection(event.detail);
@@ -1464,6 +1496,50 @@ const useChatStore = create((set, get) => ({
     const parsedEvent = JSON.parse(eventDetail.data);
 
     if (eventDetail.event === "App\\Events\\ChatMessageEvent") {
+      // Normalize celebration → subscription support message (Kick sometimes
+      // emits subscription signals as ChatMessageEvent with type "celebration")
+      try {
+        if (parsedEvent?.type === "celebration") {
+          const c = parsedEvent?.metadata?.celebration || parsedEvent?.celebration || {};
+          const subtype = typeof c?.type === 'string' ? c.type : '';
+          if (/^subscription_(started|renewed|resumed|gifted|upgraded)/.test(subtype)) {
+            const key = [
+              chatroomId,
+              'celebration',
+              parsedEvent?.sender?.id || parsedEvent?.sender?.username || '',
+              subtype,
+              c?.total_months || '',
+              parsedEvent?.id || ''
+            ].join('|');
+            if (addSupportDedup(key)) {
+              const supportMessage = {
+                id: parsedEvent?.id || crypto.randomUUID(),
+                type: "subscription",
+                chatroom_id: chatroomId,
+                timestamp: parsedEvent?.created_at || new Date().toISOString(),
+                sender: parsedEvent?.sender,
+                metadata: {
+                  username: parsedEvent?.sender?.username,
+                  months: c?.total_months,
+                  celebration_type: subtype,
+                  ...parsedEvent?.metadata,
+                },
+              };
+              get().addMessage(chatroomId, supportMessage);
+              if (supportMessage?.sender?.id) {
+                window.app?.logs?.add?.({
+                  chatroomId: chatroomId,
+                  userId: supportMessage.sender.id,
+                  message: supportMessage,
+                });
+              }
+            }
+            return; // suppress raw celebration chat line
+          }
+        }
+      } catch (e) {
+        console.warn('[ChatProvider] celebration mapping failed:', e?.message || e);
+      }
       // Add user to chatters list if they're not already in there
       get().addChatter(chatroomId, parsedEvent?.sender);
 
@@ -1580,6 +1656,22 @@ const useChatStore = create((set, get) => ({
             parsedEvent?.text,
         },
       };
+
+      // Dedupe against celebration-based mapping and other explicit support events
+      try {
+        const dKey = [
+          chatroomId,
+          'explicit',
+          supportType,
+          supportMessage?.sender?.id || supportMessage?.sender?.username || '',
+          supportMessage?.metadata?.username || '',
+          supportMessage?.metadata?.months || '',
+          supportMessage?.id || ''
+        ].join('|');
+        if (!addSupportDedup(dKey)) {
+          return;
+        }
+      } catch {}
 
       if (supportMessage?.sender) {
         get().addChatter(chatroomId, supportMessage.sender);

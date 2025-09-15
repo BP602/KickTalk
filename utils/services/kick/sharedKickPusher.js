@@ -230,6 +230,7 @@ class SharedKickPusher extends EventTarget {
       try {
         const dataString = event.data;
         const jsonData = JSON.parse(dataString);
+        let __handled = false;
 
         // Handle connection established
         if (jsonData.event === "pusher:connection_established") {
@@ -258,6 +259,7 @@ class SharedKickPusher extends EventTarget {
               },
             }),
           );
+          __handled = true;
         }
 
         // Handle subscription success
@@ -299,6 +301,7 @@ class SharedKickPusher extends EventTarget {
                 },
               }),
             );
+            __handled = true;
           } else {
             // Unexpected: message-scoped event not on a chatroom channel
             console.warn('[SharedKickPusher] Unmapped message event', {
@@ -315,6 +318,7 @@ class SharedKickPusher extends EventTarget {
                 chatrooms_tracked: this.chatrooms?.size || 0,
               });
             } catch (_) {}
+            __handled = true;
           }
         }
 
@@ -343,6 +347,7 @@ class SharedKickPusher extends EventTarget {
                 },
               }),
             );
+            __handled = true;
           } else {
             // Try mapping streamer and livestream scoped channels
             let mappedAny = false;
@@ -364,6 +369,7 @@ class SharedKickPusher extends EventTarget {
                   }),
                 );
               });
+              __handled = true;
             }
 
             // Try mapping private livestream channel (e.g., private-livestream.<id>)
@@ -382,6 +388,7 @@ class SharedKickPusher extends EventTarget {
                   }),
                 );
               });
+              __handled = true;
             }
 
             // If still unmapped, log and send telemetry so we can analyze
@@ -402,6 +409,56 @@ class SharedKickPusher extends EventTarget {
                 });
               } catch (_) {}
             }
+            __handled = true;
+          }
+        }
+
+        // Catch-all: for any other event, try to map and surface as a raw event
+        if (
+          jsonData &&
+          jsonData.event &&
+          !jsonData.event.startsWith('pusher') // ignore internal pusher events
+        ) {
+          if (__handled) return;
+          const mappedIds = new Set();
+          const byChatroom = this.extractChatroomIdFromChannel(jsonData.channel);
+          if (byChatroom) mappedIds.add(byChatroom);
+          this.extractChatroomIdsFromStreamerChannel(jsonData.channel).forEach((id) => mappedIds.add(id));
+          this.extractChatroomIdsFromLivestreamChannel(jsonData.channel).forEach((id) => mappedIds.add(id));
+
+          if (mappedIds.size > 0) {
+            for (const id of mappedIds) {
+              try {
+                window.app?.telemetry?.recordError?.(new Error('Unknown Kick event (mapped)'), {
+                  component: 'kick_websocket_shared',
+                  operation: 'unknown_event_mapped',
+                  websocket_event: jsonData.event,
+                  websocket_channel: jsonData.channel,
+                  chatroom_id: id,
+                });
+              } catch (_) {}
+
+              this.dispatchEvent(
+                new CustomEvent('raw', {
+                  detail: {
+                    chatroomId: id,
+                    event: jsonData.event,
+                    data: jsonData.data,
+                    channel: jsonData.channel,
+                  },
+                }),
+              );
+            }
+          } else {
+            // Unknown and unmapped: log for diagnostics
+            try {
+              window.app?.telemetry?.recordError?.(new Error('Unknown Kick event (unmapped)'), {
+                component: 'kick_websocket_shared',
+                operation: 'unknown_event_unmapped',
+                websocket_event: jsonData.event,
+                websocket_channel: jsonData.channel,
+              });
+            } catch (_) {}
           }
         }
       } catch (error) {

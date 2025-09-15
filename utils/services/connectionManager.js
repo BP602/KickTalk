@@ -104,6 +104,9 @@ class ConnectionManager {
     if (handlers.onKickChannel) {
       this.kickPusher.addEventListener("channel", handlers.onKickChannel);
     }
+    if (handlers.onKickRaw) {
+      this.kickPusher.addEventListener("raw", handlers.onKickRaw);
+    }
     if (handlers.onKickConnection) {
       this.kickPusher.addEventListener("connection", handlers.onKickConnection);
     }
