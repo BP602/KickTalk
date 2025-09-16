@@ -98,7 +98,8 @@ const KinkIcon = () => (
 const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
   const metadata = message?.metadata || {};
   const username = metadata.username || message?.sender?.username || "";
-  const description = metadata.message || metadata.description || message?.content || "";
+  const rawDescription = metadata.message || metadata.description || message?.content || "";
+  const description = typeof rawDescription === "string" ? rawDescription.trim() : "";
   const eventType = message?.type;
 
 
@@ -310,6 +311,22 @@ const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
   const isRaidObject = eventType === "raid" && typeof supportMessage === "object";
   const isGoalProgressObject = eventType === "goal_progress" && typeof supportMessage === "object";
   const isKickGiftObject = eventType === "kick_gift" && typeof supportMessage === "object";
+
+  const supportMessageStringValues = typeof supportMessage === "object" && supportMessage !== null
+    ? Object.values(supportMessage)
+        .filter((value) => typeof value === "string")
+        .map((value) => value.trim().toLowerCase())
+    : [];
+
+  const supportMessagePrimaryMatch =
+    (typeof supportMessage === "string" && supportMessage.trim().toLowerCase() === description.toLowerCase()) ||
+    supportMessageStringValues.includes(description.toLowerCase());
+
+  const shouldRenderDescription =
+    Boolean(description) &&
+    !isRewardObject &&
+    rawDescription !== supportMessage &&
+    !supportMessagePrimaryMatch;
 
   return (
     <span className="supportEventMessage" style={messageStyle}>
@@ -587,15 +604,15 @@ const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
             </>
           )}
           {supportMessage.message && (
-            <span className="supportEventAction"> — {supportMessage.message}</span>
+            <span className="supportEventAction">{' '}: {supportMessage.message}</span>
           )}
         </span>
       ) : (
         <span className="supportEventContent">{supportMessage}</span>
       )}
-      
-      {description && description !== supportMessage && !isRewardObject && (
-        <span className="supportEventDescription"> - {description}</span>
+
+      {shouldRenderDescription && (
+        <span className="supportEventDescription">: {description}</span>
       )}
     </span>
   );

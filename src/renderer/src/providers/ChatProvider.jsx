@@ -96,6 +96,19 @@ const addSupportDedup = (key) => {
   }
 };
 
+// Create unified subscription deduplication key for cross-event-type deduplication
+// Normalize by username (preferred) so channel + celebration + subscription payloads align.
+// We intentionally omit time buckets; SUPPORT_DEDUPE_TTL_MS bounds how long we keep entries.
+const createSubscriptionDedupKey = (chatroomId, username, userId, _months, _timestamp) => {
+  const normalizedUser = (() => {
+    const base = username ?? userId;
+    if (!base && userId != null) return `id:${userId}`;
+    return (base ?? 'unknown').toString().trim().toLowerCase();
+  })();
+
+  return `subscription|${chatroomId}|${normalizedUser}`;
+};
+
 const shouldDisplayChatEvent = async (eventKey) => {
   try {
     const chatroomSettings = await window.app.store.get("chatrooms");
@@ -455,6 +468,12 @@ const useChatStore = create((set, get) => ({
       individual_connections: Object.keys(get().connections).length,
     };
   },
+
+  // Development helper to access the active connection manager
+  getConnectionManagerInstance: () => connectionManager,
+
+  // Development helper to access the shared Kick pusher instance
+  getSharedKickPusher: () => connectionManager?.kickPusher || null,
 
   // Debug function to check 7TV WebSocket status
   get7TVStatus: () => {
@@ -1607,15 +1626,19 @@ const useChatStore = create((set, get) => ({
           const c = parsedEvent?.metadata?.celebration || parsedEvent?.celebration || {};
           const subtype = typeof c?.type === 'string' ? c.type : '';
           if (/^subscription_(started|renewed|resumed|gifted|upgraded)/.test(subtype)) {
-            const key = [
+            // Use unified deduplication key for cross-event-type deduplication
+            const dedupKey = createSubscriptionDedupKey(
               chatroomId,
-              'celebration',
-              parsedEvent?.sender?.id || parsedEvent?.sender?.username || '',
-              subtype,
-              c?.total_months || '',
-              parsedEvent?.id || ''
-            ].join('|');
-            if (addSupportDedup(key)) {
+              parsedEvent?.sender?.username,
+              parsedEvent?.sender?.id,
+              parsedEvent?.sender?.months_subscribed || c?.total_months,
+              new Date(parsedEvent?.created_at || Date.now()).getTime()
+            );
+
+            if (addSupportDedup(dedupKey)) {
+              // Mark as PRIORITY event to prevent other subscription events from processing
+              addSupportDedup(dedupKey + '|priority');
+
               const supportMessage = {
                 id: parsedEvent?.id || crypto.randomUUID(),
                 type: "subscription",
@@ -1624,8 +1647,9 @@ const useChatStore = create((set, get) => ({
                 sender: parsedEvent?.sender,
                 metadata: {
                   username: parsedEvent?.sender?.username,
-                  months: c?.total_months,
+                  months: parsedEvent?.sender?.months_subscribed || c?.total_months, // Prefer months_subscribed from ChatMessageEvent
                   celebration_type: subtype,
+                  user_id: parsedEvent?.sender?.id,
                   ...parsedEvent?.metadata,
                 },
               };
@@ -3445,6 +3469,22 @@ const useChatStore = create((set, get) => ({
       return;
     }
 
+    // Use unified deduplication key
+    const dedupKey = createSubscriptionDedupKey(
+      chatroomId,
+      parsedEvent?.username,
+      null, // no userId in this event
+      parsedEvent?.months,
+      Date.now()
+    );
+
+    // Check if celebration already processed this with priority
+    if (__supportEventDedup.has(dedupKey + '|priority')) {
+      return; // Celebration already handled this better
+    }
+
+    if (!addSupportDedup(dedupKey)) return;
+
     const supportMessage = {
       id: parsedEvent?.id || crypto.randomUUID(),
       type: "subscription",
@@ -3457,13 +3497,6 @@ const useChatStore = create((set, get) => ({
         months: parsedEvent?.months,
       },
     };
-
-    const dKey = [
-      chatroomId, 'explicit', 'subscription',
-      parsedEvent?.username || '', parsedEvent?.months || '', supportMessage?.id || ''
-    ].join('|');
-    
-    if (!addSupportDedup(dKey)) return;
 
     get().addMessage(chatroomId, supportMessage);
     if (supportMessage?.sender) {
@@ -3483,6 +3516,23 @@ const useChatStore = create((set, get) => ({
       return;
     }
 
+    // Use unified deduplication key
+    const dedupKey = createSubscriptionDedupKey(
+      chatroomId,
+      parsedEvent?.username,
+      parsedEvent?.user_ids?.[0],
+      null, // no months in this event
+      Date.now()
+    );
+
+    // Check if better events already processed this
+    if (__supportEventDedup.has(dedupKey + '|priority') ||
+        __supportEventDedup.has(dedupKey)) {
+      return; // Better event already handled this
+    }
+
+    if (!addSupportDedup(dedupKey)) return;
+
     const supportMessage = {
       id: parsedEvent?.id || crypto.randomUUID(),
       type: "subscription",
@@ -3496,13 +3546,6 @@ const useChatStore = create((set, get) => ({
         channel_id: parsedEvent?.channel_id,
       },
     };
-
-    const dKey = [
-      chatroomId, 'explicit', 'channel_subscription',
-      parsedEvent?.username || '', parsedEvent?.channel_id || '', supportMessage?.id || ''
-    ].join('|');
-    
-    if (!addSupportDedup(dKey)) return;
 
     get().addMessage(chatroomId, supportMessage);
     if (supportMessage?.sender) {
@@ -3980,7 +4023,9 @@ if (process.env.NODE_ENV === 'development') {
     },
     get7TVStatus: () => {
       return useChatStore.getState().get7TVStatus();
-    }
+    },
+    getConnectionManager: () => useChatStore.getState().getConnectionManagerInstance(),
+    getSharedKickPusher: () => useChatStore.getState().getSharedKickPusher(),
   };
 }
 
