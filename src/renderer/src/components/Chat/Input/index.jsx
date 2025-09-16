@@ -37,6 +37,7 @@ import InfoBar from "./InfoBar";
 import { MessageParser } from "../../../utils/MessageParser";
 import { isModeEnabled, chatModeMatches } from "../../../utils/ChatUtils";
 import { recordChatModeFeatureUsage } from "../../../telemetry/chatModeTelemetry";
+import { useAccessibleKickEmotes } from "./useAccessibleKickEmotes";
 
 const onError = (error) => {
   console.error(error);
@@ -120,6 +121,17 @@ const EmoteSuggestions = memo(
     const suggestionsRef = useRef(null);
     const selectedSuggestionRef = useRef(null);
 
+    const canUseEmote = useCallback(
+      (emote) => {
+        if (!emote) return false;
+        if (emote.__allowUse !== undefined) {
+          return emote.__allowUse;
+        }
+        return !emote?.subscribers_only || Boolean(userChatroomInfo?.subscription);
+      },
+      [userChatroomInfo?.subscription],
+    );
+
     useEffect(() => {
       if (!suggestionsRef.current) return;
 
@@ -139,14 +151,14 @@ const EmoteSuggestions = memo(
               <div
                 key={`${emote.id}-${emote.alias}`}
                 ref={selectedIndex === i ? selectedSuggestionRef : null}
-                disabled={emote?.subscribers_only && !userChatroomInfo?.subscription}
+                disabled={!canUseEmote(emote)}
                 className={clsx(
                   "inputSuggestion",
                   selectedIndex === i && "selected",
-                  emote?.subscribers_only && !userChatroomInfo?.subscription && "emoteItemSubscriberOnly",
+                  !canUseEmote(emote) && "emoteItemSubscriberOnly",
                 )}
                 onClick={() => {
-                  if (emote?.subscribers_only && !userChatroomInfo?.subscription) return;
+                  if (!canUseEmote(emote)) return;
                   onSelect(emote);
                 }}>
                 <div className="inputSuggestionImage">
@@ -165,7 +177,7 @@ const EmoteSuggestions = memo(
                     fetchpriority="low"
                     decoding="async"
                   />
-                  {emote?.subscribers_only && !userChatroomInfo?.subscription && (
+                  {emote?.subscribers_only && !canUseEmote(emote) && (
                     <div className="emoteItemSubscriberLock">
                       <LockIcon size={16} weight="fill" aria-label="Subscriber" />
                     </div>
@@ -260,10 +272,21 @@ const KeyHandler = ({ chatroomId, onSendMessage, isReplyThread, allStvEmotes, re
     useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.userChatroomInfo),
   );
   const chatters = useChatStore(useShallow((state) => state.chatters[chatroomId]));
-  const kickEmotes = useChatStore(useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.emotes));
+  const kickEmotes = useAccessibleKickEmotes(chatroomId);
   const chatroomInfo = useChatStore(useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.chatroomInfo));
   const initialChatroomInfo = useChatStore(useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.initialChatroomInfo));
   const addMessage = useChatStore((state) => state.addMessage);
+
+  const canUseEmote = useCallback(
+    (emote) => {
+      if (!emote) return false;
+      if (emote.__allowUse !== undefined) {
+        return emote.__allowUse;
+      }
+      return !emote?.subscribers_only || Boolean(userChatroomInfo?.subscription);
+    },
+    [userChatroomInfo?.subscription],
+  );
 
   const searchEmotes = useCallback(
     (text) => {
@@ -361,6 +384,7 @@ const KeyHandler = ({ chatroomId, onSendMessage, isReplyThread, allStvEmotes, re
 
   const insertEmote = useCallback(
     (emote) => {
+      if (!canUseEmote(emote)) return;
       editor.update(() => {
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) return;
@@ -390,7 +414,7 @@ const KeyHandler = ({ chatroomId, onSendMessage, isReplyThread, allStvEmotes, re
       setSelectedEmoteIndex(null);
       setPosition(null);
     },
-    [editor],
+    [editor, canUseEmote],
   );
 
   const insertChatterMention = useCallback(
@@ -528,8 +552,9 @@ const KeyHandler = ({ chatroomId, onSendMessage, isReplyThread, allStvEmotes, re
 
           if (emoteSuggestions?.length > 0) {
             const emote = emoteSuggestions[selectedEmoteIndex];
-            if (emote?.subscribers_only && !userChatroomInfo?.subscription) return false;
-
+            if (!canUseEmote(emote)) {
+              return true;
+            }
             insertEmote(emote);
             return true;
           }
@@ -616,7 +641,11 @@ const KeyHandler = ({ chatroomId, onSendMessage, isReplyThread, allStvEmotes, re
           if (e.shiftKey) return false;
           e.preventDefault();
           if (emoteSuggestions?.length) {
-            insertEmote(emoteSuggestions[selectedEmoteIndex]);
+            const emote = emoteSuggestions[selectedEmoteIndex];
+            if (!canUseEmote(emote)) {
+              return true;
+            }
+            insertEmote(emote);
             return true;
           }
           if (chatterSuggestions?.length) {
@@ -865,7 +894,7 @@ const processEmoteInput = ({ node, kickEmotes }) => {
       ?.find((set) => set?.emotes?.find((e) => e.name === emoteName))
       ?.emotes?.find((e) => e.name === emoteName);
 
-    if (emote) {
+    if (emote && emote.__allowUse !== false) {
       matches.push({
         match,
         emoteId: emote.id,
@@ -898,7 +927,7 @@ const processEmoteInput = ({ node, kickEmotes }) => {
 
 const EmoteTransformer = ({ chatroomId }) => {
   const [editor] = useLexicalComposerContext();
-  const kickEmotes = useChatStore(useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.emotes));
+  const kickEmotes = useAccessibleKickEmotes(chatroomId);
 
   useEffect(() => {
     if (!editor) return;

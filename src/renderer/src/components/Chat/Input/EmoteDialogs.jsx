@@ -9,8 +9,9 @@ import KickLogoIcon from "../../../assets/logos/kickLogoIcon.svg?asset";
 import useChatStore from "../../../providers/ChatProvider";
 import { useShallow } from "zustand/react/shallow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../Shared/Tooltip";
+import { useAccessibleKickEmotes } from "./useAccessibleKickEmotes";
 
-const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChatroomInfo }) => {
+const EmoteSection = ({ emotes, title, handleEmoteClick, type, allowSubscriberEmotes, userChatroomInfo }) => {
   const [isSectionOpen, setIsSectionOpen] = useState(true);
   const [visibleCount, setVisibleCount] = useState(20);
   const loadMoreTriggerRef = useRef(null);
@@ -42,6 +43,13 @@ const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChat
     };
   }, [loadMoreEmotes]);
 
+  const canUseSubscriberEmotes =
+    type !== "kick"
+      ? true
+      : typeof allowSubscriberEmotes === "boolean"
+        ? allowSubscriberEmotes
+        : Boolean(userChatroomInfo?.subscription);
+
   return (
     <div className={clsx("dialogBodySection", isSectionOpen && "opened")}>
       <div className="dialogRowHead">
@@ -55,11 +63,17 @@ const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChat
           <Tooltip key={`${emote.id}-${emote.name}-${i}`} delayDuration={500}>
             <TooltipTrigger asChild>
               <button
-                disabled={type === "kick" && emote?.subscribers_only && !userChatroomInfo?.subscription}
+                disabled={
+                  type === "kick" &&
+                  emote?.subscribers_only &&
+                  (emote?.__allowUse === false || !canUseSubscriberEmotes)
+                }
                 onClick={() => handleEmoteClick(emote)}
                 className={clsx(
                   "emoteItem",
-                  emote?.subscribers_only && !userChatroomInfo?.subscription && "emoteItemSubscriberOnly",
+                  emote?.subscribers_only &&
+                    (emote?.__allowUse === false || !canUseSubscriberEmotes) &&
+                    "emoteItemSubscriberOnly",
                 )}>
                 {type === "kick" ? (
                   <img
@@ -77,7 +91,8 @@ const EmoteSection = ({ emotes, title, handleEmoteClick, type, section, userChat
                   />
                 )}
 
-                {emote?.subscribers_only && !userChatroomInfo?.subscription && (
+                {emote?.subscribers_only &&
+                  (emote?.__allowUse === false || !canUseSubscriberEmotes) && (
                   <div className="emoteItemSubscriberLock">
                     <LockIcon size={16} weight="fill" aria-label="Subscriber" />
                   </div>
@@ -203,18 +218,31 @@ const KickEmoteDialog = memo(
       return kickEmotes
         .map((emoteSection) => ({
           ...emoteSection,
-          emotes: emoteSection.emotes.filter((emote) => emote.name.toLowerCase().includes(searchTerm.toLowerCase())),
+          emotes: (emoteSection.emotes || []).filter((emote) =>
+            emote.name.toLowerCase().includes(searchTerm.toLowerCase()),
+          ),
         }))
         .filter((section) => section.emotes.length > 0);
     }, [kickEmotes, searchTerm]);
 
-    const isChannelSet = kickEmotes?.find((emoteSection) => emoteSection?.name === "channel_set");
+    const channelSections = useMemo(
+      () => kickEmotes?.filter((section) => section.sectionKind === "channel") || [],
+      [kickEmotes],
+    );
+    const globalSections = useMemo(
+      () => kickEmotes?.filter((section) => section.sectionKind === "global") || [],
+      [kickEmotes],
+    );
+    const emojiSections = useMemo(
+      () => kickEmotes?.filter((section) => section.sectionKind === "emoji") || [],
+      [kickEmotes],
+    );
 
     return (
       <>
         {isDialogOpen && (
           <div className={clsx("emoteDialog", isDialogOpen && "show")}>
-            <div className="dialogHead">
+            <div className={clsx("dialogHead", !searchResults?.length && "dialogHeadEmpty")}>
               <div className="dialogHeadTitle">
                 <img src={KickLogoFull} height={16} alt="Kick.com" />
               </div>
@@ -227,27 +255,43 @@ const KickEmoteDialog = memo(
                 />
               </div>
               <div className="dialogHeadMenuItems">
-                {isChannelSet && isChannelSet?.emotes?.length > 0 && (
+                {channelSections.map((section) => (
                   <button
-                    className={clsx("dialogHeadMenuItem", currentSection === "channel_set" && "active")}
-                    onClick={() => setCurrentSection(currentSection === "channel_set" ? null : "channel_set")}>
-                    <img src={isChannelSet?.user?.profile_pic} height={24} width={24} alt="Channel Emotes" />
+                    key={section.sectionKey}
+                    className={clsx("dialogHeadMenuItem", currentSection === section.sectionKey && "active")}
+                    onClick={() =>
+                      setCurrentSection(currentSection === section.sectionKey ? null : section.sectionKey)
+                    }
+                    title={section.sectionLabel || "Channel Emotes"}>
+                    {section?.user?.profile_pic ? (
+                      <img src={section.user.profile_pic} height={24} width={24} alt={section.sectionLabel} />
+                    ) : (
+                      <UserIcon size={24} weight="fill" aria-label="Channel Emotes" />
+                    )}
                   </button>
-                )}
-                {kickEmotes?.find((set) => set.name === "Global" && set?.emotes?.length > 0) && (
+                ))}
+                {globalSections.map((section) => (
                   <button
-                    className={clsx("dialogHeadMenuItem", currentSection === "Global" && "active")}
-                    onClick={() => setCurrentSection(currentSection === "Global" ? null : "Global")}>
+                    key={section.sectionKey}
+                    className={clsx("dialogHeadMenuItem", currentSection === section.sectionKey && "active")}
+                    onClick={() =>
+                      setCurrentSection(currentSection === section.sectionKey ? null : section.sectionKey)
+                    }
+                    title={section.sectionLabel || "Global Emotes"}>
                     <GlobeIcon size={24} weight="fill" aria-label="Global Emotes" />
                   </button>
-                )}
-                {kickEmotes?.find((set) => set.name === "Emojis" && set?.emotes?.length > 0) && (
+                ))}
+                {emojiSections.map((section) => (
                   <button
-                    className={clsx("dialogHeadMenuItem", currentSection === "Emojis" && "active")}
-                    onClick={() => setCurrentSection(currentSection === "Emojis" ? null : "Emojis")}>
-                    <img src={KickLogoIcon} height={16} width={16} alt="Emojis" />
+                    key={section.sectionKey}
+                    className={clsx("dialogHeadMenuItem", currentSection === section.sectionKey && "active")}
+                    onClick={() =>
+                      setCurrentSection(currentSection === section.sectionKey ? null : section.sectionKey)
+                    }
+                    title={section.sectionLabel || "Emojis"}>
+                    <img src={KickLogoIcon} height={16} width={16} alt={section.sectionLabel || "Emojis"} />
                   </button>
-                )}
+                ))}
               </div>
             </div>
 
@@ -258,17 +302,17 @@ const KickEmoteDialog = memo(
                 </div>
               ) : (
                 searchResults
-                  ?.filter((emoteSection) => (currentSection ? emoteSection.name === currentSection : true))
+                  ?.filter((emoteSection) => (currentSection ? emoteSection.sectionKey === currentSection : true))
                   ?.map((emoteSection, index) => (
                     <EmoteSection
-                      key={`${emoteSection.name || "sub_emojis"}-${index}`}
+                      key={emoteSection.sectionKey || `${emoteSection.sectionKind}-${index}`}
                       emotes={emoteSection.emotes}
-                      section={currentSection}
-                      title={`${emoteSection.name === "channel_set" ? "Subscriber Emotes" : emoteSection.name} ${
+                      title={`${emoteSection.sectionLabel || emoteSection.name || "Kick Emotes"} ${
                         searchTerm ? `[${emoteSection.emotes.length} matches]` : ""
                       }`}
                       type={"kick"}
                       handleEmoteClick={handleEmoteClick}
+                      allowSubscriberEmotes={emoteSection.allowSubscriberEmotes}
                       userChatroomInfo={userChatroomInfo}
                     />
                   ))
@@ -287,7 +331,7 @@ const KickEmoteDialog = memo(
 
 const EmoteDialogs = memo(
   ({ chatroomId, handleEmoteClick, userChatroomInfo }) => {
-    const kickEmotes = useChatStore(useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.emotes));
+    const kickEmotes = useAccessibleKickEmotes(chatroomId);
     const sevenTVEmotes = useChatStore(
       useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.channel7TVEmotes),
     );
@@ -310,7 +354,7 @@ const EmoteDialogs = memo(
       if (!kickEmotes?.length) return;
 
       const newRandomEmotes = [];
-      const globalSet = kickEmotes.find((set) => set.name === "Emojis");
+      const globalSet = kickEmotes.find((set) => set.sectionKind === "emoji");
       if (!globalSet?.emotes?.length) return;
 
       for (let i = 0; i < 10; i++) {
@@ -319,7 +363,9 @@ const EmoteDialogs = memo(
       }
 
       setRandomEmotes(newRandomEmotes);
-      setCurrentHoverEmote(newRandomEmotes[Math.floor(Math.random() * randomEmotes.length)]);
+      if (newRandomEmotes.length > 0) {
+        setCurrentHoverEmote(newRandomEmotes[Math.floor(Math.random() * newRandomEmotes.length)]);
+      }
     }, [kickEmotes]);
 
     const getRandomKickEmote = useCallback(() => {

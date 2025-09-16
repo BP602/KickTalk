@@ -27,6 +27,7 @@ class ConnectionManager {
     this.initializationInProgress = false;
     this.emoteCache = new Map(); // Cache for global/common emotes
     this.globalStvEmotesCache = null; // Cache for global 7TV emotes
+    this.channelStvEmoteCache = new Map(); // Cache for channel-specific 7TV emotes
 
     // Callbacks to avoid circular imports
     this.storeCallbacks = null;
@@ -480,6 +481,8 @@ class ConnectionManager {
       span.addEvent('cache_hit');
       span.setStatus({ code: 1 }); // SUCCESS
       span.end();
+
+      await this.fetchChannel7TVEmotes(chatroom);
       return this.emoteCache.get(cacheKey);
     }
 
@@ -500,6 +503,8 @@ class ConnectionManager {
       });
       span.setStatus({ code: 1 }); // SUCCESS
 
+      await this.fetchChannel7TVEmotes(chatroom);
+
       return kickEmotes;
     } catch (error) {
       console.error(`[ConnectionManager] Error fetching emotes for ${chatroom.streamerData?.user?.username}:`, error);
@@ -509,6 +514,82 @@ class ConnectionManager {
     } finally {
       span.end();
     }
+  }
+
+  async fetchChannel7TVEmotes(chatroom) {
+    if (!chatroom?.streamerData?.user_id) {
+      return null;
+    }
+
+    const cacheKey = `${chatroom.streamerData.user_id}`;
+
+    const span = tracer.startSpan('connection_manager.fetch_channel_7tv_emotes', {
+      attributes: {
+        'emote.type': 'channel',
+        'emote.provider': '7tv',
+        'chatroom.id': chatroom.id,
+        'chatroom.slug': chatroom.streamerData?.slug,
+        'chatroom.username': chatroom.streamerData?.user?.username,
+        'cache.key': cacheKey,
+        'cache.available': this.channelStvEmoteCache.has(cacheKey)
+      }
+    });
+
+    const useCached = this.channelStvEmoteCache.has(cacheKey);
+    if (useCached) {
+      span.addEvent('cache_hit');
+      const cached = this.channelStvEmoteCache.get(cacheKey) || [];
+      this.storeCallbacks?.updateChannel7TVEmotes?.(chatroom.id, cached);
+      this.syncSharedStvChatroom(chatroom, cached);
+      span.setStatus({ code: 1 });
+      span.end();
+      return cached;
+    }
+
+    try {
+      span.addEvent('api_fetch_start');
+      const channel7TVEmotes = await window.app.stv.getChannelEmotes(chatroom.streamerData.user_id);
+      span.addEvent('api_fetch_complete');
+
+      if (channel7TVEmotes) {
+        this.channelStvEmoteCache.set(cacheKey, channel7TVEmotes);
+        span.addEvent('cache_stored');
+        this.storeCallbacks?.updateChannel7TVEmotes?.(chatroom.id, channel7TVEmotes);
+        this.syncSharedStvChatroom(chatroom, channel7TVEmotes);
+        span.setAttributes({
+          'emote.count': Array.isArray(channel7TVEmotes)
+            ? channel7TVEmotes.reduce((count, set) => count + (Array.isArray(set?.emotes) ? set.emotes.length : 0), 0)
+            : 0,
+        });
+      }
+
+      span.setStatus({ code: 1 });
+      return channel7TVEmotes;
+    } catch (error) {
+      console.error(`[ConnectionManager] Error fetching 7TV emotes for ${chatroom.streamerData?.user?.username}:`, error);
+      span.recordException(error);
+      span.setStatus({ code: 2, message: error.message });
+      return null;
+    } finally {
+      span.end();
+    }
+  }
+
+  syncSharedStvChatroom(chatroom, channel7TVEmotes) {
+    if (!Array.isArray(channel7TVEmotes)) {
+      return;
+    }
+
+    const channelSet = channel7TVEmotes.find((set) => set?.type === 'channel');
+    const stvId = channelSet?.user?.id || '0';
+    const stvEmoteSetId = channelSet?.setInfo?.id || '0';
+
+    this.stvWebSocket.addChatroom(
+      chatroom.id,
+      chatroom.streamerData?.id,
+      stvId,
+      stvEmoteSetId,
+    );
   }
 
   prioritizeChatrooms(chatrooms) {

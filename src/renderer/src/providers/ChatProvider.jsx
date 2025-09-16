@@ -1529,6 +1529,7 @@ const useChatStore = create((set, get) => ({
           addInitialChatroomMessages: get().addInitialChatroomMessages,
           handleStreamStatus: get().handleStreamStatus,
           handleChatroomUpdated: get().handleChatroomUpdated,
+          updateChannel7TVEmotes: get().setChatroomChannel7TVEmotes,
           setInitialChatroomInfo: get().setInitialChatroomInfo,
         };
 
@@ -3787,11 +3788,62 @@ const useChatStore = create((set, get) => ({
     };
 
     get().addMessage(chatroomId, goalMessage);
-    window.app?.logs?.add?.({
+      window.app?.logs?.add?.({
       chatroomId: chatroomId,
       userId: 'system',
       message: goalMessage,
     });
+  },
+
+  setChatroomChannel7TVEmotes: (chatroomId, channel7TVEmotes = []) => {
+    if (!chatroomId || !Array.isArray(channel7TVEmotes)) {
+      return;
+    }
+
+    try {
+      const seenNames = new Set();
+      const sanitizedSets = channel7TVEmotes.map((set) => {
+        const clonedSet = { ...set };
+        if (Array.isArray(set?.emotes)) {
+          clonedSet.emotes = set.emotes.filter((emote) => {
+            const name = emote?.name?.toLowerCase?.();
+            if (!name) return true;
+            if (seenNames.has(name)) {
+              return false;
+            }
+            seenNames.add(name);
+            return true;
+          });
+        } else {
+          clonedSet.emotes = [];
+        }
+        return clonedSet;
+      });
+
+      const timestamp = dayjs().toISOString();
+
+      set((state) => ({
+        chatrooms: state.chatrooms.map((room) =>
+          room.id === chatroomId ? { ...room, channel7TVEmotes: sanitizedSets, last7TVSetUpdated: timestamp } : room,
+        ),
+      }));
+
+      const savedChatrooms = JSON.parse(localStorage.getItem("chatrooms")) || [];
+      localStorage.setItem(
+        "chatrooms",
+        JSON.stringify(
+          savedChatrooms.map((room) =>
+            room.id === chatroomId
+              ? { ...room, channel7TVEmotes: sanitizedSets, last7TVSetUpdated: timestamp }
+              : room,
+          ),
+        ),
+      );
+
+      clearChatroomEmoteCache(chatroomId);
+    } catch (error) {
+      console.error("[ChatProvider] Failed to set channel 7TV emotes:", error);
+    }
   },
 }));
 
