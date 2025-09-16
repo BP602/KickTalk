@@ -128,6 +128,7 @@ const Message = ({
     "host",
     "raid",
     "goal_progress",
+    "kick_gift",
   ].includes(eventType);
 
   // Remove useCallback for these since message changes constantly

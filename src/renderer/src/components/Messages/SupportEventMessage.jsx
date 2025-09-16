@@ -576,12 +576,15 @@ const SupportEventMessage = memo(({ message, handleOpenUserDialog }) => {
             <span className="supportEventAction">a Kick Gift</span>
           )}
           {typeof supportMessage.amount === 'number' && supportMessage.amount >= 1 && (
-            <span
-              className="supportEventAction"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              <KinkIcon />
-              <span className="supportEventCount">{supportMessage.amount}</span>
-            </span>
+            <>
+              {' '}
+              <span
+                className="supportEventAction"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                <span className="supportEventCount">{supportMessage.amount}</span>
+                <KinkIcon />
+              </span>
+            </>
           )}
           {supportMessage.message && (
             <span className="supportEventAction"> — {supportMessage.message}</span>

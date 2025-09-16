@@ -97,6 +97,17 @@ const MessagesHandler = memo(
         // }
 
         const eventVisibility = settings?.chatrooms?.eventVisibility;
+        const supportEventTypes = new Set([
+          "subscription",
+          "donation",
+          "reward",
+          "stream_live",
+          "stream_end",
+          "host",
+          "raid",
+          "goal_progress",
+          "kick_gift",
+        ]);
 
         // Hide mod actions if the setting is disabled
         if (message?.type === "mod_action" && !settings?.chatrooms?.showModActions) {
@@ -114,9 +125,6 @@ const MessagesHandler = memo(
           metadata = message?.metadata || {};
         }
         const eventType = message?.type === "metadata" ? metadata?.type : message?.type;
-        const oldSupportToggleDisabled =
-          ["subscription", "donation", "reward", "stream_live", "stream_end", "host", "raid", "goal_progress"].includes(eventType) &&
-          settings?.chatrooms?.showSupportEvents === false;
 
         const mapEventToVisibilityKey = (type) => {
           switch (type) {
@@ -134,6 +142,8 @@ const MessagesHandler = memo(
               return "raids";
             case "goal_progress":
               return "goalProgress";
+            case "kick_gift":
+              return "rewards";
             case "moderation": {
               if (metadata?.action === "timed_out") return "timeouts";
               return "bans";
@@ -144,13 +154,21 @@ const MessagesHandler = memo(
         };
 
         const visibilityKey = mapEventToVisibilityKey(eventType);
-        const visibilityExplicitlyHidden =
+        const explicitSetting =
           visibilityKey && eventVisibility && Object.prototype.hasOwnProperty.call(eventVisibility, visibilityKey)
-            ? eventVisibility[visibilityKey] === false
-            : false;
+            ? eventVisibility[visibilityKey]
+            : undefined;
 
-        if (visibilityExplicitlyHidden || (!eventVisibility && oldSupportToggleDisabled)) {
-          return false;
+        if (supportEventTypes.has(eventType)) {
+          const globalEnabled = settings?.chatrooms?.showSupportEvents;
+
+          if (globalEnabled === false && explicitSetting !== true) {
+            return false;
+          }
+
+          if (explicitSetting === false) {
+            return false;
+          }
         }
 
         return (
