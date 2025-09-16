@@ -1,6 +1,6 @@
 import { MessageParser } from "../../utils/MessageParser";
 import RegularMessage from "./RegularMessage";
-import { ArrowBendUpLeft } from "@phosphor-icons/react";
+import { ArrowBendUpRightIcon } from "@phosphor-icons/react";
 import useChatStore from "../../providers/ChatProvider";
 import { useShallow } from "zustand/shallow";
 import { memo, useMemo } from "react";
@@ -30,7 +30,7 @@ const ReplyMessage = ({
   return (
     <div className="chatMessageReply">
       <span className="chatMessageReplyText">
-        <ArrowBendUpLeft className="chatMessageReplySymbol" size={16} aria-hidden="true" />
+        <ArrowBendUpRightIcon className="chatMessageReplySymbol" size={16} aria-hidden="true" />
         <span className="chatMessageReplyTextSender">
           <button
             className="chatMessageReplyTextSenderUsername"
