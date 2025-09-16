@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import useChatStore from "../../../providers/ChatProvider";
 import { useShallow } from "zustand/react/shallow";
+import { isEqual } from "lodash";
 
 const normalizeSubscriptionStatus = (subscription) => {
   if (!subscription) return false;
@@ -176,8 +177,22 @@ export const computeAccessibleKickEmotes = (chatrooms, activeChatroomId) => {
 
 export const useAccessibleKickEmotes = (chatroomId) => {
   const chatrooms = useChatStore(useShallow((state) => state.chatrooms));
+  const cacheRef = useRef({ chatroomId: null, chatrooms: null, result: null });
 
-  return useMemo(() => computeAccessibleKickEmotes(chatrooms, chatroomId), [chatrooms, chatroomId]);
+  return useMemo(() => {
+    // Check if we can reuse the cached result with deep comparison
+    if (
+      cacheRef.current.chatroomId === chatroomId &&
+      isEqual(cacheRef.current.chatrooms, chatrooms)
+    ) {
+      return cacheRef.current.result;
+    }
+
+    // Compute new result and cache it
+    const result = computeAccessibleKickEmotes(chatrooms, chatroomId);
+    cacheRef.current = { chatroomId, chatrooms, result };
+    return result;
+  }, [chatrooms, chatroomId]);
 };
 
 export { normalizeSubscriptionStatus as isKickSubscriptionActive };

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { userKickTalkBadges } from "@utils/kickTalkBadges";
 import ChatInput from "./Input";
 import useChatStore from "../../providers/ChatProvider";
 import { useShallow } from "zustand/shallow";
 import MessagesHandler from "../Messages/MessagesHandler";
+import { useAllStvEmotes } from "./hooks/useAllStvEmotes";
 
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -14,9 +15,8 @@ const Chat = ({ chatroomId, kickUsername, kickId, settings, updateSettings }) =>
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const chatroom = useChatStore((state) => state.chatrooms.filter((chatroom) => chatroom.id === chatroomId)[0]);
-  const personalEmoteSets = useChatStore((state) => state.personalEmoteSets);
   const messages = useChatStore(useShallow((state) => state.messages[chatroomId] || []));
-  
+
   const markChatroomMessagesAsRead = useChatStore((state) => state.markChatroomMessagesAsRead);
   const donators = useChatStore(useShallow((state) => state.donators));
 
@@ -28,10 +28,7 @@ const Chat = ({ chatroomId, kickUsername, kickId, settings, updateSettings }) =>
   }, [chatroomId, markChatroomMessagesAsRead]);
 
   const subscriberBadges = chatroom?.streamerData?.subscriber_badges || [];
-
-  const allStvEmotes = useMemo(() => {
-    return [...(personalEmoteSets || []), ...(chatroom?.channel7TVEmotes || [])];
-  }, [personalEmoteSets, chatroom?.channel7TVEmotes]);
+  const allStvEmotes = useAllStvEmotes(chatroomId);
 
   // Ctrl + F to open search dialog
   const handleSearch = useCallback(() => {

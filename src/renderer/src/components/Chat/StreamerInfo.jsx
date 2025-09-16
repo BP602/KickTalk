@@ -1,7 +1,8 @@
-import { useState, useEffect, memo, useMemo } from "react";
+import { useState, useEffect, memo } from "react";
 import { useShallow } from "zustand/shallow";
 import clsx from "clsx";
 import useChatStore from "../../providers/ChatProvider";
+import { useAllStvEmotes } from "./hooks/useAllStvEmotes";
 import { PushPinIcon, UserIcon, Sword } from "@phosphor-icons/react";
 // import PollIcon from "../../assets/icons/poll-fill.svg?asset";
 import Pin from "./Pin";
@@ -252,17 +253,11 @@ const StreamerInfo = memo(
 const ChattersBtn = memo(
   ({ chatroomId, streamerData }) => {
     const chatters = useChatStore(useShallow((state) => state.chatters[chatroomId] || []));
-    const channel7TVEmotes = useChatStore(
-      useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.channel7TVEmotes),
-    );
-    const personalEmoteSets = useChatStore(useShallow((state) => state.personalEmoteSets));
     const userChatroomInfo = useChatStore(
       useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.userChatroomInfo),
     );
 
-    const allStvEmotes = useMemo(() => {
-      return [...(personalEmoteSets || []), ...(channel7TVEmotes || [])];
-    }, [personalEmoteSets, channel7TVEmotes]);
+    const allStvEmotes = useAllStvEmotes(chatroomId);
 
     const handleChattersBtn = (e) => {
       e.preventDefault();

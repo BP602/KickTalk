@@ -17,7 +17,8 @@ import {
   $getNodeByKey,
   $createParagraphNode,
 } from "lexical";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { useAllStvEmotes } from "../hooks/useAllStvEmotes";
 import { AutoFocusPlugin } from "@lexical/react/LexicalAutoFocusPlugin";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
@@ -932,9 +933,13 @@ const EmoteTransformer = ({ chatroomId }) => {
   useEffect(() => {
     if (!editor) return;
 
-    editor.registerNodeTransform(TextNode, (node) => {
+    const unregister = editor.registerNodeTransform(TextNode, (node) => {
       processEmoteInput({ node, kickEmotes });
     });
+
+    return () => {
+      unregister();
+    };
   }, [editor, kickEmotes]);
 };
 
@@ -1159,7 +1164,6 @@ const ChatInput = memo(
     const sendReply = useChatStore((state) => state.sendReply);
     const clearDraftMessage = useChatStore((state) => state.clearDraftMessage);
     const chatroom = useChatStore(useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)));
-    const personalEmoteSets = useChatStore(useShallow((state) => state.personalEmoteSets));
     const replyDataRef = useRef(null);
     const [, setReplyUIUpdate] = useState(0); // Force re-renders when reply data changes
     const chatInputRef = useRef(null); // Ref for the chat input element
@@ -1177,9 +1181,7 @@ const ChatInput = memo(
 
     const getReplyData = useCallback(() => replyDataRef.current, []);
 
-    const allStvEmotes = useMemo(() => {
-      return [...(personalEmoteSets || []), ...(chatroom?.channel7TVEmotes || [])];
-    }, [personalEmoteSets, chatroom?.channel7TVEmotes]);
+    const allStvEmotes = useAllStvEmotes(chatroomId);
 
     // Reset selected index when changing chatrooms
     useEffect(() => {

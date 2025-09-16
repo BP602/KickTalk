@@ -10,6 +10,7 @@ import useChatStore from "../../../providers/ChatProvider";
 import { useShallow } from "zustand/react/shallow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../Shared/Tooltip";
 import { useAccessibleKickEmotes } from "./useAccessibleKickEmotes";
+import { useAllStvEmotes } from "../hooks/useAllStvEmotes";
 
 const EmoteSection = ({ emotes, title, handleEmoteClick, type, allowSubscriberEmotes, userChatroomInfo }) => {
   const [isSectionOpen, setIsSectionOpen] = useState(true);
@@ -123,7 +124,14 @@ const SevenTVEmoteDialog = memo(
           ...emoteSection,
           emotes: (emoteSection.emotes || []).filter((emote) => emote.name.toLowerCase().includes(searchTerm.toLowerCase())),
         }))
-        .filter((section) => section.emotes && section.emotes.length > 0);
+        .filter((section) => section.emotes && section.emotes.length > 0)
+        .sort((a, b) => {
+          // Sort order: channel (streamer) first, then global, then others
+          const order = { channel: 0, global: 1 };
+          const aOrder = order[a.type] ?? 2;
+          const bOrder = order[b.type] ?? 2;
+          return aOrder - bOrder;
+        });
     }, [sevenTVEmotes, searchTerm]);
 
     // Compute a safe avatar URL for the channel section (if present)
@@ -332,14 +340,7 @@ const KickEmoteDialog = memo(
 const EmoteDialogs = memo(
   ({ chatroomId, handleEmoteClick, userChatroomInfo }) => {
     const kickEmotes = useAccessibleKickEmotes(chatroomId);
-    const sevenTVEmotes = useChatStore(
-      useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.channel7TVEmotes),
-    );
-    const personalEmoteSets = useChatStore(useShallow((state) => state.personalEmoteSets));
-
-    const allStvEmotes = useMemo(() => {
-      return [...(personalEmoteSets || []), ...(sevenTVEmotes || [])];
-    }, [personalEmoteSets, sevenTVEmotes]);
+    const allStvEmotes = useAllStvEmotes(chatroomId);
 
     const [activeDialog, setActiveDialog] = useState(null);
     const [currentHoverEmote, setCurrentHoverEmote] = useState({});
