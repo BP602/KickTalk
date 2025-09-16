@@ -1,0 +1,1577 @@
+{
+  "generated": "2025-09-16T10:10:58.386Z",
+  "totalEvents": 4069,
+  "sampleEvents": 567,
+  "eventTypeCount": 21,
+  "eventTypes": {
+    "App\\Events\\ChatMessageEvent (regular)": 14,
+    "GoalProgressUpdateEvent (followers)": 58,
+    "App\\Events\\ChatMessageEvent (reply)": 2857,
+    "App\\Events\\UserUnbannedEvent": 18,
+    "App\\Events\\PinnedMessageCreatedEvent": 41,
+    "App\\Events\\MessageDeletedEvent": 451,
+    "RewardRedeemedEvent": 13,
+    "App\\Events\\ChatMessageEvent (celebration - subscription_renewed)": 9,
+    "App\\Events\\StreamerIsLive": 2,
+    "App\\Events\\UserBannedEvent": 494,
+    "App\\Events\\StopStreamBroadcast": 3,
+    "App\\Events\\ChatMoveToSupportedChannelEvent": 1,
+    "App\\Events\\ChatMessageSentEvent": 25,
+    "App\\Events\\SubscriptionEvent": 22,
+    "App\\Events\\ChannelSubscriptionEvent": 21,
+    "GiftedSubscriptionsEvent": 15,
+    "App\\Events\\LuckyUsersWhoGotGiftSubscriptionsEvent": 7,
+    "App\\Events\\PinnedMessageDeletedEvent": 7,
+    "App\\Events\\ChatroomUpdatedEvent": 1,
+    "App\\Events\\StreamHostedEvent": 5,
+    "App\\Events\\StreamHostEvent": 5
+  },
+  "channelTypes": {
+    "chatroom": 3977,
+    "channel": 92
+  },
+  "definitions": {
+    "App\\Events\\ChatMessageEvent (reply)": {
+      "description": "Reply to another chat message",
+      "count": 2857,
+      "structure": {
+        "id": "string",
+        "chatroom_id": "number",
+        "content": "string",
+        "type": "string",
+        "created_at": "string",
+        "sender": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "identity": {
+            "color": "string",
+            "badges": [
+              "..."
+            ]
+          }
+        },
+        "metadata": {
+          "original_sender": {
+            "id": "number",
+            "username": "string"
+          },
+          "original_message": {
+            "id": "string",
+            "content": "string"
+          },
+          "message_ref": "string"
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "92ec5757-f497-432e-8009-6f39d0168b4e",
+          "chatroom_id": 66973867,
+          "content": "é quase infinito [emote:37227:LULW]",
+          "type": "reply",
+          "created_at": "2025-09-15T20:56:04+00:00",
+          "sender": {
+            "id": 1867079,
+            "username": "BlPOLAR",
+            "slug": "blpolar",
+            "identity": {
+              "color": "#FF9D00",
+              "badges": [
+                {
+                  "type": "moderator",
+                  "text": "Moderator"
+                },
+                {
+                  "type": "founder",
+                  "text": "Founder"
+                },
+                {
+                  "type": "sub_gifter",
+                  "text": "Sub Gifter",
+                  "count": 1
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "original_sender": {
+              "id": 69452322,
+              "username": "Cr4zY_7"
+            },
+            "original_message": {
+              "id": "7d66f1d8-bb48-4412-884f-c77c42bddcd0",
+              "content": "acaba nuncaaa"
+            },
+            "message_ref": "1757969724050"
+          }
+        },
+        {
+          "id": "f5660193-aaac-41a0-85ec-d2a9281e9b3c",
+          "chatroom_id": 27670567,
+          "content": "[emote:734466:odablockFUFU]",
+          "type": "reply",
+          "created_at": "2025-09-15T20:56:16+00:00",
+          "sender": {
+            "id": 4282411,
+            "username": "VolkzyRS",
+            "slug": "volkzyrs",
+            "identity": {
+              "color": "#E9113C",
+              "badges": []
+            }
+          },
+          "metadata": {
+            "original_sender": {
+              "id": 67975907,
+              "username": "Evenepoel1"
+            },
+            "original_message": {
+              "id": "90ca4865-2788-443d-966c-432136794a02",
+              "content": "what about lord cuthbert the frog?"
+            },
+            "message_ref": "1757969776067"
+          }
+        }
+      ]
+    },
+    "App\\Events\\UserBannedEvent": {
+      "description": "User was banned from the chatroom",
+      "count": 494,
+      "structure": {
+        "id": "string",
+        "user": {
+          "id": "number",
+          "username": "string",
+          "slug": "string"
+        },
+        "banned_by": {
+          "id": "number",
+          "username": "string",
+          "slug": "string"
+        },
+        "permanent": "boolean",
+        "duration": "number",
+        "expires_at": "string"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "36e33ce7-d2bc-4801-a522-8d61d231a95c",
+          "user": {
+            "id": 3356871,
+            "username": "Mewthat",
+            "slug": "mewthat"
+          },
+          "banned_by": {
+            "id": 0,
+            "username": "moderator",
+            "slug": "moderator"
+          },
+          "permanent": false,
+          "duration": 3,
+          "expires_at": "2025-09-15T21:16:02+00:00"
+        },
+        {
+          "id": "fae7c18c-67c6-42c7-897f-6575589b4cec",
+          "user": {
+            "id": 120867,
+            "username": "simonnn",
+            "slug": "simonnn"
+          },
+          "banned_by": {
+            "id": 0,
+            "username": "moderator",
+            "slug": "moderator"
+          },
+          "permanent": false,
+          "duration": 1,
+          "expires_at": "2025-09-15T21:15:20+00:00"
+        }
+      ]
+    },
+    "App\\Events\\MessageDeletedEvent": {
+      "description": "Chat message was deleted by moderator",
+      "count": 451,
+      "structure": {
+        "id": "string",
+        "message": {
+          "id": "string"
+        },
+        "aiModerated": "boolean",
+        "violatedRules": [
+          "string"
+        ]
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "78d6e40a-0e5e-4c0b-a556-3d28fa32f608",
+          "message": {
+            "id": "786da071-c2f5-4593-8427-43c73dc245f2"
+          },
+          "aiModerated": true,
+          "violatedRules": [
+            "hate"
+          ]
+        },
+        {
+          "id": "1c5f82b4-7c97-4cf3-bd3b-e64e50dec5fc",
+          "message": {
+            "id": "74d8b8f0-0bea-4b14-a33c-b00e8926a57b"
+          },
+          "aiModerated": false,
+          "violatedRules": []
+        }
+      ]
+    },
+    "GoalProgressUpdateEvent (followers)": {
+      "description": "GoalProgressUpdateEvent - followers variant",
+      "count": 58,
+      "structure": {
+        "id": "string",
+        "channel_id": "string",
+        "type": "string",
+        "target_value": "number",
+        "current_value": "number",
+        "progress_bar_emoji_id": "string",
+        "status": "string",
+        "created_at": "string",
+        "updated_at": "string",
+        "achieved_at": null,
+        "end_date": null,
+        "count_from_creation": "boolean"
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "id": "chgoal_01K0CSWXJYG9VPM5SM8HZHQGXN",
+          "channel_id": "channel_01JZTAJA6H1RB6WPYVDFZ94SAA",
+          "type": "followers",
+          "target_value": 100000,
+          "current_value": 87406,
+          "progress_bar_emoji_id": "chnl-goal-emotes/1",
+          "status": "active",
+          "created_at": "2025-07-17T18:21:12.158724Z",
+          "updated_at": "2025-09-15T20:54:48.174178506Z",
+          "achieved_at": null,
+          "end_date": null,
+          "count_from_creation": true
+        },
+        {
+          "id": "chgoal_01K0CSWXJYG9VPM5SM8HZHQGXN",
+          "channel_id": "channel_01JZTAJA6H1RB6WPYVDFZ94SAA",
+          "type": "followers",
+          "target_value": 100000,
+          "current_value": 87407,
+          "progress_bar_emoji_id": "chnl-goal-emotes/1",
+          "status": "active",
+          "created_at": "2025-07-17T18:21:12.158724Z",
+          "updated_at": "2025-09-15T20:56:23.368267311Z",
+          "achieved_at": null,
+          "end_date": null,
+          "count_from_creation": true
+        }
+      ]
+    },
+    "App\\Events\\PinnedMessageCreatedEvent": {
+      "description": "Message was pinned in chat",
+      "count": 41,
+      "structure": {
+        "message": {
+          "id": "string",
+          "chatroom_id": "number",
+          "content": "string",
+          "type": "string",
+          "created_at": "string",
+          "sender": {
+            "id": "number",
+            "username": "string",
+            "slug": "string",
+            "identity": {
+              "color": "...",
+              "badges": "..."
+            }
+          },
+          "metadata": {
+            "message_ref": "string"
+          }
+        },
+        "duration": "string",
+        "pinnedBy": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "identity": {
+            "color": "string",
+            "badges": [
+              "..."
+            ]
+          }
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "message": {
+            "id": "f388e3f5-2806-4772-954a-976d397bab16",
+            "chatroom_id": 66973867,
+            "content": "Vote no GauGau → https://bit.ly/gaugamerinfluenciador || https://bit.ly/gaustreamerinfluenciador",
+            "type": "message",
+            "created_at": "2025-09-15T21:00:21+00:00",
+            "sender": {
+              "id": 62500352,
+              "username": "ZacchiGi",
+              "slug": "zacchigi",
+              "identity": {
+                "color": "#75FD46",
+                "badges": [
+                  {
+                    "type": "moderator",
+                    "text": "Moderator"
+                  }
+                ]
+              }
+            },
+            "metadata": {
+              "message_ref": "1757970042660"
+            }
+          },
+          "duration": "1200",
+          "pinnedBy": {
+            "id": 62500352,
+            "username": "ZacchiGi",
+            "slug": "zacchigi",
+            "identity": {
+              "color": "#75FD46",
+              "badges": [
+                {
+                  "type": "moderator",
+                  "text": "Moderator",
+                  "active": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "message": {
+            "id": "374df2ac-8189-4fe7-b01d-d2ff213308bb",
+            "chatroom_id": 66973867,
+            "content": "https://www.g3x.gg → Se torne Sócio Fundador do G3X, participe da criação do Centro de Treinamento do nosso time e garanta seu kit exclusivo!",
+            "type": "message",
+            "created_at": "2025-09-15T21:16:13+00:00",
+            "sender": {
+              "id": 62500352,
+              "username": "ZacchiGi",
+              "slug": "zacchigi",
+              "identity": {
+                "color": "#75FD46",
+                "badges": [
+                  {
+                    "type": "moderator",
+                    "text": "Moderator"
+                  }
+                ]
+              }
+            },
+            "metadata": {
+              "message_ref": "1757970994406"
+            }
+          },
+          "duration": "1200",
+          "pinnedBy": {
+            "id": 62500352,
+            "username": "ZacchiGi",
+            "slug": "zacchigi",
+            "identity": {
+              "color": "#75FD46",
+              "badges": [
+                {
+                  "type": "moderator",
+                  "text": "Moderator",
+                  "active": true
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "App\\Events\\ChatMessageSentEvent": {
+      "description": "Unknown event type: App\\Events\\ChatMessageSentEvent",
+      "count": 25,
+      "structure": {
+        "message": {
+          "id": "string",
+          "message": null,
+          "type": "string",
+          "replied_to": null,
+          "is_info": null,
+          "link_preview": null,
+          "chatroom_id": "number",
+          "role": "string",
+          "created_at": "number",
+          "action": "string",
+          "optional_message": null,
+          "months_subscribed": "number",
+          "subscriptions_count": "number",
+          "giftedUsers": null
+        },
+        "user": {
+          "id": "number",
+          "username": "string",
+          "role": "string",
+          "isSuperAdmin": null,
+          "profile_thumb": null,
+          "verified": "boolean",
+          "follower_badges": [],
+          "is_subscribed": null,
+          "is_founder": "boolean",
+          "months_subscribed": "number",
+          "quantity_gifted": "number"
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "message": {
+            "id": "8efc02ce-b023-4125-b0d4-38f2c2ee1e4e",
+            "message": null,
+            "type": "info",
+            "replied_to": null,
+            "is_info": null,
+            "link_preview": null,
+            "chatroom_id": 27670567,
+            "role": "user",
+            "created_at": 1757975592,
+            "action": "subscribe",
+            "optional_message": null,
+            "months_subscribed": 18,
+            "subscriptions_count": 0,
+            "giftedUsers": null
+          },
+          "user": {
+            "id": 30389514,
+            "username": "Ra_ab",
+            "role": "user",
+            "isSuperAdmin": null,
+            "profile_thumb": null,
+            "verified": false,
+            "follower_badges": [],
+            "is_subscribed": null,
+            "is_founder": false,
+            "months_subscribed": 18,
+            "quantity_gifted": 0
+          }
+        },
+        {
+          "message": {
+            "id": "2c7e7d20-3e81-4091-b4d2-673d8bb18ea4",
+            "message": null,
+            "type": "info",
+            "replied_to": null,
+            "is_info": null,
+            "link_preview": null,
+            "chatroom_id": 2579856,
+            "role": "user",
+            "created_at": 1757976932,
+            "action": "subscribe",
+            "optional_message": null,
+            "months_subscribed": 7,
+            "subscriptions_count": 0,
+            "giftedUsers": null
+          },
+          "user": {
+            "id": 2454627,
+            "username": "Chocollate",
+            "role": "user",
+            "isSuperAdmin": null,
+            "profile_thumb": "https://kick-files-prod.s3.us-west-2.amazonaws.com/images/user/2454627/profile_image/conversion/90f01e22-650e-46d2-8c67-9c4791fddd93-thumb.webp?X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAS3MDRZGPDOOAYROR%2F20250915%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20250915T225532Z&X-Amz-SignedHeaders=host&X-Amz-Expires=300&X-Amz-Signature=0c23e0da21f6cbe438ebd5fd15f4da9bab984b7f7d68d3ee3e0bb11b0c5ef63a",
+            "verified": false,
+            "follower_badges": [],
+            "is_subscribed": null,
+            "is_founder": false,
+            "months_subscribed": 7,
+            "quantity_gifted": 0
+          }
+        }
+      ]
+    },
+    "App\\Events\\SubscriptionEvent": {
+      "description": "Unknown event type: App\\Events\\SubscriptionEvent",
+      "count": 22,
+      "structure": {
+        "chatroom_id": "number",
+        "username": "string",
+        "months": "number"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "chatroom_id": 27670567,
+          "username": "Ra_ab",
+          "months": 18
+        },
+        {
+          "chatroom_id": 2579856,
+          "username": "Chocollate",
+          "months": 7
+        }
+      ]
+    },
+    "App\\Events\\ChannelSubscriptionEvent": {
+      "description": "Unknown event type: App\\Events\\ChannelSubscriptionEvent",
+      "count": 21,
+      "structure": {
+        "user_ids": [
+          "number"
+        ],
+        "username": "string",
+        "channel_id": "number"
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "user_ids": [
+            2454627
+          ],
+          "username": "Chocollate",
+          "channel_id": 2587387
+        },
+        {
+          "user_ids": [
+            54815,
+            939394,
+            1371339,
+            1997191,
+            2063570,
+            7425941,
+            7542128,
+            8274151,
+            8540642,
+            11395270,
+            17782728,
+            17815524,
+            24834854,
+            58988689,
+            64079214,
+            77738876,
+            77742207,
+            3414952,
+            5580501,
+            8254836,
+            17112012,
+            43551037,
+            51889029,
+            58506409,
+            64373551,
+            77739641,
+            77754908,
+            2041937,
+            1217681,
+            6804959,
+            26420679,
+            2042811,
+            2045474,
+            2036574,
+            26937217,
+            2283662,
+            2035285,
+            1999198,
+            2000698,
+            2036944,
+            2038763,
+            21021855,
+            2038873,
+            6531115,
+            24825601,
+            2041771,
+            2044900,
+            2045273,
+            2045950,
+            2047150,
+            16877,
+            667785,
+            26877947,
+            3068932,
+            50778060,
+            36794681,
+            15861594,
+            2035286,
+            22695659,
+            43016699,
+            2045980,
+            2046486,
+            2047664,
+            2047416,
+            2047951,
+            2047987,
+            66047404,
+            3068901,
+            1410132,
+            2020977,
+            4042539,
+            28654385,
+            26121623,
+            2679159,
+            2050560,
+            2036493,
+            1243444,
+            32100,
+            2049497,
+            2049596,
+            2050118,
+            2050407,
+            2050654,
+            2050859,
+            2051051,
+            33224146,
+            2020979,
+            2532860,
+            26932882,
+            12476102,
+            2045284,
+            11866346,
+            1318811,
+            21658725,
+            39417284,
+            35075949,
+            2044252,
+            6829481,
+            2023521,
+            2045964
+          ],
+          "username": "",
+          "channel_id": 668
+        }
+      ]
+    },
+    "App\\Events\\UserUnbannedEvent": {
+      "description": "User was unbanned from the chatroom",
+      "count": 18,
+      "structure": {
+        "id": "string",
+        "user": {
+          "id": "number",
+          "username": "string",
+          "slug": "string"
+        },
+        "unbanned_by": {
+          "id": "number",
+          "username": "string",
+          "slug": "string"
+        },
+        "permanent": "boolean"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "004a59de-11b9-40a3-ad59-28aa4c22409b",
+          "user": {
+            "id": 134865,
+            "username": "ktran",
+            "slug": "ktran"
+          },
+          "unbanned_by": {
+            "id": 518549,
+            "username": "4headsbankaccount",
+            "slug": "4headsbankaccount"
+          },
+          "permanent": true
+        },
+        {
+          "id": "b285f386-8976-4eea-971c-2c0ab003fc3e",
+          "user": {
+            "id": 7235838,
+            "username": "SomeBurntToast",
+            "slug": "someburnttoast"
+          },
+          "unbanned_by": {
+            "id": 7386821,
+            "username": "Zostradamus",
+            "slug": "zostradamus"
+          },
+          "permanent": true
+        }
+      ]
+    },
+    "GiftedSubscriptionsEvent": {
+      "description": "Unknown event type: GiftedSubscriptionsEvent",
+      "count": 15,
+      "structure": {
+        "chatroom_id": "number",
+        "gifted_usernames": [
+          "string"
+        ],
+        "gifter_username": "string",
+        "gifter_total": "number"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "chatroom_id": 668,
+          "gifted_usernames": [
+            "Prvncee",
+            "64kgol",
+            "PolishGarnek",
+            "tittfairy",
+            "yilmoo",
+            "Drazy1up",
+            "Billy_Herrington1969",
+            "danmukham",
+            "Darrk72",
+            "Gdott",
+            "Rafinhawg",
+            "Cybeth",
+            "YOUNESS831",
+            "Fanboy69420",
+            "5BucksLib",
+            "snekpourpel",
+            "trash_kabam",
+            "BANMEIHAVETOOMANYALTS",
+            "unkept",
+            "prexxuregaming",
+            "verfallend",
+            "Cmill3452",
+            "Briannay",
+            "ChowderMain",
+            "imoolaa",
+            "CURSEDTOROT",
+            "Strucnjak93",
+            "Janecek11",
+            "joe9378alt",
+            "Dylanvanloon",
+            "bdang7544",
+            "subasubaba",
+            "voltybolt",
+            "Atsuyo_O",
+            "Arlene49",
+            "KTs3rg1",
+            "flonch",
+            "TheyLoveMistey",
+            "MMonkus",
+            "l1ttl3k1ds",
+            "Hesht",
+            "ctian2",
+            "stacyyyt",
+            "Hjs3127",
+            "megahomo64",
+            "brandibunn",
+            "MAJID98",
+            "Minar1",
+            "sonnychibaDOTsamurai",
+            "DrenchMyWaffle",
+            "Voided",
+            "turkey4910",
+            "Mightymatt23",
+            "Elfadel",
+            "Sidyyy75",
+            "Nick_Inger117",
+            "patriod",
+            "Stoic_Grizz_Monkey",
+            "Morad79",
+            "oJordan",
+            "Flokejd",
+            "BBCenjoyer",
+            "Kareemhaa",
+            "Tremo",
+            "Niminith1",
+            "Bobcats",
+            "ElMatrushka",
+            "Yadri_pr",
+            "Ramb02882",
+            "Adan_waaa113",
+            "Deppp",
+            "MikitaShtydent",
+            "joefred2018",
+            "Sugmadig",
+            "jonsED",
+            "Gelo_09",
+            "ninalove562",
+            "treadwayii",
+            "Cerbottamus_Prime",
+            "ekarDTV",
+            "shadyisback",
+            "LostAlice",
+            "ITsSoloFTW",
+            "Melbatoast1985",
+            "adku16",
+            "Levievs4",
+            "Oxentemaceio",
+            "amine290104",
+            "Yeimi1",
+            "DoYaTe",
+            "vladfrosty",
+            "TheSentry",
+            "maremoto",
+            "Diacide",
+            "aserri",
+            "ARMAJEDONMTZ",
+            "I_Mila_I",
+            "Biscuit_cg",
+            "Rode21",
+            "CMGaming"
+          ],
+          "gifter_username": "jamestonic",
+          "gifter_total": 2300
+        },
+        {
+          "chatroom_id": 5512091,
+          "gifted_usernames": [
+            "mikecoast05"
+          ],
+          "gifter_username": "Jdawg408",
+          "gifter_total": 16
+        }
+      ]
+    },
+    "App\\Events\\ChatMessageEvent (regular)": {
+      "description": "Regular chat message",
+      "count": 14,
+      "structure": {
+        "id": "string",
+        "chatroom_id": "number",
+        "content": "string",
+        "type": "string",
+        "created_at": "string",
+        "sender": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "identity": {
+            "color": "string",
+            "badges": []
+          }
+        },
+        "metadata": {
+          "message_ref": "string"
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "284e02f4-c42c-4915-86c2-f2acbe1de95b",
+          "chatroom_id": 27670567,
+          "content": "where do you think raid 4 will be?",
+          "type": "message",
+          "created_at": "2025-09-15T20:54:07+00:00",
+          "sender": {
+            "id": 63914594,
+            "username": "SageXzy",
+            "slug": "sagexzy",
+            "identity": {
+              "color": "#B9D6F6",
+              "badges": []
+            }
+          },
+          "metadata": {
+            "message_ref": "1757969647485"
+          }
+        },
+        {
+          "id": "2927237f-545a-4e9d-9c00-a7aa6d6ff982",
+          "chatroom_id": 668,
+          "content": "manidk",
+          "type": "message",
+          "created_at": "2025-09-15T21:54:08+00:00",
+          "sender": {
+            "id": 77734343,
+            "username": "greasemonkey182",
+            "slug": "greasemonkey182",
+            "identity": {
+              "color": "#BC66FF",
+              "badges": []
+            }
+          },
+          "metadata": {
+            "message_ref": "1757973247305"
+          }
+        }
+      ]
+    },
+    "RewardRedeemedEvent": {
+      "description": "Unknown event type: RewardRedeemedEvent",
+      "count": 13,
+      "structure": {
+        "reward_title": "string",
+        "user_id": "number",
+        "channel_id": "number",
+        "username": "string",
+        "user_input": "string",
+        "reward_background_color": "string"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "reward_title": "TIME OUT",
+          "user_id": 7419957,
+          "channel_id": 2587387,
+          "username": "MyWaffIe",
+          "user_input": "4head",
+          "reward_background_color": "#75FD46"
+        },
+        {
+          "reward_title": "FAT TAX",
+          "user_id": 62840491,
+          "channel_id": 2587387,
+          "username": "xqcowboy",
+          "user_input": "",
+          "reward_background_color": "#FFD899"
+        }
+      ]
+    },
+    "App\\Events\\ChatMessageEvent (celebration - subscription_renewed)": {
+      "description": "Subscription renewal celebration",
+      "count": 9,
+      "structure": {
+        "id": "string",
+        "chatroom_id": "number",
+        "content": "string",
+        "type": "string",
+        "created_at": "string",
+        "sender": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "identity": {
+            "color": "string",
+            "badges": [
+              "..."
+            ]
+          }
+        },
+        "metadata": {
+          "celebration": {
+            "id": "string",
+            "type": "string",
+            "total_months": "number",
+            "created_at": "string"
+          }
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "3265e459-9924-4151-873a-cb60accdefa8",
+          "chatroom_id": 2579856,
+          "content": "good to know miggy’s confident lol",
+          "type": "celebration",
+          "created_at": "2025-09-15T21:04:30+00:00",
+          "sender": {
+            "id": 49455037,
+            "username": "Detergent86",
+            "slug": "detergent86",
+            "identity": {
+              "color": "#BC66FF",
+              "badges": [
+                {
+                  "type": "subscriber",
+                  "text": "Subscriber",
+                  "count": 10
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "celebration": {
+              "id": "chceleb_01K57HZWERA5VKTS1JSZ6TEHRX",
+              "type": "subscription_renewed",
+              "total_months": 10,
+              "created_at": "2025-09-15T20:45:17.656106Z"
+            }
+          }
+        },
+        {
+          "id": "5a66b50e-4ce7-4eda-8c94-117425676a15",
+          "chatroom_id": 875062,
+          "content": "still no vip is crazy. nigga im OG",
+          "type": "celebration",
+          "created_at": "2025-09-16T00:17:30+00:00",
+          "sender": {
+            "id": 156376,
+            "username": "MF_G00N",
+            "slug": "mf-g00n",
+            "identity": {
+              "color": "#BC66FF",
+              "badges": [
+                {
+                  "type": "subscriber",
+                  "text": "Subscriber",
+                  "count": 21
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "celebration": {
+              "id": "chceleb_01K559E63EEKBYF40Z53HHBDQ6",
+              "type": "subscription_renewed",
+              "total_months": 21,
+              "created_at": "2025-09-14T23:37:20.238682Z"
+            }
+          }
+        }
+      ]
+    },
+    "App\\Events\\LuckyUsersWhoGotGiftSubscriptionsEvent": {
+      "description": "Unknown event type: App\\Events\\LuckyUsersWhoGotGiftSubscriptionsEvent",
+      "count": 7,
+      "structure": {
+        "channel": {
+          "id": "number",
+          "user_id": "number",
+          "slug": "string",
+          "is_banned": "boolean",
+          "playback_url": "string",
+          "name_updated_at": null,
+          "vod_enabled": "boolean",
+          "subscription_enabled": "boolean",
+          "is_affiliate": "boolean",
+          "can_host": "boolean",
+          "chatroom": {
+            "id": "number",
+            "chatable_type": "string",
+            "channel_id": "number",
+            "created_at": "string",
+            "updated_at": "string",
+            "chat_mode_old": "string",
+            "chat_mode": "string",
+            "slow_mode": "boolean",
+            "chatable_id": "number",
+            "followers_mode": "boolean",
+            "subscribers_mode": "boolean",
+            "emotes_mode": "boolean",
+            "message_interval": "number",
+            "following_min_duration": "number"
+          }
+        },
+        "usernames": [
+          "string"
+        ],
+        "gifter_username": "string"
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "channel": {
+            "id": 668,
+            "user_id": 676,
+            "slug": "xqc",
+            "is_banned": false,
+            "playback_url": "https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/us-west-2.196233775518.channel.DsuAwCgUc9Bh.m3u8",
+            "name_updated_at": null,
+            "vod_enabled": true,
+            "subscription_enabled": true,
+            "is_affiliate": false,
+            "can_host": true,
+            "chatroom": {
+              "id": 668,
+              "chatable_type": "App\\Models\\Channel",
+              "channel_id": 668,
+              "created_at": "2022-10-22T06:59:51.000000Z",
+              "updated_at": "2025-08-21T04:45:02.000000Z",
+              "chat_mode_old": "public",
+              "chat_mode": "public",
+              "slow_mode": true,
+              "chatable_id": 668,
+              "followers_mode": true,
+              "subscribers_mode": false,
+              "emotes_mode": false,
+              "message_interval": 5,
+              "following_min_duration": 10
+            }
+          },
+          "usernames": [
+            "CURSEDTOROT",
+            "unkept",
+            "Cybeth",
+            "DrenchMyWaffle",
+            "MAJID98",
+            "yilmoo",
+            "5BucksLib",
+            "Dylanvanloon",
+            "Darrk72",
+            "MMonkus",
+            "flonch",
+            "Rafinhawg",
+            "Prvncee",
+            "sonnychibaDOTsamurai",
+            "bdang7544",
+            "snekpourpel",
+            "megahomo64",
+            "Billy_Herrington1969",
+            "PolishGarnek",
+            "Hjs3127",
+            "tittfairy",
+            "danmukham",
+            "ctian2",
+            "BANMEIHAVETOOMANYALTS",
+            "verfallend",
+            "trash_kabam",
+            "voltybolt",
+            "Hesht",
+            "Gdott",
+            "Minar1",
+            "Fanboy69420",
+            "YOUNESS831",
+            "64kgol",
+            "Cmill3452",
+            "Janecek11",
+            "TheyLoveMistey",
+            "joe9378alt",
+            "prexxuregaming",
+            "l1ttl3k1ds",
+            "brandibunn",
+            "stacyyyt",
+            "ChowderMain",
+            "subasubaba",
+            "Atsuyo_O",
+            "Briannay",
+            "Strucnjak93",
+            "imoolaa",
+            "KTs3rg1",
+            "Arlene49",
+            "Drazy1up",
+            "Voided",
+            "turkey4910",
+            "Mightymatt23",
+            "oJordan",
+            "Morad79",
+            "Elfadel",
+            "Sidyyy75",
+            "Stoic_Grizz_Monkey",
+            "Flokejd",
+            "patriod",
+            "Kareemhaa",
+            "Deppp",
+            "Nick_Inger117",
+            "Sugmadig",
+            "Gelo_09",
+            "Niminith1",
+            "Adan_waaa113",
+            "joefred2018",
+            "Bobcats",
+            "Tremo",
+            "jonsED",
+            "Ramb02882",
+            "MikitaShtydent",
+            "ElMatrushka",
+            "ninalove562",
+            "Yadri_pr",
+            "BBCenjoyer",
+            "treadwayii",
+            "Cerbottamus_Prime",
+            "ITsSoloFTW",
+            "ekarDTV",
+            "Melbatoast1985",
+            "LostAlice",
+            "adku16",
+            "shadyisback",
+            "amine290104",
+            "Levievs4",
+            "Oxentemaceio",
+            "DoYaTe",
+            "Yeimi1",
+            "TheSentry",
+            "maremoto",
+            "vladfrosty",
+            "Diacide",
+            "ARMAJEDONMTZ",
+            "aserri",
+            "I_Mila_I",
+            "Biscuit_cg",
+            "CMGaming",
+            "Rode21"
+          ],
+          "gifter_username": "jamestonic"
+        },
+        {
+          "channel": {
+            "id": 668,
+            "user_id": 676,
+            "slug": "xqc",
+            "is_banned": false,
+            "playback_url": "https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/us-west-2.196233775518.channel.DsuAwCgUc9Bh.m3u8",
+            "name_updated_at": null,
+            "vod_enabled": true,
+            "subscription_enabled": true,
+            "is_affiliate": false,
+            "can_host": true,
+            "chatroom": {
+              "id": 668,
+              "chatable_type": "App\\Models\\Channel",
+              "channel_id": 668,
+              "created_at": "2022-10-22T06:59:51.000000Z",
+              "updated_at": "2025-08-21T04:45:02.000000Z",
+              "chat_mode_old": "public",
+              "chat_mode": "public",
+              "slow_mode": true,
+              "chatable_id": 668,
+              "followers_mode": true,
+              "subscribers_mode": false,
+              "emotes_mode": false,
+              "message_interval": 5,
+              "following_min_duration": 10
+            }
+          },
+          "usernames": [
+            "SnipyL"
+          ],
+          "gifter_username": "puzzler"
+        }
+      ]
+    },
+    "App\\Events\\PinnedMessageDeletedEvent": {
+      "description": "Pinned message was removed",
+      "count": 7,
+      "structure": [],
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        [],
+        []
+      ]
+    },
+    "App\\Events\\StreamHostedEvent": {
+      "description": "Unknown event type: App\\Events\\StreamHostedEvent",
+      "count": 5,
+      "structure": {
+        "message": {
+          "id": "string",
+          "numberOfViewers": "number",
+          "optionalMessage": null,
+          "createdAt": "string"
+        },
+        "user": {
+          "id": "number",
+          "username": "string",
+          "isSuperAdmin": "boolean",
+          "verified": "boolean"
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "message": {
+            "id": "6c7ff7a9-e386-4c33-bb6f-ef88f2bcdc6e",
+            "numberOfViewers": 30,
+            "optionalMessage": null,
+            "createdAt": "2025-09-16T05:50:06.771733Z"
+          },
+          "user": {
+            "id": 3953291,
+            "username": "BrandonDLive",
+            "isSuperAdmin": false,
+            "verified": false
+          }
+        },
+        {
+          "message": {
+            "id": "d50fc4d8-2a8e-407a-a348-7738da76ec3e",
+            "numberOfViewers": 40,
+            "optionalMessage": null,
+            "createdAt": "2025-09-16T06:48:49.154718Z"
+          },
+          "user": {
+            "id": 4037126,
+            "username": "Dapt",
+            "isSuperAdmin": false,
+            "verified": {
+              "id": 14460,
+              "channel_id": 3958663,
+              "created_at": "2025-07-18T01:57:34.000000Z",
+              "updated_at": "2025-07-18T01:57:34.000000Z"
+            }
+          }
+        }
+      ]
+    },
+    "App\\Events\\StreamHostEvent": {
+      "description": "Unknown event type: App\\Events\\StreamHostEvent",
+      "count": 5,
+      "structure": {
+        "chatroom_id": "number",
+        "optional_message": null,
+        "number_viewers": "number",
+        "host_username": "string"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "chatroom_id": 668,
+          "optional_message": null,
+          "number_viewers": 30,
+          "host_username": "BrandonDLive"
+        },
+        {
+          "chatroom_id": 668,
+          "optional_message": null,
+          "number_viewers": 40,
+          "host_username": "Dapt"
+        }
+      ]
+    },
+    "App\\Events\\StopStreamBroadcast": {
+      "description": "Streamer stopped broadcasting",
+      "count": 3,
+      "structure": {
+        "livestream": {
+          "id": "number",
+          "channel": {
+            "id": "number",
+            "is_banned": "boolean"
+          }
+        }
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "livestream": {
+            "id": 74409800,
+            "channel": {
+              "id": 2587387,
+              "is_banned": false
+            }
+          }
+        },
+        {
+          "livestream": {
+            "id": 74394967,
+            "channel": {
+              "id": 67262278,
+              "is_banned": false
+            }
+          }
+        }
+      ]
+    },
+    "App\\Events\\StreamerIsLive": {
+      "description": "Streamer went live",
+      "count": 2,
+      "structure": {
+        "livestream": {
+          "id": "number",
+          "channel_id": "number",
+          "session_title": "string",
+          "source": null,
+          "created_at": "string"
+        }
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "livestream": {
+            "id": 74454116,
+            "channel_id": 668,
+            "session_title": "👏LIVE👏CLICK👏DRAMA👏NEWS👏STUFF👏VIDEOS👏IDK👏BLAH BLAH👏LOCK IN👏",
+            "source": null,
+            "created_at": "2025-09-15T21:12:45.000000Z"
+          }
+        },
+        {
+          "livestream": {
+            "id": 74489327,
+            "channel_id": 5541527,
+            "session_title": "Hidden Camera Show 😈 Rush Hour Duo IRL 🔥",
+            "source": null,
+            "created_at": "2025-09-16T01:07:28.000000Z"
+          }
+        }
+      ]
+    },
+    "App\\Events\\ChatMoveToSupportedChannelEvent": {
+      "description": "Unknown event type: App\\Events\\ChatMoveToSupportedChannelEvent",
+      "count": 1,
+      "structure": {
+        "channel": {
+          "id": "number",
+          "user_id": "number",
+          "slug": "string",
+          "is_banned": "boolean",
+          "playback_url": "string",
+          "name_updated_at": null,
+          "vod_enabled": "boolean",
+          "subscription_enabled": "boolean",
+          "is_affiliate": "boolean",
+          "can_host": "boolean",
+          "current_livestream": {
+            "id": "number",
+            "slug": "string",
+            "channel_id": "number",
+            "created_at": "string",
+            "session_title": "string",
+            "is_live": "boolean",
+            "risk_level_id": null,
+            "start_time": "string",
+            "source": null,
+            "twitch_channel": null,
+            "duration": "number",
+            "language": "string",
+            "is_mature": "boolean",
+            "viewer_count": "number"
+          }
+        },
+        "slug": "string",
+        "hosted": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "viewers_count": "number",
+          "is_live": "boolean",
+          "profile_pic": "string",
+          "category": "string",
+          "preview_thumbnail": {
+            "srcset": "string",
+            "src": "string"
+          }
+        }
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "channel": {
+            "id": 67262278,
+            "user_id": 68422390,
+            "slug": "gaules",
+            "is_banned": false,
+            "playback_url": "https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/us-west-2.196233775518.channel.dvkGqjenUGAB.m3u8",
+            "name_updated_at": null,
+            "vod_enabled": true,
+            "subscription_enabled": true,
+            "is_affiliate": true,
+            "can_host": false,
+            "current_livestream": {
+              "id": 74394967,
+              "slug": "981dccc0-no-mula-sky-episodio-07-socio-vote-siga-at-gaules-nas-redes-sociais",
+              "channel_id": 67262278,
+              "created_at": "2025-09-15 13:03:23",
+              "session_title": "NO MULA SKY Episódio 07 - !socio !vote - Siga @Gaules nas redes sociais!",
+              "is_live": true,
+              "risk_level_id": null,
+              "start_time": "2025-09-15 13:03:22",
+              "source": null,
+              "twitch_channel": null,
+              "duration": 0,
+              "language": "Portuguese",
+              "is_mature": false,
+              "viewer_count": 673
+            }
+          },
+          "slug": "velhovamp",
+          "hosted": {
+            "id": 59458765,
+            "username": "VelhoVamp",
+            "slug": "velhovamp",
+            "viewers_count": 888,
+            "is_live": true,
+            "profile_pic": "https://files.kick.com/images/user/60596034/profile_image/conversion/80d01bd7-400c-42ad-9377-574c114131c3-thumb.webp",
+            "category": "IRL",
+            "preview_thumbnail": {
+              "srcset": "https://images.kick.com/video_thumbnails/dVYZ9leemNtj/Is77FJLi2ohC/1080.webp?versionId=OEqwBtKoZsCxsaV4TquJMsRV29PEJj1C 1920w, https://images.kick.com/video_thumbnails/dVYZ9leemNtj/Is77FJLi2ohC/720.webp?versionId=T92ce2FaBVNcVY7IHBOpsZRSk6fIzIcX 1280w, https://images.kick.com/video_thumbnails/dVYZ9leemNtj/Is77FJLi2ohC/360.webp?versionId=ZW4l_zWYuKUlCTk.W2ozC6.Ddl.n3hG5 480w, https://images.kick.com/video_thumbnails/dVYZ9leemNtj/Is77FJLi2ohC/160.webp?versionId=BbsmnN4OoYoGFhyAP_wSQfyiKwdV5Ldg 284w, https://images.kick.com/video_thumbnails/dVYZ9leemNtj/Is77FJLi2ohC/480.webp?versionId=wSdwqRTPYkgH_HN1Jc4x.Rtf0IufUoEy 640w",
+              "src": "https://images.kick.com/video_thumbnails/dVYZ9leemNtj/Is77FJLi2ohC/720.webp?versionId=T92ce2FaBVNcVY7IHBOpsZRSk6fIzIcX"
+            }
+          }
+        }
+      ]
+    },
+    "App\\Events\\ChatroomUpdatedEvent": {
+      "description": "Chatroom settings were updated",
+      "count": 1,
+      "structure": {
+        "id": "number",
+        "slow_mode": {
+          "enabled": "boolean",
+          "message_interval": "number"
+        },
+        "subscribers_mode": {
+          "enabled": "boolean"
+        },
+        "followers_mode": {
+          "enabled": "boolean",
+          "min_duration": "number"
+        },
+        "emotes_mode": {
+          "enabled": "boolean"
+        },
+        "advanced_bot_protection": {
+          "enabled": "boolean",
+          "remaining_time": "number"
+        },
+        "account_age": {
+          "enabled": "boolean",
+          "min_duration": "number"
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": 5512091,
+          "slow_mode": {
+            "enabled": true,
+            "message_interval": 1
+          },
+          "subscribers_mode": {
+            "enabled": false
+          },
+          "followers_mode": {
+            "enabled": true,
+            "min_duration": 1
+          },
+          "emotes_mode": {
+            "enabled": false
+          },
+          "advanced_bot_protection": {
+            "enabled": false,
+            "remaining_time": 0
+          },
+          "account_age": {
+            "enabled": false,
+            "min_duration": 0
+          }
+        }
+      ]
+    }
+  }
+}

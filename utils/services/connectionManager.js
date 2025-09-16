@@ -104,11 +104,17 @@ class ConnectionManager {
     if (handlers.onKickChannel) {
       this.kickPusher.addEventListener("channel", handlers.onKickChannel);
     }
+    if (handlers.onKickRaw) {
+      this.kickPusher.addEventListener("raw", handlers.onKickRaw);
+    }
     if (handlers.onKickConnection) {
       this.kickPusher.addEventListener("connection", handlers.onKickConnection);
     }
     if (handlers.onKickSubscriptionSuccess) {
       this.kickPusher.addEventListener("subscription_success", handlers.onKickSubscriptionSuccess);
+    }
+    if (handlers.onChatroomUpdated) {
+      this.kickPusher.addEventListener("chatroom-updated", handlers.onChatroomUpdated);
     }
 
     // Set up 7TV event handlers
@@ -584,16 +590,20 @@ class ConnectionManager {
   // Fetch initial chatroom info (including livestream status)
   async fetchInitialChatroomInfo(chatroom) {
     try {
-      const response = await window.app.kick.getChannelChatroomInfo(chatroom.streamerData.slug);
+      const chatroomData = await window.app.kick.getChannelChatroomInfo(chatroom.streamerData.slug);
 
-      if (!response?.data) {
+      if (!chatroomData) {
         return;
       }
 
       // Use callbacks to avoid circular imports
       if (this.storeCallbacks) {
-        const isLive = response.data?.livestream?.is_live || false;
-        this.storeCallbacks.handleStreamStatus?.(chatroom.id, response.data, isLive);
+        this.storeCallbacks.setInitialChatroomInfo?.(chatroom.id, chatroomData);
+        if (chatroomData?.chatroom) {
+          this.storeCallbacks.handleChatroomUpdated?.(chatroom.id, chatroomData.chatroom);
+        }
+        const isLive = chatroomData?.livestream?.is_live || false;
+        this.storeCallbacks.handleStreamStatus?.(chatroom.id, chatroomData, isLive);
       }
     } catch (error) {
       console.error(`[ConnectionManager] Error fetching initial chatroom info for chatroom ${chatroom.id}:`, error);

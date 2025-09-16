@@ -61,6 +61,30 @@ export const convertSecondsToHumanReadable = (seconds) => {
   }
 };
 
+// Kick can represent mode toggles as booleans or objects with an `enabled` flag.
+// Normalize so the rest of the app can treat them uniformly.
+export const isModeEnabled = (mode) => {
+  if (mode == null) return false;
+  if (typeof mode === "boolean") return mode;
+  if (typeof mode === "number") return mode > 0;
+  if (typeof mode === "string") return mode === "1" || mode.toLowerCase() === "true";
+  if (typeof mode === "object") {
+    const { enabled } = mode;
+    if (typeof enabled === "boolean") return enabled;
+    if (typeof enabled === "number") return enabled > 0;
+    if (typeof enabled === "string") return enabled === "1" || enabled.toLowerCase() === "true";
+  }
+  return false;
+};
+
+export const chatModeMatches = (value, target) => {
+  if (!value) return false;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return false;
+  const expected = String(target).trim().toLowerCase();
+  return normalized === expected || normalized.includes(expected);
+};
+
 export const getTimestampFormat = (timestamp, format) => {
   if (!timestamp) return "";
   switch (format) {

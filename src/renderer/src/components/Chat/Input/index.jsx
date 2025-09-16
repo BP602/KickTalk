@@ -31,10 +31,12 @@ import useChatStore from "../../../providers/ChatProvider";
 import EmoteDialogs from "./EmoteDialogs";
 import { useShallow } from "zustand/react/shallow";
 import { EmoteNode } from "./EmoteNode";
-import { kickEmoteInputRegex } from "@utils/constants";
+import { kickEmoteInputRegex, CHAT_ERROR_CODES } from "@utils/constants";
 import { XIcon, LockIcon } from "@phosphor-icons/react";
 import InfoBar from "./InfoBar";
 import { MessageParser } from "../../../utils/MessageParser";
+import { isModeEnabled, chatModeMatches } from "../../../utils/ChatUtils";
+import { recordChatModeFeatureUsage } from "../../../telemetry/chatModeTelemetry";
 
 const onError = (error) => {
   console.error(error);
@@ -76,6 +78,39 @@ const theme = {
   ltr: "ltr",
   paragraph: "editor-paragraph",
   placeholder: "editor-placeholder",
+};
+
+// Helper function to check if editor content contains only emotes and whitespace
+const isEmoteOnlyContent = (editor) => {
+  let hasOnlyEmotesAndWhitespace = true;
+  let hasAnyContent = false;
+
+  editor.getEditorState().read(() => {
+    const root = $getRoot();
+
+    root.getChildren().forEach(child => {
+      child.getChildren().forEach(node => {
+        hasAnyContent = true;
+
+        if (node.getType() === 'emote') {
+          // EmoteNode is allowed
+          return;
+        } else if (node.getType() === 'text') {
+          // TextNode is only allowed if it contains only whitespace
+          const textContent = node.getTextContent();
+          if (textContent.trim().length > 0) {
+            hasOnlyEmotesAndWhitespace = false;
+          }
+        } else {
+          // Any other node type is not allowed
+          hasOnlyEmotesAndWhitespace = false;
+        }
+      });
+    });
+  });
+
+  // Must have some content and it must be only emotes and whitespace
+  return hasAnyContent && hasOnlyEmotesAndWhitespace;
 };
 
 const messageHistory = new Map();
@@ -226,6 +261,9 @@ const KeyHandler = ({ chatroomId, onSendMessage, isReplyThread, allStvEmotes, re
   );
   const chatters = useChatStore(useShallow((state) => state.chatters[chatroomId]));
   const kickEmotes = useChatStore(useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.emotes));
+  const chatroomInfo = useChatStore(useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.chatroomInfo));
+  const initialChatroomInfo = useChatStore(useShallow((state) => state.chatrooms.find((room) => room.id === chatroomId)?.initialChatroomInfo));
+  const addMessage = useChatStore((state) => state.addMessage);
 
   const searchEmotes = useCallback(
     (text) => {
@@ -503,6 +541,43 @@ const KeyHandler = ({ chatroomId, onSendMessage, isReplyThread, allStvEmotes, re
 
           const content = $rootTextContent();
           if (!content.trim()) return true;
+
+          // Check if chatroom is in emote mode
+          const chatModeValue =
+            chatroomInfo?.chat_mode ??
+            initialChatroomInfo?.chatroom?.chat_mode ??
+            initialChatroomInfo?.chat_mode;
+
+          const isEmoteMode =
+            isModeEnabled(chatroomInfo?.emotes_mode) ||
+            isModeEnabled(initialChatroomInfo?.chatroom?.emotes_mode) ||
+            chatModeMatches(chatModeValue, "emote");
+
+          if (isEmoteMode) {
+            // In emote mode, validate that content contains only emotes
+            if (!isEmoteOnlyContent(editor)) {
+              // Show error message for emote mode violation
+              addMessage(chatroomId, {
+                id: crypto.randomUUID(),
+                type: "system",
+                content: CHAT_ERROR_CODES.EMOTES_ONLY_ERROR,
+                timestamp: new Date().toISOString(),
+              });
+              try {
+                recordChatModeFeatureUsage('chat_mode_enforcement', 'blocked', {
+                  chatroom_id: String(chatroomId),
+                  reason: 'non_emote_content',
+                  message_length: content.length,
+                });
+              } catch (err) {
+                window.app?.telemetry?.recordError?.(err, {
+                  operation: 'chat_mode_enforcement',
+                  chatroom_id: String(chatroomId),
+                });
+              }
+              return true; // Prevent sending but don't clear input
+            }
+          }
 
           onSendMessage(content);
 
@@ -897,6 +972,41 @@ const ReplyCapture = ({ chatroomId, setReplyData, chatInputRef }) => {
           // Validate required fields
           if (!data.id || !data.content || !data.sender) {
             console.error('ReplyCapture: Missing required fields in reply data:', data);
+            
+            // Create dedicated error span for telemetry
+            (async () => {
+              try {
+                const { trace } = await import('@opentelemetry/api');
+                const tracer = window.__KT_TRACER__ || trace.getTracer('kicktalk-renderer-reply');
+                if (tracer) {
+                  const span = tracer.startSpan('reply_capture_validation_error');
+                  span.setAttributes({
+                    'reply.validation.error': 'missing_required_fields',
+                    'reply.data_type': data.type || 'unknown',
+                    'reply.has_id': !!data.id,
+                    'reply.has_content': !!data.content,
+                    'reply.has_sender': !!data.sender,
+                    'component': 'chat_input'
+                  });
+                  
+                  const error = new Error('ReplyCapture: Missing required fields');
+                  span.recordException(error);
+                  span.setStatus({ code: 2, message: 'Validation failed' });
+                  span.end();
+                } else {
+                  // Fallback to old recordError method
+                  window.app?.telemetry?.recordError?.(new Error('ReplyCapture: Missing required fields'), {
+                    area: 'reply_capture',
+                    data_type: data.type,
+                    has_id: !!data.id,
+                    has_content: !!data.content,
+                    has_sender: !!data.sender
+                  });
+                }
+              } catch (e) {
+                // Telemetry recording failed, but don't break the flow
+              }
+            })();
             return;
           }
 

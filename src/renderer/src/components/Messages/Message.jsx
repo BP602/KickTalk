@@ -9,6 +9,7 @@ import useCosmeticsStore from "../../providers/CosmeticsProvider";
 import useChatStore from "../../providers/ChatProvider";
 import ReplyMessage from "./ReplyMessage";
 import { createMentionRegex } from "@utils/regex";
+import SupportEventMessage from "./SupportEventMessage";
 
 import {
   ContextMenu,
@@ -105,6 +106,31 @@ const Message = ({
     return "transparent";
   };
 
+  const parsedMetadata = useMemo(() => {
+    if (typeof message?.metadata === "string") {
+      try {
+        return JSON.parse(message.metadata);
+      } catch {
+        return {};
+      }
+    }
+    return message?.metadata || {};
+  }, [message?.metadata]);
+
+  const eventType = message?.type === "metadata" ? parsedMetadata?.type : message?.type;
+  const isSupportEvent = [
+    "subscription",
+    "donation",
+    "reward",
+    "stream_live",
+    "stream_end",
+    "moderation",
+    "host",
+    "raid",
+    "goal_progress",
+    "kick_gift",
+  ].includes(eventType);
+
   // Remove useCallback for these since message changes constantly
   const handleCopyMessage = () => {
     if (message?.content) {
@@ -133,7 +159,8 @@ const Message = ({
 
   const handleViewProfile = () => {
     if (message?.sender?.username) {
-      window.open(`https://kick.com/${message.sender.slug}`, "_blank");
+      const profileSlug = message.sender.slug || message.sender.username;
+      window.open(`https://kick.com/${profileSlug}`, "_blank");
     }
   };
 
@@ -321,6 +348,7 @@ const Message = ({
         shouldHighlightMessage && "highlighted",
         message.isOptimistic && message.state === "optimistic" && "optimistic",
         message.isOptimistic && message.state === "failed" && "failed",
+        isSupportEvent && "supportEvent",
       )}
       style={{
         backgroundColor: shouldHighlightMessage ? rgbaObjectToString(settings?.notifications?.backgroundRgba) : "transparent",
@@ -386,6 +414,8 @@ const Message = ({
           userChatroomInfo={userChatroomInfo}
         />
       )}
+
+      {isSupportEvent && <SupportEventMessage message={{ ...message, metadata: parsedMetadata }} handleOpenUserDialog={handleOpenUserDialog} />}
     </div>
   );
 
@@ -398,7 +428,7 @@ const Message = ({
         <ContextMenuContent>
           {message?.content && <ContextMenuItem onSelect={handleCopyMessage}>Copy Message</ContextMenuItem>}
 
-          <ContextMenuItem onSelect={handleReply}>Reply to Message</ContextMenuItem>
+          {message?.content && <ContextMenuItem onSelect={handleReply}>Reply to Message</ContextMenuItem>}
 
           {rightClickedEmote && rightClickedEmote.type === "stv" && (
             <>

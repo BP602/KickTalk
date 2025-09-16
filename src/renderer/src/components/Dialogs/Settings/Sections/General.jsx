@@ -425,7 +425,7 @@ const ChatroomSection = ({ settingsData, onChange }) => {
               active: settingsData?.chatrooms?.showInfoBar,
             })}>
             <div className="settingsItemTitleWithInfo">
-              <span className="settingsItemTitle">Show Chat Mode InfoIcon Bar</span>
+              <span className="settingsItemTitle">Show Chat Mode Bar</span>
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button className="settingsInfoIcon">

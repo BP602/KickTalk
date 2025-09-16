@@ -1,0 +1,193 @@
+{
+  "generated": "2025-09-14T16:28:05.041Z",
+  "totalEvents": 643,
+  "eventTypes": {
+    "App\\Events\\ChatMessageEvent": 626,
+    "GoalProgressUpdateEvent": 14,
+    "App\\Events\\StreamerIsLive": 1,
+    "App\\Events\\MessageDeletedEvent": 2
+  },
+  "channelTypes": {
+    "chatroom": 628,
+    "channel": 15
+  },
+  "definitions": {
+    "App\\Events\\ChatMessageEvent": {
+      "description": "Chat message sent in a chatroom",
+      "count": 626,
+      "structure": {
+        "id": "string",
+        "chatroom_id": "number",
+        "content": "string",
+        "type": "string",
+        "created_at": "string",
+        "sender": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "identity": {
+            "color": "string",
+            "badges": []
+          }
+        },
+        "metadata": {
+          "message_ref": "string"
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "58697a98-af91-4403-b106-cdbc663fa479",
+          "chatroom_id": 1466067,
+          "content": "bro how did hydra manage to end up holding out in cypress turf [emote:37226:KEKW]",
+          "type": "message",
+          "created_at": "2025-09-14T15:08:47+00:00",
+          "sender": {
+            "id": 15844757,
+            "username": "K4ID3N",
+            "slug": "k4id3n",
+            "identity": {
+              "color": "#B9D6F6",
+              "badges": []
+            }
+          },
+          "metadata": {
+            "message_ref": "1757862526654"
+          }
+        },
+        {
+          "id": "bce94720-357d-4a4f-b085-7654fcb276f3",
+          "chatroom_id": 1466067,
+          "content": "did anyone go down ?",
+          "type": "message",
+          "created_at": "2025-09-14T15:08:53+00:00",
+          "sender": {
+            "id": 53963306,
+            "username": "ylicxtop",
+            "slug": "ylicxtop",
+            "identity": {
+              "color": "#BAFEA3",
+              "badges": []
+            }
+          },
+          "metadata": {
+            "message_ref": "1757862533637"
+          }
+        }
+      ]
+    },
+    "GoalProgressUpdateEvent": {
+      "description": "Unknown event type",
+      "count": 14,
+      "structure": {
+        "id": "string",
+        "channel_id": "string",
+        "type": "string",
+        "target_value": "number",
+        "current_value": "number",
+        "progress_bar_emoji_id": "string",
+        "status": "string",
+        "created_at": "string",
+        "updated_at": "string",
+        "achieved_at": null,
+        "end_date": null,
+        "count_from_creation": "boolean"
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "id": "chgoal_01K0CSWXJYG9VPM5SM8HZHQGXN",
+          "channel_id": "channel_01JZTAJA6H1RB6WPYVDFZ94SAA",
+          "type": "followers",
+          "target_value": 100000,
+          "current_value": 87051,
+          "progress_bar_emoji_id": "chnl-goal-emotes/1",
+          "status": "active",
+          "created_at": "2025-07-17T18:21:12.158724Z",
+          "updated_at": "2025-09-14T15:08:56.879732103Z",
+          "achieved_at": null,
+          "end_date": null,
+          "count_from_creation": true
+        },
+        {
+          "id": "chgoal_01K0CSWXJYG9VPM5SM8HZHQGXN",
+          "channel_id": "channel_01JZTAJA6H1RB6WPYVDFZ94SAA",
+          "type": "followers",
+          "target_value": 100000,
+          "current_value": 87052,
+          "progress_bar_emoji_id": "chnl-goal-emotes/1",
+          "status": "active",
+          "created_at": "2025-07-17T18:21:12.158724Z",
+          "updated_at": "2025-09-14T15:10:12.995956618Z",
+          "achieved_at": null,
+          "end_date": null,
+          "count_from_creation": true
+        }
+      ]
+    },
+    "App\\Events\\MessageDeletedEvent": {
+      "description": "Chat message was deleted by moderator",
+      "count": 2,
+      "structure": {
+        "id": "string",
+        "message": {
+          "id": "string"
+        },
+        "aiModerated": "boolean",
+        "violatedRules": []
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "4761cd38-3827-45a8-8533-b0d77e0f882f",
+          "message": {
+            "id": "c296f827-897e-42bc-9dbc-a80e8b415042"
+          },
+          "aiModerated": false,
+          "violatedRules": []
+        },
+        {
+          "id": "ad122025-0f20-4014-a851-e42b1798242a",
+          "message": {
+            "id": "73799835-1f47-48d1-ae1a-483890945d9c"
+          },
+          "aiModerated": false,
+          "violatedRules": []
+        }
+      ]
+    },
+    "App\\Events\\StreamerIsLive": {
+      "description": "Streamer went live",
+      "count": 1,
+      "structure": {
+        "livestream": {
+          "id": "number",
+          "channel_id": "number",
+          "session_title": "string",
+          "source": null,
+          "created_at": "string"
+        }
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "livestream": {
+            "id": 74265904,
+            "channel_id": 2587387,
+            "session_title": "4HEAD | NOPIXEL 4.0 | TTS",
+            "source": null,
+            "created_at": "2025-09-14T16:11:18.000000Z"
+          }
+        }
+      ]
+    }
+  }
+}

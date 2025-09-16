@@ -549,6 +549,113 @@
 }
 
 /** [End of Mod Action Message] **/
+
+.supportEvent {
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.supportEventMessage {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 4px;
+  gap: 6px;
+
+  .supportEventIcon {
+    flex-shrink: 0;
+    opacity: 0.8;
+    
+    &.subscriptionIcon {
+      filter: hue-rotate(240deg) saturate(1.2); // Purple tint
+    }
+    
+    &.donationIcon {
+      filter: hue-rotate(160deg) saturate(1.1); // Green tint  
+    }
+    
+    &.rewardIcon {
+      filter: hue-rotate(45deg) saturate(1.3); // Gold tint
+    }
+    
+    &.giftIcon {
+      filter: hue-rotate(15deg) saturate(1.1); // Warm gift box tint
+    }
+    
+    &.streamLiveIcon {
+      // No filter needed - using red background and record icon
+    }
+    
+    &.streamEndIcon {
+      // No filter needed - using gray background and eye-slash icon
+    }
+  }
+
+  .supportEventUsername {
+    font-weight: 700;
+    color: #ffffff;
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    cursor: pointer;
+    
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  .supportEventAction {
+    font-weight: 400;
+    opacity: 0.9;
+  }
+
+  .supportEventReward {
+    font-weight: 600;
+    color: #75FD46;
+  }
+
+  .supportEventCost {
+    font-weight: 400;
+    opacity: 0.7;
+    font-size: 0.9em;
+  }
+
+  .supportEventCount {
+    font-weight: 700;
+    color: inherit;
+  }
+
+  .supportEventTotal {
+    font-weight: 700;
+    opacity: 0.7;
+    font-size: 0.9em;
+  }
+
+  .supportEventInput {
+    font-style: italic;
+    opacity: 0.8;
+    margin-left: 2px;
+  }
+
+  .supportEventSystemMessage {
+    font-weight: 400;
+    opacity: 0.6;
+    font-size: 0.9em;
+    margin-left: 4px;
+  }
+
+  .supportEventContent {
+    color: inherit;
+  }
+
+  .supportEventDescription {
+    opacity: 0.7;
+    font-style: italic;
+  }
+}
+
 .tooltipItem {
   display: none;
   border-radius: 8px;

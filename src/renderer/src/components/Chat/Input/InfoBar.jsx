@@ -1,51 +1,84 @@
 import { useMemo, memo, useState } from "react";
 import clsx from "clsx";
-import { convertSecondsToHumanReadable } from "../../../utils/ChatUtils";
+import { convertSecondsToHumanReadable, isModeEnabled, chatModeMatches } from "../../../utils/ChatUtils";
 import { InfoIcon } from "@phosphor-icons/react";
 
 const InfoBar = memo(
   ({ chatroomInfo, initialChatroomInfo }) => {
     const [showInfoBarTooltip, setShowInfoBarTooltip] = useState(false);
 
-    const chatroomMode = useMemo(() => {
-      if (chatroomInfo) {
-        switch (true) {
-          case chatroomInfo?.followers_mode?.enabled:
-            return `Followers Only Mode [${convertSecondsToHumanReadable(chatroomInfo?.followers_mode?.min_duration * 60)}]`;
-          case chatroomInfo?.subscribers_mode?.enabled:
-            return `Subscribers Only Mode`;
-          case chatroomInfo?.account_age?.enabled:
-            return `Account Age Mode [${convertSecondsToHumanReadable(chatroomInfo?.account_age?.min_duration * 60)}]`;
-          case chatroomInfo?.emotes_mode?.enabled:
-            return `Emote Only Mode`;
-          case chatroomInfo?.slow_mode?.enabled:
-            return `Slow Mode [${convertSecondsToHumanReadable(chatroomInfo?.slow_mode?.message_interval)}]`;
-          default:
-            return "";
-        }
-      } else if (initialChatroomInfo) {
-        const {
-          followers_mode,
-          subscribers_mode,
-          emotes_mode,
-          slow_mode,
-          message_interval,
-          following_min_duration,
-        } = initialChatroomInfo?.chatroom ?? {};
+    const { modeLabel: chatroomMode, activeModes, accountAgeSeconds } = useMemo(() => {
+      const initialChatroom = initialChatroomInfo?.chatroom ?? {};
 
-        switch (true) {
-          case followers_mode:
-            return `Followers Only Mode [${convertSecondsToHumanReadable(following_min_duration * 60)}]`;
-          case subscribers_mode:
-            return `Subscribers Only Mode`;
-          case emotes_mode:
-            return `Emote Only Mode`;
-          case slow_mode:
-            return `Slow Mode [${convertSecondsToHumanReadable(message_interval)}]`;
-          default:
-            return "";
-        }
+      const chatModeValue =
+        chatroomInfo?.chat_mode ??
+        initialChatroom?.chat_mode ??
+        initialChatroomInfo?.chat_mode ??
+        initialChatroomInfo?.chatroom?.chat_mode;
+
+      const emoteModeEnabled =
+        isModeEnabled(chatroomInfo?.emotes_mode) ||
+        isModeEnabled(initialChatroom?.emotes_mode) ||
+        chatModeMatches(chatModeValue, "emote");
+      const followersModeEnabled =
+        isModeEnabled(chatroomInfo?.followers_mode) ||
+        isModeEnabled(initialChatroom?.followers_mode) ||
+        chatModeMatches(chatModeValue, "follower");
+      const subscribersModeEnabled =
+        isModeEnabled(chatroomInfo?.subscribers_mode) ||
+        isModeEnabled(initialChatroom?.subscribers_mode) ||
+        chatModeMatches(chatModeValue, "subscriber");
+      const accountAgeModeEnabled =
+        isModeEnabled(chatroomInfo?.account_age) ||
+        isModeEnabled(initialChatroom?.account_age) ||
+        chatModeMatches(chatModeValue, "account");
+      const slowModeEnabled =
+        isModeEnabled(chatroomInfo?.slow_mode) ||
+        isModeEnabled(initialChatroom?.slow_mode) ||
+        chatModeMatches(chatModeValue, "slow");
+
+      const followersDurationMinutes =
+        chatroomInfo?.followers_mode?.min_duration ??
+        initialChatroom?.followers_mode?.min_duration ??
+        initialChatroom?.following_min_duration ??
+        0;
+
+      const accountAgeDurationMinutes =
+        chatroomInfo?.account_age?.min_duration ??
+        initialChatroom?.account_age?.min_duration ??
+        0;
+
+      const slowModeIntervalSeconds =
+        chatroomInfo?.slow_mode?.message_interval ??
+        initialChatroom?.slow_mode?.message_interval ??
+        initialChatroom?.message_interval ??
+        0;
+
+      let label = "";
+
+      if (emoteModeEnabled) {
+        label = "Emote Only Mode";
+      } else if (followersModeEnabled) {
+        label = `Followers Only Mode [${convertSecondsToHumanReadable(followersDurationMinutes * 60)}]`;
+      } else if (subscribersModeEnabled) {
+        label = "Subscribers Only Mode";
+      } else if (accountAgeModeEnabled) {
+        label = `Account Age Mode [${convertSecondsToHumanReadable(accountAgeDurationMinutes * 60)}]`;
+      } else if (slowModeEnabled) {
+        label = `Slow Mode [${convertSecondsToHumanReadable(slowModeIntervalSeconds)}]`;
       }
+
+      return {
+        modeLabel: label,
+        activeModes: {
+          emotes: emoteModeEnabled,
+          followers: followersModeEnabled,
+          subscribers: subscribersModeEnabled,
+          accountAge: accountAgeModeEnabled,
+          slow: slowModeEnabled,
+        },
+        accountAgeSeconds: accountAgeDurationMinutes * 60,
+      };
     }, [chatroomInfo, initialChatroomInfo]);
 
     return (
@@ -56,30 +89,30 @@ const InfoBar = memo(
 
             <div className="chatInfoBarIcon">
               <div className={clsx("chatInfoBarIconTooltipContent", showInfoBarTooltip && "show")}>
-                {(chatroomInfo?.followers_mode?.enabled || initialChatroomInfo?.chatroom?.followers_mode) && (
+                {activeModes.followers && (
                   <div className="chatInfoBarTooltipItem">
                     <span>Followers Only Mode Enabled</span>
                   </div>
                 )}
-                {chatroomInfo?.account_age?.enabled && (
+                {activeModes.accountAge && (
                   <div className="chatInfoBarTooltipItem">
                     <span>
                       Account Age Restriction Enabled [
-                      {convertSecondsToHumanReadable(chatroomInfo?.account_age?.min_duration * 60)}]
+                      {convertSecondsToHumanReadable(accountAgeSeconds)}]
                     </span>
                   </div>
                 )}
-                {(chatroomInfo?.subscribers_mode?.enabled || initialChatroomInfo?.chatroom?.subscribers_mode) && (
+                {activeModes.subscribers && (
                   <div className="chatInfoBarTooltipItem">
                     <span>Subscribers Only Mode Enabled</span>
                   </div>
                 )}
-                {(chatroomInfo?.emotes_mode?.enabled || initialChatroomInfo?.chatroom?.emotes_mode) && (
+                {activeModes.emotes && (
                   <div className="chatInfoBarTooltipItem">
                     <span>Emote Only Mode Enabled</span>
                   </div>
                 )}
-                {(chatroomInfo?.slow_mode?.enabled || initialChatroomInfo?.chatroom?.slow_mode) && (
+                {activeModes.slow && (
                   <div className="chatInfoBarTooltipItem">
                     <span>Slow Mode Enabled</span>
                   </div>

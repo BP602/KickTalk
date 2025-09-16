@@ -45,6 +45,14 @@ const SettingsMenu = ({ activeSection, setActiveSection, onLogout }) => (
 
         <div className="settingsMenuSectionItem">
           <button
+            className={clsx("settingsMenuSectionItemBtn", { active: activeSection === "chatEvents" })}
+            onClick={() => setActiveSection("chatEvents")}>
+            Chat Events
+          </button>
+        </div>
+
+        <div className="settingsMenuSectionItem">
+          <button
             className={clsx("settingsMenuSectionItemBtn", { active: activeSection === "moderation" })}
             onClick={() => setActiveSection("moderation")}>
             Moderation

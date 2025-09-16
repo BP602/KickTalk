@@ -1,0 +1,1312 @@
+{
+  "generated": "2025-09-15T20:20:28.702Z",
+  "totalEvents": 805905,
+  "sampleEvents": 1833,
+  "eventTypeCount": 20,
+  "eventTypes": {
+    "App\\Events\\ChatMessageEvent (regular)": 736747,
+    "App\\Events\\ChatMessageEvent (reply)": 46525,
+    "App\\Events\\UserBannedEvent": 1399,
+    "App\\Events\\MessageDeletedEvent": 2036,
+    "GoalProgressUpdateEvent (followers)": 12314,
+    "RewardRedeemedEvent": 1306,
+    "App\\Events\\UserUnbannedEvent": 294,
+    "App\\Events\\ChatMessageEvent (celebration - subscription_renewed)": 282,
+    "App\\Events\\ChatMessageSentEvent": 723,
+    "App\\Events\\SubscriptionEvent": 554,
+    "App\\Events\\LuckyUsersWhoGotGiftSubscriptionsEvent": 59,
+    "GiftedSubscriptionsEvent": 284,
+    "App\\Events\\PinnedMessageCreatedEvent": 2635,
+    "App\\Events\\PinnedMessageDeletedEvent": 59,
+    "App\\Events\\ChannelSubscriptionEvent": 177,
+    "App\\Events\\ChatMoveToSupportedChannelEvent": 57,
+    "App\\Events\\StopStreamBroadcast": 58,
+    "App\\Events\\StreamerIsLive": 168,
+    "App\\Events\\StreamHostedEvent": 114,
+    "App\\Events\\StreamHostEvent": 114
+  },
+  "channelTypes": {
+    "chatroom": 793072,
+    "channel": 12833
+  },
+  "definitions": {
+    "App\\Events\\ChatMessageEvent (regular)": {
+      "description": "Regular chat message",
+      "count": 736747,
+      "structure": {
+        "id": "string",
+        "chatroom_id": "number",
+        "content": "string",
+        "type": "string",
+        "created_at": "string",
+        "sender": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "identity": {
+            "color": "string",
+            "badges": [
+              "..."
+            ]
+          }
+        },
+        "metadata": {
+          "message_ref": "string"
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "73aaa4fd-ce0a-49ce-83fd-2b150d2913cd",
+          "chatroom_id": 2579856,
+          "content": "too late fatty",
+          "type": "message",
+          "created_at": "2025-09-14T16:59:34+00:00",
+          "sender": {
+            "id": 82098,
+            "username": "joaquin7m",
+            "slug": "joaquin7m",
+            "identity": {
+              "color": "#B9D6F6",
+              "badges": [
+                {
+                  "type": "subscriber",
+                  "text": "Subscriber",
+                  "count": 2
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "message_ref": "1757869174401"
+          }
+        },
+        {
+          "id": "2bf6db8b-8d55-4f71-8277-d8982f0f0648",
+          "chatroom_id": 2579856,
+          "content": "jump ok",
+          "type": "message",
+          "created_at": "2025-09-14T16:59:35+00:00",
+          "sender": {
+            "id": 68830715,
+            "username": "somewheredreaming",
+            "slug": "somewheredreaming",
+            "identity": {
+              "color": "#DEB2FF",
+              "badges": []
+            }
+          },
+          "metadata": {
+            "message_ref": "1757869210709"
+          }
+        }
+      ]
+    },
+    "App\\Events\\ChatMessageEvent (reply)": {
+      "description": "Reply to another chat message",
+      "count": 46525,
+      "structure": {
+        "id": "string",
+        "chatroom_id": "number",
+        "content": "string",
+        "type": "string",
+        "created_at": "string",
+        "sender": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "identity": {
+            "color": "string",
+            "badges": []
+          }
+        },
+        "metadata": {
+          "original_sender": {
+            "id": "number",
+            "username": "string"
+          },
+          "original_message": {
+            "id": "string",
+            "content": "string"
+          },
+          "message_ref": "string"
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "c196a907-44ca-4e27-80dd-da5036d7ffea",
+          "chatroom_id": 1466067,
+          "content": "hahahahaha",
+          "type": "reply",
+          "created_at": "2025-09-14T16:59:36+00:00",
+          "sender": {
+            "id": 63189506,
+            "username": "Usernamezon",
+            "slug": "usernamezon",
+            "identity": {
+              "color": "#DEB2FF",
+              "badges": []
+            }
+          },
+          "metadata": {
+            "original_sender": {
+              "id": 51131710,
+              "username": "LadySokk"
+            },
+            "original_message": {
+              "id": "4d9cd589-3da6-4288-a35c-93bd692f25b5",
+              "content": "of course"
+            },
+            "message_ref": "1757871206912"
+          }
+        },
+        {
+          "id": "7637bf22-66cb-406b-b469-334c83f31c6f",
+          "chatroom_id": 2579856,
+          "content": "WE GOOD !!",
+          "type": "reply",
+          "created_at": "2025-09-14T18:25:04+00:00",
+          "sender": {
+            "id": 4083005,
+            "username": "Electroknivez",
+            "slug": "electroknivez",
+            "identity": {
+              "color": "#BC66FF",
+              "badges": [
+                {
+                  "type": "vip",
+                  "text": "VIP"
+                },
+                {
+                  "type": "subscriber",
+                  "text": "Subscriber",
+                  "count": 10
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "original_sender": {
+              "id": 10777780,
+              "username": "4heads_PR_manager"
+            },
+            "original_message": {
+              "id": "aa2e2b9f-392b-4d14-99cc-d79b9a009081",
+              "content": "fight happening 5v4 for hydra"
+            },
+            "message_ref": "1757874307316"
+          }
+        }
+      ]
+    },
+    "GoalProgressUpdateEvent (followers)": {
+      "description": "GoalProgressUpdateEvent - followers variant",
+      "count": 12314,
+      "structure": {
+        "id": "string",
+        "channel_id": "string",
+        "type": "string",
+        "target_value": "number",
+        "current_value": "number",
+        "progress_bar_emoji_id": "string",
+        "status": "string",
+        "created_at": "string",
+        "updated_at": "string",
+        "achieved_at": null,
+        "end_date": null,
+        "count_from_creation": "boolean"
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "id": "chgoal_01K0CSWXJYG9VPM5SM8HZHQGXN",
+          "channel_id": "channel_01JZTAJA6H1RB6WPYVDFZ94SAA",
+          "type": "followers",
+          "target_value": 100000,
+          "current_value": 87106,
+          "progress_bar_emoji_id": "chnl-goal-emotes/1",
+          "status": "active",
+          "created_at": "2025-07-17T18:21:12.158724Z",
+          "updated_at": "2025-09-14T18:28:43.670407152Z",
+          "achieved_at": null,
+          "end_date": null,
+          "count_from_creation": true
+        },
+        {
+          "id": "chgoal_01K0CSWXJYG9VPM5SM8HZHQGXN",
+          "channel_id": "channel_01JZTAJA6H1RB6WPYVDFZ94SAA",
+          "type": "followers",
+          "target_value": 100000,
+          "current_value": 87107,
+          "progress_bar_emoji_id": "chnl-goal-emotes/1",
+          "status": "active",
+          "created_at": "2025-07-17T18:21:12.158724Z",
+          "updated_at": "2025-09-14T18:31:34.981404263Z",
+          "achieved_at": null,
+          "end_date": null,
+          "count_from_creation": true
+        }
+      ]
+    },
+    "App\\Events\\PinnedMessageCreatedEvent": {
+      "description": "Message was pinned in chat",
+      "count": 2635,
+      "structure": {
+        "message": {
+          "id": "string",
+          "chatroom_id": "number",
+          "content": "string",
+          "type": "string",
+          "created_at": "string",
+          "sender": {
+            "id": "number",
+            "username": "string",
+            "slug": "string",
+            "identity": {
+              "color": "...",
+              "badges": "..."
+            }
+          },
+          "metadata": {
+            "message_ref": "string"
+          }
+        },
+        "duration": "string",
+        "pinnedBy": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "identity": {
+            "color": "string",
+            "badges": [
+              "..."
+            ]
+          }
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "message": {
+            "id": "c7d0b815-f358-4332-b35c-1bcd5735fc29",
+            "chatroom_id": 2579856,
+            "content": "i can prolly get us all on ranch",
+            "type": "message",
+            "created_at": "2025-09-14T21:02:53+00:00",
+            "sender": {
+              "id": 10885610,
+              "username": "kyle",
+              "slug": "kyle",
+              "identity": {
+                "color": "#75FD46",
+                "badges": [
+                  {
+                    "type": "verified",
+                    "text": "Verified channel"
+                  }
+                ]
+              }
+            },
+            "metadata": {
+              "message_ref": "1757883772034"
+            }
+          },
+          "duration": "1200",
+          "pinnedBy": {
+            "id": 584800,
+            "username": "sino_tf",
+            "slug": "sino-tf",
+            "identity": {
+              "color": "#FF9D00",
+              "badges": [
+                {
+                  "type": "moderator",
+                  "text": "Moderator",
+                  "active": true
+                },
+                {
+                  "type": "founder",
+                  "text": "Founder",
+                  "active": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "message": {
+            "id": "435e567c-a1b6-4689-aa10-7d77618fca6c",
+            "chatroom_id": 2579856,
+            "content": "i gotta learn not to get mad at the dev jokes ome44",
+            "type": "message",
+            "created_at": "2025-09-14T21:32:06+00:00",
+            "sender": {
+              "id": 120918,
+              "username": "wraith4m",
+              "slug": "wraith4m",
+              "identity": {
+                "color": "#72ACED",
+                "badges": []
+              }
+            },
+            "metadata": {
+              "message_ref": "1757885526118"
+            }
+          },
+          "duration": "1200",
+          "pinnedBy": {
+            "id": 584800,
+            "username": "sino_tf",
+            "slug": "sino-tf",
+            "identity": {
+              "color": "#FF9D00",
+              "badges": [
+                {
+                  "type": "moderator",
+                  "text": "Moderator",
+                  "active": true
+                },
+                {
+                  "type": "founder",
+                  "text": "Founder",
+                  "active": true
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "App\\Events\\MessageDeletedEvent": {
+      "description": "Chat message was deleted by moderator",
+      "count": 2036,
+      "structure": {
+        "id": "string",
+        "message": {
+          "id": "string"
+        },
+        "aiModerated": "boolean",
+        "violatedRules": []
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "af745ef1-164d-4134-96aa-ff48fce41375",
+          "message": {
+            "id": "05579f64-beeb-45ee-93c9-5a636c3e2b08"
+          },
+          "aiModerated": false,
+          "violatedRules": []
+        },
+        {
+          "id": "3bee6c5e-b688-4091-bd4c-30c9139d4414",
+          "message": {
+            "id": "1cd778d6-b930-42f5-a69e-9c6a03c3d76b"
+          },
+          "aiModerated": true,
+          "violatedRules": [
+            "hate"
+          ]
+        }
+      ]
+    },
+    "App\\Events\\UserBannedEvent": {
+      "description": "User was banned from the chatroom",
+      "count": 1399,
+      "structure": {
+        "id": "string",
+        "user": {
+          "id": "number",
+          "username": "string",
+          "slug": "string"
+        },
+        "banned_by": {
+          "id": "number",
+          "username": "string",
+          "slug": "string"
+        },
+        "permanent": "boolean"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "fb890862-43f1-413b-bc7e-6ac3d37d0a33",
+          "user": {
+            "id": 78515166,
+            "username": "X9584560T",
+            "slug": "x9584560t"
+          },
+          "banned_by": {
+            "id": 0,
+            "username": "Soda19XX",
+            "slug": "soda19xx"
+          },
+          "permanent": true
+        },
+        {
+          "id": "d10c23e0-5c8e-4ffb-81d3-33ef5f684c76",
+          "user": {
+            "id": 78515171,
+            "username": "kxrashii",
+            "slug": "kxrashii"
+          },
+          "banned_by": {
+            "id": 0,
+            "username": "sm0gb0ng",
+            "slug": "sm0gb0ng"
+          },
+          "permanent": true
+        }
+      ]
+    },
+    "RewardRedeemedEvent": {
+      "description": "Unknown event type: RewardRedeemedEvent",
+      "count": 1306,
+      "structure": {
+        "reward_title": "string",
+        "user_id": "number",
+        "channel_id": "number",
+        "username": "string",
+        "user_input": "string",
+        "reward_background_color": "string"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "reward_title": "Obese Tax",
+          "user_id": 30048604,
+          "channel_id": 1473258,
+          "username": "vankizle",
+          "user_input": "",
+          "reward_background_color": "#E9113C"
+        },
+        {
+          "reward_title": "TIME OUT",
+          "user_id": 2408080,
+          "channel_id": 2587387,
+          "username": "4HeadsPDW",
+          "user_input": "Electroknivez",
+          "reward_background_color": "#75FD46"
+        }
+      ]
+    },
+    "App\\Events\\ChatMessageSentEvent": {
+      "description": "Unknown event type: App\\Events\\ChatMessageSentEvent",
+      "count": 723,
+      "structure": {
+        "message": {
+          "id": "string",
+          "message": null,
+          "type": "string",
+          "replied_to": null,
+          "is_info": null,
+          "link_preview": null,
+          "chatroom_id": "number",
+          "role": "string",
+          "created_at": "number",
+          "action": "string",
+          "optional_message": null,
+          "months_subscribed": "number",
+          "subscriptions_count": "number",
+          "giftedUsers": null
+        },
+        "user": {
+          "id": "number",
+          "username": "string",
+          "role": "string",
+          "isSuperAdmin": null,
+          "profile_thumb": null,
+          "verified": "boolean",
+          "follower_badges": [],
+          "is_subscribed": null,
+          "is_founder": "boolean",
+          "months_subscribed": "number",
+          "quantity_gifted": "number"
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "message": {
+            "id": "16e4043b-bd9a-4710-bd3e-481c6348d32c",
+            "message": null,
+            "type": "info",
+            "replied_to": null,
+            "is_info": null,
+            "link_preview": null,
+            "chatroom_id": 27670567,
+            "role": "user",
+            "created_at": 1757877790,
+            "action": "subscribe",
+            "optional_message": null,
+            "months_subscribed": 1,
+            "subscriptions_count": 0,
+            "giftedUsers": null
+          },
+          "user": {
+            "id": 30814612,
+            "username": "JonElsdon23",
+            "role": "user",
+            "isSuperAdmin": null,
+            "profile_thumb": null,
+            "verified": false,
+            "follower_badges": [],
+            "is_subscribed": null,
+            "is_founder": false,
+            "months_subscribed": 1,
+            "quantity_gifted": 0
+          }
+        },
+        {
+          "message": {
+            "id": "246efd65-0aa4-4743-9da0-b56af5865dda",
+            "message": null,
+            "type": "info",
+            "replied_to": null,
+            "is_info": null,
+            "link_preview": null,
+            "chatroom_id": 2579856,
+            "role": "user",
+            "created_at": 1757880713,
+            "action": "gift",
+            "optional_message": null,
+            "months_subscribed": null,
+            "subscriptions_count": 1,
+            "giftedUsers": [
+              {
+                "username": "4headschair",
+                "monthsSubscribed": 1
+              }
+            ]
+          },
+          "user": {
+            "id": 12496,
+            "username": "adrighh",
+            "role": "user",
+            "isSuperAdmin": null,
+            "profile_thumb": "https://kick-files-prod.s3.us-west-2.amazonaws.com/images/user/12496/profile_image/conversion/d9ffb5d0-f6cd-4c47-93ee-6dda7d4cb799-thumb.webp?X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAS3MDRZGPDOOAYROR%2F20250914%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20250914T201153Z&X-Amz-SignedHeaders=host&X-Amz-Expires=300&X-Amz-Signature=f22ef203921816cd3a0f566591e1629682aaca679433f12712ce74b29ce10f6e",
+            "verified": false,
+            "follower_badges": [],
+            "is_subscribed": null,
+            "is_founder": false,
+            "months_subscribed": null,
+            "quantity_gifted": 0
+          }
+        }
+      ]
+    },
+    "App\\Events\\SubscriptionEvent": {
+      "description": "Unknown event type: App\\Events\\SubscriptionEvent",
+      "count": 554,
+      "structure": {
+        "chatroom_id": "number",
+        "username": "string",
+        "months": "number"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "chatroom_id": 27670567,
+          "username": "JonElsdon23",
+          "months": 1
+        },
+        {
+          "chatroom_id": 875062,
+          "username": "lalomexa12",
+          "months": 1
+        }
+      ]
+    },
+    "App\\Events\\UserUnbannedEvent": {
+      "description": "User was unbanned from the chatroom",
+      "count": 294,
+      "structure": {
+        "id": "string",
+        "user": {
+          "id": "number",
+          "username": "string",
+          "slug": "string"
+        },
+        "unbanned_by": {
+          "id": "number",
+          "username": "string",
+          "slug": "string"
+        },
+        "permanent": "boolean"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "a7b169a6-80b6-44e8-80ab-157296bdb35e",
+          "user": {
+            "id": 67805825,
+            "username": "granddar1990",
+            "slug": "granddar1990"
+          },
+          "unbanned_by": {
+            "id": 27998913,
+            "username": "rupje",
+            "slug": "rupje"
+          },
+          "permanent": true
+        },
+        {
+          "id": "a4ffb3a1-6c9a-494c-af01-7832de75778b",
+          "user": {
+            "id": 1116706,
+            "username": "joshgotbandz",
+            "slug": "joshgotbandz"
+          },
+          "unbanned_by": {
+            "id": 128345,
+            "username": "shids",
+            "slug": "shids"
+          },
+          "permanent": true
+        }
+      ]
+    },
+    "GiftedSubscriptionsEvent": {
+      "description": "Unknown event type: GiftedSubscriptionsEvent",
+      "count": 284,
+      "structure": {
+        "chatroom_id": "number",
+        "gifted_usernames": [
+          "string"
+        ],
+        "gifter_username": "string",
+        "gifter_total": "number"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "chatroom_id": 2579856,
+          "gifted_usernames": [
+            "4headschair"
+          ],
+          "gifter_username": "adrighh",
+          "gifter_total": 355
+        },
+        {
+          "chatroom_id": 2381527,
+          "gifted_usernames": [
+            "BlwhReaper",
+            "Poopy_butt67",
+            "o_professor_epic",
+            "kizidee",
+            "design375",
+            "PandaDq",
+            "p0rekkk",
+            "dr_ojcic",
+            "StarLord242424",
+            "PecamSandy",
+            "FatDabz",
+            "rptsu",
+            "ilovemeth",
+            "plio8990",
+            "oscarmagana",
+            "MudScientist",
+            "soul_cocoon95",
+            "hk97",
+            "Christa",
+            "",
+            "hankdatank",
+            "fiorekk",
+            "NeoAce",
+            "Zyphamon",
+            "Valgrick",
+            "Nathanielk",
+            "reichenbachs",
+            "willz0908",
+            "Irifiv",
+            "lbyeates",
+            "RaySky",
+            "lllMcHammeredlll",
+            "pablito7",
+            "18cmpl",
+            "Kradser",
+            "aalldo",
+            "adel11",
+            "Vashyron81",
+            "dreaI",
+            "flipperjippy",
+            "FSouza01",
+            "im_cappedButtchiko",
+            "Rakib3pranto",
+            "nolimitmelt",
+            "Martymagoo78"
+          ],
+          "gifter_username": "teneros",
+          "gifter_total": 315
+        }
+      ]
+    },
+    "App\\Events\\ChatMessageEvent (celebration - subscription_renewed)": {
+      "description": "Subscription renewal celebration",
+      "count": 282,
+      "structure": {
+        "id": "string",
+        "chatroom_id": "number",
+        "content": "string",
+        "type": "string",
+        "created_at": "string",
+        "sender": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "identity": {
+            "color": "string",
+            "badges": [
+              "..."
+            ]
+          }
+        },
+        "metadata": {
+          "celebration": {
+            "id": "string",
+            "type": "string",
+            "total_months": "number",
+            "created_at": "string"
+          }
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "id": "971f5e15-3d1a-4603-b730-46dcffb5fdf1",
+          "chatroom_id": 27670567,
+          "content": "🎉",
+          "type": "celebration",
+          "created_at": "2025-09-14T18:54:06+00:00",
+          "sender": {
+            "id": 4932883,
+            "username": "Yaaaooo",
+            "slug": "yaaaooo",
+            "identity": {
+              "color": "#00CCB3",
+              "badges": [
+                {
+                  "type": "subscriber",
+                  "text": "Subscriber",
+                  "count": 13
+                },
+                {
+                  "type": "sub_gifter",
+                  "text": "Sub Gifter",
+                  "count": 5
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "celebration": {
+              "id": "chceleb_01K4JCQWBXWRCTNM0PG0PAGTFY",
+              "type": "subscription_renewed",
+              "total_months": 13,
+              "created_at": "2025-09-07T15:29:29.469652Z"
+            }
+          }
+        },
+        {
+          "id": "f54467ee-62a8-4193-bbea-8af90b1f5adb",
+          "chatroom_id": 2381527,
+          "content": "🎉",
+          "type": "celebration",
+          "created_at": "2025-09-15T00:04:58+00:00",
+          "sender": {
+            "id": 750337,
+            "username": "dharkk",
+            "slug": "dharkk",
+            "identity": {
+              "color": "#31D6C2",
+              "badges": [
+                {
+                  "type": "subscriber",
+                  "text": "Subscriber",
+                  "count": 7
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "celebration": {
+              "id": "chceleb_01K52D88989F4NN6P3760V255X",
+              "type": "subscription_renewed",
+              "total_months": 7,
+              "created_at": "2025-09-13T20:46:16.872944Z"
+            }
+          }
+        }
+      ]
+    },
+    "App\\Events\\ChannelSubscriptionEvent": {
+      "description": "Unknown event type: App\\Events\\ChannelSubscriptionEvent",
+      "count": 177,
+      "structure": {
+        "user_ids": [
+          "number"
+        ],
+        "username": "string",
+        "channel_id": "number"
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "user_ids": [
+            64852064
+          ],
+          "username": "DharionDrahl",
+          "channel_id": 10127341
+        },
+        {
+          "user_ids": [
+            11542113
+          ],
+          "username": "podayoda",
+          "channel_id": 10127341
+        }
+      ]
+    },
+    "App\\Events\\StreamerIsLive": {
+      "description": "Streamer went live",
+      "count": 168,
+      "structure": {
+        "livestream": {
+          "id": "number",
+          "channel_id": "number",
+          "session_title": "string",
+          "source": null,
+          "created_at": "string"
+        }
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "livestream": {
+            "id": 74331109,
+            "channel_id": 668,
+            "session_title": "+18 #ad🌟LIVE🌟CLICK🌟DRAMA🌟NEWS🌟VIDEOS🌟GAMES🌟VIDEOGAMES🌟STUFF🌟WOW🌟FUN🌟LOCK IN🌟",
+            "source": null,
+            "created_at": "2025-09-14T23:18:20.000000Z"
+          }
+        },
+        {
+          "livestream": {
+            "id": 74384438,
+            "channel_id": 2915525,
+            "session_title": "Gamin",
+            "source": null,
+            "created_at": "2025-09-15T09:45:15.000000Z"
+          }
+        }
+      ]
+    },
+    "App\\Events\\StreamHostedEvent": {
+      "description": "Unknown event type: App\\Events\\StreamHostedEvent",
+      "count": 114,
+      "structure": {
+        "message": {
+          "id": "string",
+          "numberOfViewers": "number",
+          "optionalMessage": null,
+          "createdAt": "string"
+        },
+        "user": {
+          "id": "number",
+          "username": "string",
+          "isSuperAdmin": "boolean",
+          "verified": "boolean"
+        }
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "message": {
+            "id": "a2bb4863-f25d-4c23-818c-bac1d5a23741",
+            "numberOfViewers": 216,
+            "optionalMessage": null,
+            "createdAt": "2025-09-15T02:58:11.211597Z"
+          },
+          "user": {
+            "id": 2390554,
+            "username": "BortnykChess",
+            "isSuperAdmin": false,
+            "verified": false
+          }
+        },
+        {
+          "message": {
+            "id": "4115d605-35d3-42c7-9521-0029af5f3c38",
+            "numberOfViewers": 6,
+            "optionalMessage": null,
+            "createdAt": "2025-09-15T03:57:57.869360Z"
+          },
+          "user": {
+            "id": 8929042,
+            "username": "Crispy_Sunshine",
+            "isSuperAdmin": false,
+            "verified": false
+          }
+        }
+      ]
+    },
+    "App\\Events\\StreamHostEvent": {
+      "description": "Unknown event type: App\\Events\\StreamHostEvent",
+      "count": 114,
+      "structure": {
+        "chatroom_id": "number",
+        "optional_message": null,
+        "number_viewers": "number",
+        "host_username": "string"
+      },
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        {
+          "chatroom_id": 668,
+          "optional_message": null,
+          "number_viewers": 216,
+          "host_username": "BortnykChess"
+        },
+        {
+          "chatroom_id": 668,
+          "optional_message": null,
+          "number_viewers": 6,
+          "host_username": "Crispy_Sunshine"
+        }
+      ]
+    },
+    "App\\Events\\LuckyUsersWhoGotGiftSubscriptionsEvent": {
+      "description": "Unknown event type: App\\Events\\LuckyUsersWhoGotGiftSubscriptionsEvent",
+      "count": 59,
+      "structure": {
+        "channel": {
+          "id": "number",
+          "user_id": "number",
+          "slug": "string",
+          "is_banned": "boolean",
+          "playback_url": "string",
+          "name_updated_at": null,
+          "vod_enabled": "boolean",
+          "subscription_enabled": "boolean",
+          "is_affiliate": "boolean",
+          "can_host": "boolean",
+          "chatroom": {
+            "id": "number",
+            "chatable_type": "string",
+            "channel_id": "number",
+            "created_at": "string",
+            "updated_at": "string",
+            "chat_mode_old": "string",
+            "chat_mode": "string",
+            "slow_mode": "boolean",
+            "chatable_id": "number",
+            "followers_mode": "boolean",
+            "subscribers_mode": "boolean",
+            "emotes_mode": "boolean",
+            "message_interval": "number",
+            "following_min_duration": "number"
+          }
+        },
+        "usernames": [
+          "string"
+        ],
+        "gifter_username": "string"
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "channel": {
+            "id": 2587387,
+            "user_id": 2642629,
+            "slug": "4head",
+            "is_banned": false,
+            "playback_url": "https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/us-west-2.196233775518.channel.Nfs1w4IqMfpg.m3u8",
+            "name_updated_at": null,
+            "vod_enabled": true,
+            "subscription_enabled": true,
+            "is_affiliate": true,
+            "can_host": true,
+            "chatroom": {
+              "id": 2579856,
+              "chatable_type": "App\\Models\\Channel",
+              "channel_id": 2587387,
+              "created_at": "2023-04-01T06:05:06.000000Z",
+              "updated_at": "2025-09-10T18:12:13.000000Z",
+              "chat_mode_old": "public",
+              "chat_mode": "public",
+              "slow_mode": true,
+              "chatable_id": 2587387,
+              "followers_mode": false,
+              "subscribers_mode": false,
+              "emotes_mode": false,
+              "message_interval": 2,
+              "following_min_duration": 0
+            }
+          },
+          "usernames": [
+            "4headschair"
+          ],
+          "gifter_username": "adrighh"
+        },
+        {
+          "channel": {
+            "id": 668,
+            "user_id": 676,
+            "slug": "xqc",
+            "is_banned": false,
+            "playback_url": "https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/us-west-2.196233775518.channel.DsuAwCgUc9Bh.m3u8",
+            "name_updated_at": null,
+            "vod_enabled": true,
+            "subscription_enabled": true,
+            "is_affiliate": false,
+            "can_host": true,
+            "chatroom": {
+              "id": 668,
+              "chatable_type": "App\\Models\\Channel",
+              "channel_id": 668,
+              "created_at": "2022-10-22T06:59:51.000000Z",
+              "updated_at": "2025-08-21T04:45:02.000000Z",
+              "chat_mode_old": "public",
+              "chat_mode": "public",
+              "slow_mode": true,
+              "chatable_id": 668,
+              "followers_mode": true,
+              "subscribers_mode": false,
+              "emotes_mode": false,
+              "message_interval": 5,
+              "following_min_duration": 10
+            }
+          },
+          "usernames": [
+            "knoffy"
+          ],
+          "gifter_username": "Ourkinks"
+        }
+      ]
+    },
+    "App\\Events\\PinnedMessageDeletedEvent": {
+      "description": "Pinned message was removed",
+      "count": 59,
+      "structure": [],
+      "channels": [
+        "chatroom"
+      ],
+      "samples": [
+        [],
+        []
+      ]
+    },
+    "App\\Events\\StopStreamBroadcast": {
+      "description": "Streamer stopped broadcasting",
+      "count": 58,
+      "structure": {
+        "livestream": {
+          "id": "number",
+          "channel": {
+            "id": "number",
+            "is_banned": "boolean"
+          }
+        }
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "livestream": {
+            "id": 74265904,
+            "channel": {
+              "id": 2587387,
+              "is_banned": false
+            }
+          }
+        },
+        {
+          "livestream": {
+            "id": 74331109,
+            "channel": {
+              "id": 668,
+              "is_banned": false
+            }
+          }
+        }
+      ]
+    },
+    "App\\Events\\ChatMoveToSupportedChannelEvent": {
+      "description": "Unknown event type: App\\Events\\ChatMoveToSupportedChannelEvent",
+      "count": 57,
+      "structure": {
+        "channel": {
+          "id": "number",
+          "user_id": "number",
+          "slug": "string",
+          "is_banned": "boolean",
+          "playback_url": "string",
+          "name_updated_at": null,
+          "vod_enabled": "boolean",
+          "subscription_enabled": "boolean",
+          "is_affiliate": "boolean",
+          "can_host": "boolean",
+          "current_livestream": {
+            "id": "number",
+            "slug": "string",
+            "channel_id": "number",
+            "created_at": "string",
+            "session_title": "string",
+            "is_live": "boolean",
+            "risk_level_id": null,
+            "start_time": "string",
+            "source": null,
+            "twitch_channel": null,
+            "duration": "number",
+            "language": "string",
+            "is_mature": "boolean",
+            "viewer_count": "number"
+          }
+        },
+        "slug": "string",
+        "hosted": {
+          "id": "number",
+          "username": "string",
+          "slug": "string",
+          "viewers_count": "number",
+          "is_live": "boolean",
+          "profile_pic": "string",
+          "category": "string",
+          "preview_thumbnail": {
+            "srcset": "string",
+            "src": "string"
+          }
+        }
+      },
+      "channels": [
+        "channel"
+      ],
+      "samples": [
+        {
+          "channel": {
+            "id": 2587387,
+            "user_id": 2642629,
+            "slug": "4head",
+            "is_banned": false,
+            "playback_url": "https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/us-west-2.196233775518.channel.Nfs1w4IqMfpg.m3u8",
+            "name_updated_at": null,
+            "vod_enabled": true,
+            "subscription_enabled": true,
+            "is_affiliate": true,
+            "can_host": false,
+            "current_livestream": {
+              "id": 74265904,
+              "slug": "e36ef0e0-4head-the-frontier-rp-tts-who-tf-knows",
+              "channel_id": 2587387,
+              "created_at": "2025-09-14 16:11:18",
+              "session_title": "4HEAD | The Frontier RP | TTS (who tf knows)",
+              "is_live": true,
+              "risk_level_id": null,
+              "start_time": "2025-09-14 16:11:16",
+              "source": null,
+              "twitch_channel": null,
+              "duration": 0,
+              "language": "English",
+              "is_mature": false,
+              "viewer_count": 1371
+            }
+          },
+          "slug": "dripp",
+          "hosted": {
+            "id": 972889,
+            "username": "dripp",
+            "slug": "dripp",
+            "viewers_count": 1692,
+            "is_live": true,
+            "profile_pic": "https://files.kick.com/images/user/1015661/profile_image/conversion/1f64aace-aa40-458d-8c2d-0f1664b53168-thumb.webp",
+            "category": "Games",
+            "preview_thumbnail": {
+              "srcset": "https://images.kick.com/video_thumbnails/87zvBZkYDBdk/H5XiKkFSroOb/1080.webp?versionId=9.RBG5XI465cTXtzrvrQgbPLVJKCzLyt 1920w, https://images.kick.com/video_thumbnails/87zvBZkYDBdk/H5XiKkFSroOb/720.webp?versionId=pLm0p272r_l2nZE2NTGDBeehD4PAQczw 1280w, https://images.kick.com/video_thumbnails/87zvBZkYDBdk/H5XiKkFSroOb/360.webp?versionId=RsvC9sY79J7kuw8DUg21pIcfR_Qh_yk2 480w, https://images.kick.com/video_thumbnails/87zvBZkYDBdk/H5XiKkFSroOb/160.webp?versionId=V6rdzDbBTCezq0NodaA63HGyPcYRAoWz 284w, https://images.kick.com/video_thumbnails/87zvBZkYDBdk/H5XiKkFSroOb/480.webp?versionId=rVx3zNPcG8Zeyw_djvTHQIMPZRfoPfDn 640w",
+              "src": "https://images.kick.com/video_thumbnails/87zvBZkYDBdk/H5XiKkFSroOb/720.webp?versionId=pLm0p272r_l2nZE2NTGDBeehD4PAQczw"
+            }
+          }
+        },
+        {
+          "channel": {
+            "id": 2915525,
+            "user_id": 2974876,
+            "slug": "simpless",
+            "is_banned": false,
+            "playback_url": "https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/us-west-2.196233775518.channel.felYuVId0iZG.m3u8",
+            "name_updated_at": null,
+            "vod_enabled": true,
+            "subscription_enabled": true,
+            "is_affiliate": true,
+            "can_host": false,
+            "current_livestream": {
+              "id": 74384438,
+              "slug": "0f516a6a-gamin",
+              "channel_id": 2915525,
+              "created_at": "2025-09-15 09:45:15",
+              "session_title": "Gamin",
+              "is_live": true,
+              "risk_level_id": null,
+              "start_time": "2025-09-15 09:45:14",
+              "source": null,
+              "twitch_channel": null,
+              "duration": 0,
+              "language": "English",
+              "is_mature": true,
+              "viewer_count": 159
+            }
+          },
+          "slug": "zuck",
+          "hosted": {
+            "id": 386882,
+            "username": "Zuck",
+            "slug": "zuck",
+            "viewers_count": 209,
+            "is_live": true,
+            "profile_pic": "https://files.kick.com/images/user/396198/profile_image/conversion/0cb0a4f8-900e-40bb-9ef4-01f280698112-thumb.webp",
+            "category": "Games",
+            "preview_thumbnail": {
+              "srcset": "https://images.kick.com/video_thumbnails/0UScKXMGCpnm/vjvyGmtrDqey/1080.webp?versionId=o8A0IlRWSERCNI7dpe4UbwjMjSxYaqVE 1920w, https://images.kick.com/video_thumbnails/0UScKXMGCpnm/vjvyGmtrDqey/720.webp?versionId=LGAddP0BQouRL.3UzSbH9bhl9_3CGppG 1280w, https://images.kick.com/video_thumbnails/0UScKXMGCpnm/vjvyGmtrDqey/360.webp?versionId=wLqAhSRk7fEmRsShrOwOJiecAdlEFRoR 480w, https://images.kick.com/video_thumbnails/0UScKXMGCpnm/vjvyGmtrDqey/160.webp?versionId=IntMWMbpcvKCqpVjP7k6BsGPw1d1arr9 284w, https://images.kick.com/video_thumbnails/0UScKXMGCpnm/vjvyGmtrDqey/480.webp?versionId=JIfFj7DXQuVX7ndYFOJleBO_AUug_WfD 640w",
+              "src": "https://images.kick.com/video_thumbnails/0UScKXMGCpnm/vjvyGmtrDqey/720.webp?versionId=LGAddP0BQouRL.3UzSbH9bhl9_3CGppG"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

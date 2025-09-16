@@ -24,17 +24,77 @@ const MessagesHandler = memo(
     const [atBottom, setAtBottom] = useState(true);
     const [isPaused, setIsPaused] = useState(false);
 
+    const eventVisibility = settings?.chatrooms?.eventVisibility;
+    const showModActions = settings?.chatrooms?.showModActions !== false;
+
     const filteredMessages = useMemo(() => {
       if (!messages?.length) return [];
 
       return messages.filter((message) => {
         if (message?.chatroom_id != chatroomId) return false;
-        if (message?.type === "system" || message?.type === "mod_action") return true;
-        if (message?.type !== "reply" && message?.type !== "message") return true;
+
+        if (message?.type === "mod_action") {
+          return showModActions;
+        }
+
+        let metadata = {};
+        if (typeof message?.metadata === "string") {
+          try {
+            metadata = JSON.parse(message.metadata);
+          } catch {
+            metadata = {};
+          }
+        } else {
+          metadata = message?.metadata || {};
+        }
+
+        const eventType = message?.type === "metadata" ? metadata?.type : message?.type;
+
+        const visibilityKey = (() => {
+          switch (eventType) {
+            case "subscription":
+              return "subscriptions";
+            case "donation":
+            case "reward":
+              return "rewards";
+            case "stream_live":
+            case "stream_end":
+              return "streamStatus";
+            case "host":
+              return "hosts";
+            case "raid":
+              return "raids";
+            case "goal_progress":
+              return "goalProgress";
+            case "kick_gift":
+              return "kickGifts";
+            case "moderation":
+              return metadata?.action === "timed_out" ? "timeouts" : "bans";
+            default:
+              return null;
+          }
+        })();
+
+        if (
+          visibilityKey &&
+          eventVisibility &&
+          Object.prototype.hasOwnProperty.call(eventVisibility, visibilityKey) &&
+          eventVisibility[visibilityKey] === false
+        ) {
+          return false;
+        }
+
+        if (message?.type === "system") {
+          return true;
+        }
+
+        if (message?.type !== "reply" && message?.type !== "message") {
+          return true;
+        }
 
         return message?.sender?.id && !silencedUserIds.has(message?.sender?.id);
       });
-    }, [messages, chatroomId, silencedUserIds]);
+    }, [messages, chatroomId, silencedUserIds, eventVisibility, showModActions]);
 
     useEffect(() => {
       if (filteredMessages.length > 0 && !isPaused) {
@@ -90,35 +150,23 @@ const MessagesHandler = memo(
     };
 
     const itemContent = useCallback(
-      (index, message) => {
-        // if (!message?.id) {
-        //   console.warn("[MessagesHandler]: Message without ID at index:", index);
-        //   return null;
-        // }
-
-        // Hide mod actions if the setting is disabled
-        if (message?.type === "mod_action" && !settings?.chatrooms?.showModActions) {
-          return false;
-        }
-
-        return (
-          <Message
-            key={message?.id}
-            data-message-id={message.id}
-            message={message}
-            chatroomId={chatroomId}
-            chatroomName={slug}
-            subscriberBadges={subscriberBadges}
-            allStvEmotes={allStvEmotes}
-            existingKickTalkBadges={kickTalkBadges}
-            settings={settings}
-            userChatroomInfo={userChatroomInfo}
-            username={username}
-            userId={userId}
-            donators={donators}
-          />
-        );
-      },
+      (index, message) => (
+        <Message
+          key={message?.id}
+          data-message-id={message.id}
+          message={message}
+          chatroomId={chatroomId}
+          chatroomName={slug}
+          subscriberBadges={subscriberBadges}
+          allStvEmotes={allStvEmotes}
+          existingKickTalkBadges={kickTalkBadges}
+          settings={settings}
+          userChatroomInfo={userChatroomInfo}
+          username={username}
+          userId={userId}
+          donators={donators}
+        />
+      ),
       [chatroomId, slug, subscriberBadges, allStvEmotes, kickTalkBadges, settings, userChatroomInfo, username, userId, donators],
     );
 

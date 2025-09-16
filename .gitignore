@@ -105,5 +105,11 @@ typings/
 
 # Electron-Forge
 out/
+
 package-lock.json
+
+#Ast-grep
 sgconfig.yml
+
+#Event collection scripts
+scripts/event-collection/kick-events-*.jsonl
