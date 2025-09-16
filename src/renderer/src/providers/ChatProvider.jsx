@@ -1755,6 +1755,8 @@ const useChatStore = create((set, get) => ({
       get().handleChatMoveToSupportedChannelEvent(chatroomId, parsedEvent);
     } else if (eventDetail.event === "GoalProgressUpdateEvent") {
       get().handleGoalProgressUpdateEvent(chatroomId, parsedEvent);
+    } else if (eventDetail.event === "KicksGifted") {
+      get().handleKicksGiftEvent(chatroomId, parsedEvent);
     }
   },
 
@@ -1829,6 +1831,9 @@ const useChatStore = create((set, get) => ({
         break;
       case "App\\Events\\PollDeleteEvent":
         get().handlePollDelete(chatroomId);
+        break;
+      case "KicksGifted":
+        get().handleKicksGiftEvent(chatroomId, parsedEvent);
         break;
     }
   },
@@ -3541,6 +3546,39 @@ const useChatStore = create((set, get) => ({
     ].join('|');
     
     if (!addSupportDedup(dKey)) return;
+
+    get().addMessage(chatroomId, supportMessage);
+    if (supportMessage?.sender) {
+      get().addChatter(chatroomId, supportMessage.sender);
+      window.app?.logs?.add?.({
+        chatroomId: chatroomId,
+        userId: supportMessage.sender.id,
+        message: supportMessage,
+      });
+    }
+  },
+
+  handleKicksGiftEvent: async (chatroomId, parsedEvent) => {
+    const settings = await window.app.store.get("chatrooms");
+    if (settings?.eventVisibility?.rewards === false) {
+      return;
+    }
+
+    const supportMessage = {
+      id: crypto.randomUUID(),
+      type: "kick_gift",
+      chatroom_id: chatroomId,
+      timestamp: new Date().toISOString(),
+      sender: parsedEvent?.sender || {},
+      metadata: {
+        ...parsedEvent,
+        gift: parsedEvent?.gift,
+        message: parsedEvent?.message,
+        gift_image_url: parsedEvent?.gift?.gift_id
+          ? `https://files.kick.com/kicks/gifts/${parsedEvent.gift.gift_id.replace(/_/g, '-')}.webp`
+          : null,
+      },
+    };
 
     get().addMessage(chatroomId, supportMessage);
     if (supportMessage?.sender) {
