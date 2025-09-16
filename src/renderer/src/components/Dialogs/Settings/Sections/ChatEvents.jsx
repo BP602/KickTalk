@@ -85,6 +85,40 @@ export const ChatEventsSection = ({ settingsData, onChange }) => {
           <div className="settingsItem">
             <div
               className={clsx("settingSwitchItem", {
+                active: settingsData?.chatrooms?.eventVisibility?.kickGifts !== false,
+              })}>
+              <div className="settingsItemTitleWithInfo">
+                <span className="settingsItemTitle">Kick Gifts</span>
+                <Tooltip delayDuration={100}>
+                  <TooltipTrigger asChild>
+                    <button className="settingsInfoIcon">
+                      <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Kick gift notifications (Hell Yeah, Hype, etc.)</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+
+              <Switch
+                checked={settingsData?.chatrooms?.eventVisibility?.kickGifts !== false}
+                onCheckedChange={(checked) =>
+                  onChange("chatrooms", {
+                    ...settingsData?.chatrooms,
+                    eventVisibility: {
+                      ...settingsData?.chatrooms?.eventVisibility,
+                      kickGifts: checked,
+                    },
+                  })
+                }
+              />
+            </div>
+          </div>
+
+          <div className="settingsItem">
+            <div
+              className={clsx("settingSwitchItem", {
                 active: settingsData?.chatrooms?.eventVisibility?.hosts !== false,
               })}>
               <div className="settingsItemTitleWithInfo">

@@ -104,10 +104,6 @@ const shouldDisplayChatEvent = async (eventKey) => {
     if (visibility && Object.prototype.hasOwnProperty.call(visibility, eventKey)) {
       return visibility[eventKey] !== false;
     }
-
-    if (typeof chatroomSettings?.showSupportEvents === "boolean") {
-      return chatroomSettings.showSupportEvents;
-    }
   } catch (err) {
     window.app?.telemetry?.recordError?.(err, {
       operation: 'chat_event_visibility_check',
@@ -3560,7 +3556,7 @@ const useChatStore = create((set, get) => ({
 
   handleKicksGiftEvent: async (chatroomId, parsedEvent) => {
     const settings = await window.app.store.get("chatrooms");
-    if (settings?.eventVisibility?.rewards === false) {
+    if (settings?.eventVisibility?.kickGifts === false) {
       return;
     }
 
