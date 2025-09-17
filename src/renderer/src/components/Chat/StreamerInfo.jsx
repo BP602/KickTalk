@@ -3,7 +3,7 @@ import { useShallow } from "zustand/shallow";
 import clsx from "clsx";
 import useChatStore from "../../providers/ChatProvider";
 import { useAllStvEmotes } from "./hooks/useAllStvEmotes";
-import { PushPinIcon, UserIcon, Sword } from "@phosphor-icons/react";
+import { PushPinIcon, UserIcon, Sword, XIcon } from "@phosphor-icons/react";
 // import PollIcon from "../../assets/icons/poll-fill.svg?asset";
 import Pin from "./Pin";
 // import Poll from "./Poll";
@@ -17,7 +17,7 @@ import {
 } from "../Shared/ContextMenu";
 
 const StreamerInfo = memo(
-  ({ streamerData, isStreamerLive, chatroomId, userChatroomInfo, settings, updateSettings, handleSearch }) => {
+  ({ streamerData, isStreamerLive, chatroomId, userChatroomInfo, settings, updateSettings, handleSearch, showCloseButton, onClose }) => {
     const [showPinnedMessage, setShowPinnedMessage] = useState(true);
     // const [showPollMessage, setShowPollMessage] = useState(false);
     const [showStreamerCard, setShowStreamerCard] = useState(false);
@@ -161,6 +161,15 @@ const StreamerInfo = memo(
                   className={clsx("pinnedMessageBtn", pinDetails && "show", showPinnedMessage && "open")}
                   onClick={() => setShowPinnedMessage(!showPinnedMessage)}>
                   <PushPinIcon size={20} aria-label="Pin Message" />
+                </button>
+              )}
+
+              {showCloseButton && (
+                <button
+                  className="splitPaneCloseBtn"
+                  onClick={onClose}
+                  aria-label="Close split pane">
+                  <XIcon size={20} />
                 </button>
               )}
 

@@ -191,6 +191,15 @@
         opacity: 0.5;
       }
     }
+
+    .splitPaneCloseBtn {
+      opacity: 0.5;
+      transition: opacity 0.2s ease;
+
+      &:hover {
+        opacity: 1;
+      }
+    }
   }
 }
 
@@ -829,5 +838,38 @@
   }
   100% {
     opacity: 1;
+  }
+}
+
+/** [Split Pane Resizable Panels] **/
+.chatPanels {
+  height: 100%;
+  width: 100%;
+}
+
+.resize-handle {
+  width: 4px;
+  background: var(--border-primary);
+  cursor: col-resize;
+  position: relative;
+  transition: background-color 0.2s ease-in-out;
+
+  &:hover {
+    background: var(--accent-color);
+  }
+
+  &:active {
+    background: var(--accent-color);
+  }
+
+  // Add a larger hover area for easier interaction
+  &::before {
+    content: '';
+    position: absolute;
+    left: -4px;
+    right: -4px;
+    top: 0;
+    bottom: 0;
+    z-index: 1;
   }
 }

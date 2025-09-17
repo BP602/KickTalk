@@ -397,6 +397,7 @@ const getInitialState = () => {
       chatHistoryLength: DEFAULT_CHAT_HISTORY_LENGTH
     },
     draftMessages: new Map(), // Store draft messages per chatroom
+    splitPaneChatrooms: [], // Store chatroom IDs for split pane view
   };
 };
 
@@ -2289,6 +2290,28 @@ const useChatStore = create((set, get) => ({
 
     // Update local storage
     localStorage.setItem("chatrooms", JSON.stringify(chatroomsWithNewOrder));
+  },
+
+  // Split pane management methods
+  addToSplitPane: (chatroomId) => {
+    set((state) => {
+      if (!state.splitPaneChatrooms.includes(chatroomId)) {
+        return {
+          splitPaneChatrooms: [...state.splitPaneChatrooms, chatroomId],
+        };
+      }
+      return state;
+    });
+  },
+
+  removeFromSplitPane: (chatroomId) => {
+    set((state) => ({
+      splitPaneChatrooms: state.splitPaneChatrooms.filter(id => id !== chatroomId),
+    }));
+  },
+
+  clearSplitPane: () => {
+    set({ splitPaneChatrooms: [] });
   },
 
   handleUserBanned: async (chatroomId, event) => {
