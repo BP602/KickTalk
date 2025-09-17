@@ -6,18 +6,18 @@ dotenv.config();
 
 // Map MAIN_VITE_* (electron-vite main-scoped) into standard OTEL_* before SDK starts
 try {
-  // Note: when using electron-vite, prefer MAIN_VITE_* in .env for main process values.
+  // Note: when using electron-vite, MAIN_VITE_* are build-time embedded via import.meta.env
   const env = process.env;
-  const map = (src, dest) => {
-    if (env[src] && !env[dest]) env[dest] = env[src];
+  const mapFromImportMeta = (src, dest) => {
+    if (import.meta.env[src] && !env[dest]) env[dest] = import.meta.env[src];
   };
 
-  map("MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT");
-  map("MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_HEADERS");
-  map("MAIN_VITE_OTEL_DIAG_LOG_LEVEL", "OTEL_DIAG_LOG_LEVEL");
-  map("MAIN_VITE_OTEL_DEPLOYMENT_ENV", "OTEL_DEPLOYMENT_ENV");
+  mapFromImportMeta("MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT");
+  mapFromImportMeta("MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_HEADERS");
+  mapFromImportMeta("MAIN_VITE_OTEL_DIAG_LOG_LEVEL", "OTEL_DIAG_LOG_LEVEL");
+  mapFromImportMeta("MAIN_VITE_OTEL_DEPLOYMENT_ENV", "OTEL_DEPLOYMENT_ENV");
   // Optional: allow MAIN_VITE_OTEL_SERVICE_NAME to override service.name
-  map("MAIN_VITE_OTEL_SERVICE_NAME", "OTEL_SERVICE_NAME");
+  mapFromImportMeta("MAIN_VITE_OTEL_SERVICE_NAME", "OTEL_SERVICE_NAME");
 
   // If you want to push deployment env into resource attributes, set OTEL_RESOURCE_ATTRIBUTES accordingly.
   if (!env.OTEL_RESOURCE_ATTRIBUTES) {
@@ -124,7 +124,7 @@ try {
     attrs.push(`service.version=${version}`);
     process.env.OTEL_RESOURCE_ATTRIBUTES = attrs.join(',');
     // Also set service.name if provided via MAIN_VITE or env
-    const svcName = process.env.MAIN_VITE_OTEL_SERVICE_NAME || process.env.OTEL_SERVICE_NAME || 'kicktalk';
+    const svcName = import.meta.env.MAIN_VITE_OTEL_SERVICE_NAME || process.env.OTEL_SERVICE_NAME || 'kicktalk';
     if (!attrs.some((kv) => kv.startsWith('service.name='))) {
       process.env.OTEL_RESOURCE_ATTRIBUTES = `service.name=${svcName},${process.env.OTEL_RESOURCE_ATTRIBUTES}`;
     }
@@ -643,19 +643,20 @@ ipcMain.handle("otel:get-config", async () => {
     console.log('[OTEL Config] Renderer requesting telemetry config');
     
     // Check if we have OTLP configuration for IPC relay
-    const env = process.env;
-    const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
-                    env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
-                    (env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_ENDPOINT);
-    
-    const headers = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
-                   env.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS ||
-                   env.OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
-                   env.OTEL_EXPORTER_OTLP_HEADERS;
+    // Use import.meta.env for MAIN_VITE_* variables (build-time embedded)
+    // Use process.env for standard OTEL_* variables (runtime)
+    const endpoint = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
+                    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
+                    (import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
 
-    const deploymentEnv = env.MAIN_VITE_OTEL_DEPLOYMENT_ENV ||
-                         env.OTEL_DEPLOYMENT_ENV ||
-                         env.NODE_ENV ||
+    const headers = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
+                   import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS ||
+                   process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
+                   process.env.OTEL_EXPORTER_OTLP_HEADERS;
+
+    const deploymentEnv = import.meta.env.MAIN_VITE_OTEL_DEPLOYMENT_ENV ||
+                         process.env.OTEL_DEPLOYMENT_ENV ||
+                         process.env.NODE_ENV ||
                          "development";
 
     if (!endpoint || !headers) {
@@ -688,16 +689,15 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
     console.log(`[OTEL IPC Relay][${requestId}] Received trace export from renderer`);
     console.log(`[OTEL IPC Relay][${requestId}] Payload size: ${JSON.stringify(exportJson || {}).length} chars`);
     
-    const env = process.env;
-    const base = env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_ENDPOINT || "";
-    const endpoint = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
-                    env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 
+    const base = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "";
+    const endpoint = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
+                    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
                     (base ? `${base.replace(/\/$/, "")}/v1/traces` : "");
-    
-    const headersRaw = env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
-                      env.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS ||
-                      env.OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
-                      env.OTEL_EXPORTER_OTLP_HEADERS || "";
+
+    const headersRaw = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
+                      import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS ||
+                      process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
+                      process.env.OTEL_EXPORTER_OTLP_HEADERS || "";
 
     if (!endpoint || !headersRaw) {
       console.warn(`[OTEL IPC Relay][${requestId}] Missing endpoint/headers`);

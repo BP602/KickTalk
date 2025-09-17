@@ -50,22 +50,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build application
-        run: npm run build
-        env:
-          MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT }}
-          MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS }}
-          MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
-          MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS }}
-          MAIN_VITE_OTEL_DEPLOYMENT_ENV: production
-
-      - name: Clean dist before packaging
+      - name: Build and Package Electron app
         shell: bash
-        run: rm -rf dist
-
-      - name: Build Electron app
-        shell: bash
-        run: npm exec --yes electron-builder -- ${{ matrix.args }}
+        run: npm run build && npm exec --yes electron-builder -- ${{ matrix.args }}
         env:
           # These are used for auto updates signing
           # APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -76,12 +63,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Avoid hardlink-related EEXIST issues on runners
           USE_HARD_LINKS: false
-          
+
           # Grafana Cloud OTLP telemetry injection for production builds
           MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT }}
           MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
+          MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS: ${{ secrets.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS }}
           MAIN_VITE_OTEL_SERVICE_NAME: kicktalk
-          
+
           # Production telemetry configuration
           OTEL_RESOURCE_ATTRIBUTES: deployment.environment=production,service.namespace=kicktalk,service.version=${{ github.ref_name }}
           OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
