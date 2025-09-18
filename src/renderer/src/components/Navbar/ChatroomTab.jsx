@@ -28,6 +28,8 @@ const ChatroomTab = memo(
     setEditingChatroomId,
     renameInputRef,
     settings,
+    onOpenInSplitPane,
+    canOpenInSplitPane,
   }) => {
     const dragRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -217,6 +219,12 @@ const ChatroomTab = memo(
                     Open Stream in Streamlink
                   </ContextMenuItem>
                 )}
+                <ContextMenuItem
+                  onSelect={() => onOpenInSplitPane(chatroom.id)}
+                  disabled={!canOpenInSplitPane}
+                >
+                  Open in Split Pane
+                </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
                   onSelect={() =>

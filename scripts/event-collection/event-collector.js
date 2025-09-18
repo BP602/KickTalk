@@ -50,6 +50,27 @@ class KickEventCollector {
     });
   }
 
+  scheduleReconnect(delayMs = 5000) {
+    if (this.connecting || (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING))) {
+      return;
+    }
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+
+      if (this.connecting || (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING))) {
+        return;
+      }
+
+      console.log('Attempting to reconnect...');
+      this.connect();
+    }, delayMs);
+  }
+
   async fetchChannelData(slug) {
     return new Promise((resolve, reject) => {
       const options = {
@@ -118,6 +139,9 @@ class KickEventCollector {
     if (this.connecting) {
       return;
     }
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
 
     this.connecting = true;
     console.log('Connecting to Kick WebSocket...');
@@ -153,14 +177,8 @@ class KickEventCollector {
     this.ws.on('close', () => {
       console.log('WebSocket connection closed');
       this.stopHeartbeat();
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer);
-      }
-      this.reconnectTimer = setTimeout(() => {
-        console.log('Attempting to reconnect...');
-        this.connecting = false;
-        this.connect();
-      }, 5000);
+      this.connecting = false;
+      this.scheduleReconnect();
     });
   }
 
@@ -298,6 +316,7 @@ class KickEventCollector {
     let data = null;
     let rawData = null;
     let dataParseError = null;
+    let sanitizedMessage = message;
     if (message.data) {
       rawData = message.data;
       try {
@@ -315,6 +334,9 @@ class KickEventCollector {
     const MAX_RAW_LEN = 50_000;
     if (rawData && rawData.length > MAX_RAW_LEN) {
       rawData = `${rawData.slice(0, MAX_RAW_LEN)}…(truncated)`;
+    }
+    if (rawData !== null) {
+      sanitizedMessage = { ...message, data: rawData };
     }
     const detailedEventType = this.getDetailedEventType(message.event, data);
 
@@ -336,7 +358,7 @@ class KickEventCollector {
       event: message.event,
       channel: message.channel,
       data: data,
-      raw: message,
+      raw: sanitizedMessage,
       detailedEventType: detailedEventType
     };
 
@@ -374,8 +396,10 @@ class KickEventCollector {
         if (this.connecting) {
           return;
         }
-        console.log(`⚠️  WebSocket in bad state (${this.ws?.readyState}), reconnecting...`);
-        this.connect();
+        console.log(`⚠️  WebSocket in bad state (${this.ws?.readyState}), scheduling reconnect...`);
+        if (!this.reconnectTimer) {
+          this.scheduleReconnect(0);
+        }
       }
     }, 30000);
   }
@@ -421,6 +445,7 @@ class KickEventCollector {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = null;
         }
+        this.stopHeartbeat();
         if (this.statusInterval) {
           clearInterval(this.statusInterval);
           this.statusInterval = null;

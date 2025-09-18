@@ -150,10 +150,12 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
 
   // Setup horizontal mouse wheel scrolling
   useEffect(() => {
-    const handleWheel = (e) => {
-      const navbarContainer = navbarContainerRef.current;
-      if (!navbarContainer) return;
+    const navbarContainer = navbarContainerRef.current;
+    if (!navbarContainer || wrapChatroomsList) {
+      return undefined;
+    }
 
+    const handleWheel = (e) => {
       // Only handle vertical wheel events (convert to horizontal scroll)
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
         e.preventDefault();
@@ -166,17 +168,12 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
       }
     };
 
-    const navbarContainer = navbarContainerRef.current;
-    if (navbarContainer) {
-      navbarContainer.addEventListener("wheel", handleWheel, { passive: false });
-    }
+    navbarContainer.addEventListener("wheel", handleWheel, { passive: false });
 
     return () => {
-      if (navbarContainer) {
-        navbarContainer.removeEventListener("wheel", handleWheel);
-      }
+      navbarContainer.removeEventListener("wheel", handleWheel);
     };
-  }, []);
+  }, [wrapChatroomsList]);
 
   useClickOutside(addChatroomDialogRef, () => {
     setActiveSection("chatroom");
@@ -310,6 +307,11 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
     });
   }, []);
 
+  const handleOpenInSplitPane = useCallback((chatroomId) => {
+    if (!canAcceptMoreSplitPanes) return;
+    addToSplitPane(chatroomId);
+  }, [addToSplitPane, canAcceptMoreSplitPanes]);
+
   const renderSplitPaneDropZone = () => (
     <div className="splitPaneDropZoneContainer">
       <Tooltip delayDuration={150}>
@@ -321,6 +323,8 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
               !canAcceptMoreSplitPanes && "disabled",
               isDraggingOverSplit && canAcceptMoreSplitPanes && "active",
             )}
+            aria-disabled={!canAcceptMoreSplitPanes}
+            aria-label="Split pane drop zone"
           >
             <span>Split</span>
             <SquareSplitHorizontalIcon weight="bold" size={16} aria-label="Split pane" />
@@ -369,6 +373,8 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
                 setEditingChatroomId={setEditingChatroomId}
                 renameInputRef={renameInputRef}
                 settings={settings}
+                onOpenInSplitPane={handleOpenInSplitPane}
+                canOpenInSplitPane={canAcceptMoreSplitPanes}
               />
             ))}
 
