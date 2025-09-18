@@ -23,7 +23,9 @@ class KickEventCollector {
     // Smart sampling state
     this.eventTypeCounts = new Map();
     this.lastRegularMessageTime = 0;
+    this.lastReplyMessageTime = 0;
     this.regularMessageInterval = 60 * 60 * 1000; // Sample regular messages every hour
+    this.replyMessageInterval = 60 * 60 * 1000; // Sample reply messages every hour
     this.savedEventCount = 0;
     this.skippedEventCount = 0;
     
@@ -208,22 +210,13 @@ class KickEventCollector {
   }
 
   isInterestingEvent(message) {
-    // Skip internal Pusher events
+    // Skip internal Pusher events only - capture EVERYTHING else
     if (message.event && message.event.startsWith('pusher')) {
       return false;
     }
 
-    // We want all App\Events\ events and any others
-    return message.event && (
-      message.event.startsWith('App\\Events\\') ||
-      message.event.includes('Event') ||
-      message.event.includes('Support') ||
-      message.event.includes('Reward') ||
-      message.event.includes('Donation') ||
-      message.event.includes('Subscription') ||
-      message.event.includes('Follow') ||
-      message.event.includes('Tip')
-    );
+    // Log all non-pusher events to catch new event types early
+    return message.event && message.event.length > 0;
   }
 
   getDetailedEventType(event, data) {
@@ -249,15 +242,27 @@ class KickEventCollector {
   shouldSampleEvent(eventType, data) {
     const now = Date.now();
 
-    // Always sample non-regular events (rare/important events)
-    if (!eventType.includes('(regular)')) {
+    // Always sample rare/important events (not regular or reply)
+    if (!eventType.includes('(regular)') && !eventType.includes('(reply)')) {
       return true;
     }
 
     // For regular messages, sample every hour
-    if (now - this.lastRegularMessageTime >= this.regularMessageInterval) {
-      this.lastRegularMessageTime = now;
-      return true;
+    if (eventType.includes('(regular)')) {
+      if (now - this.lastRegularMessageTime >= this.regularMessageInterval) {
+        this.lastRegularMessageTime = now;
+        return true;
+      }
+      return false;
+    }
+
+    // For reply messages, sample every hour
+    if (eventType.includes('(reply)')) {
+      if (now - this.lastReplyMessageTime >= this.replyMessageInterval) {
+        this.lastReplyMessageTime = now;
+        return true;
+      }
+      return false;
     }
 
     return false;
@@ -267,7 +272,22 @@ class KickEventCollector {
     this.eventCount++;
     this.lastEventTime = Date.now();
 
-    const data = message.data ? JSON.parse(message.data) : null;
+    let data = null;
+    let rawData = null;
+    let dataParseError = null;
+    if (message.data) {
+      rawData = message.data;
+      try {
+        data = JSON.parse(rawData);
+      } catch (error) {
+        dataParseError = error.message;
+        console.warn('Captured event with invalid JSON payload', {
+          event: message.event,
+          channel: message.channel,
+          error: dataParseError,
+        });
+      }
+    }
     const detailedEventType = this.getDetailedEventType(message.event, data);
 
     // Update event type counts
@@ -291,6 +311,14 @@ class KickEventCollector {
       raw: message,
       detailedEventType: detailedEventType
     };
+
+    if (rawData !== null) {
+      logEntry.rawData = rawData;
+    }
+
+    if (dataParseError) {
+      logEntry.dataParseError = dataParseError;
+    }
 
     // Console output for monitoring
     console.log(`[${this.eventCount}] ${detailedEventType} on ${message.channel} (SAVED)`);

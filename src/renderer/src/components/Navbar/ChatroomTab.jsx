@@ -1,5 +1,6 @@
-import { memo, useMemo, useState, useEffect } from "react";
-import { Draggable } from "@hello-pangea/dnd";
+import { memo, useMemo, useState, useEffect, useRef } from "react";
+import { draggable, dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -28,11 +29,14 @@ const ChatroomTab = memo(
     renameInputRef,
     settings,
   }) => {
+    const dragRef = useRef(null);
+    const [isDragging, setIsDragging] = useState(false);
+
     // Use useShallow to prevent unnecessary re-renders and memoize the unread count calculation
     const chatroomMessages = useChatStore(
       useShallow((state) => state.messages[chatroom.id] || [])
     );
-    
+
     const [streamlinkSettings, setStreamlinkSettings] = useState({ enabled: false, quality: "best" });
 
     const unreadCount = useMemo(() => {
@@ -65,20 +69,52 @@ const ChatroomTab = memo(
       };
     }, []);
 
+    // Setup drag and drop functionality
+    useEffect(() => {
+      const element = dragRef.current;
+      if (!element) return;
+
+      const getDraggableData = () => ({
+        type: 'chatroom-tab',
+        chatroomId: chatroom.id,
+        index,
+      });
+
+      return combine(
+        draggable({
+          element,
+          getInitialData: getDraggableData,
+          onDragStart: () => setIsDragging(true),
+          onDrop: () => setIsDragging(false),
+        }),
+        dropTargetForElements({
+          element,
+          canDrop: ({ source }) => {
+            return source.data.type === 'chatroom-tab' && source.data.chatroomId !== chatroom.id;
+          },
+          getData: () => ({
+            type: 'chatroom-list',
+            index,
+          }),
+        })
+      );
+    }, [chatroom.id, index]);
+
     return (
-      <Draggable key={chatroom.id} draggableId={`item-${chatroom.id}`} index={index}>
-        {(provided, snapshot) => (
-          <div
-            ref={provided.innerRef}
-            {...provided.draggableProps}
-            {...provided.dragHandleProps}
-            style={{
-              ...provided.draggableProps.style,
-              opacity: snapshot.isDragging ? 0.8 : 1,
-            }}>
-            <ContextMenu>
+      <div
+        ref={dragRef}
+        style={{
+          opacity: isDragging ? 0.8 : 1,
+        }}
+      >
+        <ContextMenu>
               <ContextMenuTrigger>
                 <div
+                  role="tab"
+                  tabIndex={0}
+                  aria-selected={chatroom.id === currentChatroomId}
+                  aria-label={`Chatroom ${chatroom.displayName || chatroom.username}`}
+                  aria-describedby={unreadCount > 0 ? `chatroom-unread-${chatroom.id}` : undefined}
                   onDoubleClick={(e) =>
                     onRename({ chatroomId: chatroom.id, currentDisplayName: chatroom.displayName || chatroom.username })
                   }
@@ -92,7 +128,7 @@ const ChatroomTab = memo(
                     "chatroomStreamer",
                     chatroom.id === currentChatroomId && "chatroomStreamerActive",
                     chatroom?.isStreamerLive && "chatroomStreamerLive",
-                    snapshot.isDragging && "dragging",
+                    isDragging && "dragging",
                     unreadCount > 0 && chatroom.id !== currentChatroomId && "hasUnread",
                   )}>
                   <div className="streamerInfo">
@@ -123,7 +159,13 @@ const ChatroomTab = memo(
                     ) : (
                       <>
                         <span>{chatroom.displayName || chatroom.username}</span>
-                        <span className={clsx("unreadCountIndicator", unreadCount > 0 && "hasUnread")} />
+                        <span
+                          id={`chatroom-unread-${chatroom.id}`}
+                          className={clsx("unreadCountIndicator", unreadCount > 0 && "hasUnread")}
+                          role="status"
+                          aria-live="polite"
+                          aria-hidden={unreadCount === 0}
+                        />
                       </>
                     )}
                   </div>
@@ -182,9 +224,7 @@ const ChatroomTab = memo(
                 <ContextMenuItem onSelect={() => onRemoveChatroom(chatroom.id)}>Remove Chatroom</ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
-          </div>
-        )}
-      </Draggable>
+      </div>
     );
   },
 );

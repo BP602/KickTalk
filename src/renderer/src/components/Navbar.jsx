@@ -6,13 +6,13 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./Shar
 import { PlusIcon, XIcon, BellIcon, ChatCenteredTextIcon, SquareSplitHorizontalIcon } from "@phosphor-icons/react";
 import useClickOutside from "../utils/useClickOutside";
 import { useSettings } from "../providers/SettingsProvider";
-import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import { dropTargetForElements, monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
 import ChatroomTab from "./Navbar/ChatroomTab";
 import MentionsTab from "./Navbar/MentionsTab";
 
 const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
   const { settings } = useSettings();
-  const connections = useChatStore((state) => state.connections);
   const addChatroom = useChatStore((state) => state.addChatroom);
   const removeChatroom = useChatStore((state) => state.removeChatroom);
   const renameChatroom = useChatStore((state) => state.renameChatroom);
@@ -38,9 +38,9 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
 
   const inputRef = useRef(null);
   const renameInputRef = useRef(null);
-  const chatroomListRef = useRef(null);
   const addChatroomDialogRef = useRef(null);
   const splitZoneRef = useRef(null);
+  const navbarContainerRef = useRef(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -100,48 +100,37 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
     }
   };
 
-  // Drag and drop chatrooms
-  const handleDragStart = () => {
-    setIsDraggingOverSplit(false);
-  };
+  // Setup drag and drop monitoring
+  useEffect(() => {
+    return monitorForElements({
+      onDragStart: ({ source }) => {
+        if (source.data.type === 'chatroom-tab') {
+          setIsDraggingOverSplit(false);
+        }
+      },
+      onDrop: ({ source, location }) => {
+        setIsDraggingOverSplit(false);
 
-  const handleDragUpdate = (update) => {
-    if (update.destination?.droppableId === 'split-zone' && canAcceptMoreSplitPanes) {
-      setIsDraggingOverSplit(true);
-    } else {
-      setIsDraggingOverSplit(false);
-    }
-  };
+        if (source.data.type !== 'chatroom-tab') return;
 
-  const handleDragEnd = (result) => {
-    setIsDraggingOverSplit(false);
+        const destination = location.current.dropTargets[0];
+        if (!destination) return;
 
-    if (!result.destination) {
-      return;
-    }
+        // Handle chatroom reordering
+        if (destination.data.type === 'chatroom-list') {
+          const sourceIndex = source.data.index;
+          const destinationIndex = destination.data.index;
 
-    const { source, destination } = result;
-
-    // Check if dropped on split zone (separate droppable)
-    if (destination.droppableId === 'split-zone') {
-      const draggedChatroom = orderedChatrooms[source.index];
-      addToSplitPane(draggedChatroom.id);
-      return;
-    }
-
-    // Handle chatroom reordering within the chatrooms droppable
-    if (source.droppableId === 'chatrooms' && destination.droppableId === 'chatrooms') {
-      if (source.index === destination.index) return;
-
-      const reordered = Array.from(orderedChatrooms);
-      const [removed] = reordered.splice(source.index, 1);
-      reordered.splice(destination.index, 0, removed);
-
-      // Update state
-      reorderChatrooms(reordered);
-      return;
-    }
-  };
+          if (sourceIndex !== destinationIndex) {
+            const reordered = Array.from(orderedChatrooms);
+            const [removed] = reordered.splice(sourceIndex, 1);
+            reordered.splice(destinationIndex, 0, removed);
+            reorderChatrooms(reordered);
+          }
+        }
+      },
+    });
+  }, [orderedChatrooms, reorderChatrooms]);
 
   // Select first chatroom on mount if no chatroom is currently selected
   useEffect(() => {
@@ -150,20 +139,36 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
     }
   }, [orderedChatrooms, currentChatroomId, onSelectChatroom]);
 
-  // Setup event listeners
+  // Setup horizontal mouse wheel scrolling
   useEffect(() => {
     const handleWheel = (e) => {
-      e.preventDefault();
+      const navbarContainer = navbarContainerRef.current;
+      if (!navbarContainer) return;
 
-      chatroomListRef?.current?.scrollBy({
-        left: e.deltaY < 0 ? -30 : 30,
-      });
+      // Only handle vertical wheel events (convert to horizontal scroll)
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault();
+
+        // Scroll horizontally based on vertical wheel movement
+        // Increase scroll amount for more responsive scrolling
+        const scrollAmount = e.deltaY > 0 ? 60 : -60;
+
+        navbarContainer.scrollBy({
+          left: scrollAmount,
+          behavior: 'smooth'
+        });
+      }
     };
 
-    chatroomListRef?.current?.addEventListener("wheel", handleWheel, { passive: false });
+    const navbarContainer = navbarContainerRef.current;
+    if (navbarContainer) {
+      navbarContainer.addEventListener("wheel", handleWheel, { passive: false });
+    }
 
     return () => {
-      chatroomListRef?.current?.removeEventListener("wheel", handleWheel);
+      if (navbarContainer) {
+        navbarContainer.removeEventListener("wheel", handleWheel);
+      }
     };
   }, []);
 
@@ -238,51 +243,127 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
     setEditingName("");
   };
 
+  const wrapChatroomsList = settings?.general?.wrapChatroomsList;
+
+  // Setup split zone drop target
+  useEffect(() => {
+    const element = splitZoneRef.current;
+    if (!element) return;
+
+    return dropTargetForElements({
+      element,
+      getData: () => ({ type: 'split-zone' }),
+      canDrop: ({ source }) => {
+        return source.data.type === 'chatroom-tab' && canAcceptMoreSplitPanes;
+      },
+      onDragEnter: () => {
+        if (canAcceptMoreSplitPanes) {
+          setIsDraggingOverSplit(true);
+        }
+      },
+      onDragLeave: () => {
+        setIsDraggingOverSplit(false);
+      },
+      onDrop: ({ source }) => {
+        setIsDraggingOverSplit(false);
+        if (source.data.type === 'chatroom-tab' && canAcceptMoreSplitPanes) {
+          addToSplitPane(source.data.chatroomId);
+        }
+      },
+    });
+  }, [canAcceptMoreSplitPanes, addToSplitPane]);
+
+  // Setup auto-scroll for navbar container (the actual scrollable element)
+  useEffect(() => {
+    const element = navbarContainerRef.current;
+    if (!element) return;
+
+    return autoScrollForElements({
+      element,
+      // Configure scroll zones - this makes it trigger sooner from the edge
+      scrollSpeed: {
+        // How fast to scroll (default is based on distance from edge)
+        up: { maximum: 600 },
+        down: { maximum: 600 },
+        left: { maximum: 600 },
+        right: { maximum: 600 }
+      },
+      // Make the scroll trigger zones larger (default is 50px from edge)
+      threshold: {
+        top: 80,
+        bottom: 80,
+        left: 80,
+        right: 80
+      }
+    });
+  }, []);
+
+  const renderSplitPaneDropZone = () => (
+    <div className="splitPaneDropZoneContainer">
+      <Tooltip delayDuration={150}>
+        <TooltipTrigger asChild>
+          <div
+            ref={splitZoneRef}
+            className={clsx(
+              "splitPaneDropZone",
+              !canAcceptMoreSplitPanes && "disabled",
+              isDraggingOverSplit && canAcceptMoreSplitPanes && "active",
+            )}
+          >
+            <span>Split</span>
+            <SquareSplitHorizontalIcon weight="bold" size={16} aria-label="Split pane" />
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={8}>
+          {canAcceptMoreSplitPanes
+            ? "Drag a chatroom here to open it in a split pane"
+            : `Split pane limit reached (${MAX_SPLIT_PANE_COUNT})`}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+
   return (
     <TooltipProvider>
       <>
         <div
           className={clsx(
             "navbarContainer",
-            settings?.general?.wrapChatroomsList && "wrapChatroomList",
-          settings?.general?.compactChatroomsList && "compactChatroomList",
+            wrapChatroomsList && "wrapChatroomList",
+            settings?.general?.compactChatroomsList && "compactChatroomList",
         )}
-        ref={chatroomListRef}
+          ref={navbarContainerRef}
       >
-        <DragDropContext
-          onDragStart={handleDragStart}
-          onDragUpdate={handleDragUpdate}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="chatroomsList">
-            <Droppable droppableId="chatrooms" direction="horizontal">
-              {(provided) => (
-                <div className="chatroomsContainer" {...provided.droppableProps} ref={provided.innerRef}>
-                  {orderedChatrooms.map((chatroom, index) => (
-                    <ChatroomTab
-                      key={chatroom.id}
-                      chatroom={chatroom}
-                      index={index}
-                      currentChatroomId={currentChatroomId}
-                      onSelectChatroom={onSelectChatroom}
-                      onRemoveChatroom={handleRemoveChatroom}
-                      onRename={handleRename}
-                      editingChatroomId={editingChatroomId}
-                      editingName={editingName}
-                      setEditingName={setEditingName}
-                      onRenameSubmit={handleRenameSubmit}
-                      setEditingChatroomId={setEditingChatroomId}
-                      renameInputRef={renameInputRef}
-                      settings={settings}
-                    />
-                  ))}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
+        <div className="chatroomsList">
+          <div
+            className={clsx(
+              "chatroomsContainer",
+              wrapChatroomsList && "chatroomsContainerWrapMode",
+            )}
+          >
+            {orderedChatrooms.map((chatroom, index) => (
+              <ChatroomTab
+                key={chatroom.id}
+                chatroom={chatroom}
+                index={index}
+                currentChatroomId={currentChatroomId}
+                onSelectChatroom={onSelectChatroom}
+                onRemoveChatroom={handleRemoveChatroom}
+                onRename={handleRename}
+                editingChatroomId={editingChatroomId}
+                editingName={editingName}
+                setEditingName={setEditingName}
+                onRenameSubmit={handleRenameSubmit}
+                setEditingChatroomId={setEditingChatroomId}
+                renameInputRef={renameInputRef}
+                settings={settings}
+              />
+            ))}
 
+            {/* Always show separator if we have chatrooms */}
             {orderedChatrooms.length > 0 && <span className="chatroomsSeparator" />}
 
+            {/* Mentions tab flows with chatrooms */}
             {hasMentionsTab && (
               <MentionsTab
                 currentChatroomId={currentChatroomId}
@@ -291,7 +372,8 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
               />
             )}
 
-            {settings?.general?.wrapChatroomsList && (
+            {/* Add button flows with chatrooms when wrapping */}
+            {wrapChatroomsList && (
               <div className="navbarAddChatroomContainer">
                 <button
                   className="navbarAddChatroomButton"
@@ -311,39 +393,11 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
               </div>
             )}
 
-            <div className="splitPaneDropZoneContainer">
-              <Tooltip delayDuration={150}>
-                <Droppable droppableId="split-zone" direction="horizontal">
-                  {(provided, snapshot) => (
-                    <TooltipTrigger asChild>
-                      <div
-                        ref={(el) => {
-                          provided.innerRef(el);
-                          splitZoneRef.current = el;
-                        }}
-                        {...provided.droppableProps}
-                        className={clsx(
-                          "splitPaneDropZone",
-                          !canAcceptMoreSplitPanes && "disabled",
-                          snapshot.isDraggingOver && canAcceptMoreSplitPanes && "active",
-                        )}
-                      >
-                        <span>Split</span>
-                        <SquareSplitHorizontalIcon weight="bold" size={16} aria-label="Split pane" />
-                        <div style={{ display: 'none' }}>{provided.placeholder}</div>
-                      </div>
-                    </TooltipTrigger>
-                  )}
-                </Droppable>
-                <TooltipContent side="bottom" sideOffset={8}>
-                  {canAcceptMoreSplitPanes
-                    ? "Drag a chatroom here to open it in a split pane"
-                    : `Split pane limit reached (${MAX_SPLIT_PANE_COUNT})`}
-                </TooltipContent>
-              </Tooltip>
-            </div>
+            {/* Split zone flows with chatrooms */}
+            {renderSplitPaneDropZone()}
           </div>
-        </DragDropContext>
+
+        </div>
 
         <div className={clsx("navbarDialog", showNavbarDialog && "open")}>
           <div className="navbarDialogBody" ref={addChatroomDialogRef}>

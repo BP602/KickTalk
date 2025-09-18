@@ -45,27 +45,49 @@
     align-items: flex-start;
 
     .chatroomsList {
+      display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      padding: 16px 8px;
       align-items: flex-start;
+      gap: 8px 12px;
+      padding: 16px 12px;
       width: 100%;
 
       .chatroomsContainer {
+        display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        align-items: flex-start;
+        align-items: center;
         flex: 1 1 auto;
-        max-width: clamp(0px, calc(100% - 260px), 100%);
         min-width: 0;
+
+        &.chatroomsContainerWrapMode {
+          align-content: flex-start;
+        }
+      }
+
+      .chatroomsTrailingControls {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        flex: 0 0 auto;
+      }
+
+      .chatroomsSeparator {
+        flex: 0 0 1px;
+        height: 28px;
+        margin: 0;
       }
 
       .navbarAddChatroomContainer {
-        position: relative;
+        position: static;
         background: none;
-        height: 100%;
+        height: auto;
+        width: auto;
         padding: 0;
-        min-height: 100%;
+        display: flex;
+        align-items: center;
 
         .navbarAddChatroomButton {
           height: 40px;
@@ -87,17 +109,17 @@
       }
 
       .splitPaneDropZoneContainer {
-        position: relative;
+        position: static;
         background: none;
         height: 40px;
-        width: 40px;
+        width: auto;
         padding: 0;
-        flex-shrink: 0; // Prevent container from shrinking during drag
+        display: flex;
+        align-items: center;
+        flex: 0 0 auto;
 
         .splitPaneDropZone {
-          position: absolute;
-          top: 0;
-          left: 0;
+          position: static;
           height: 40px;
           width: 40px;
           padding: 0;
