@@ -27,6 +27,7 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
   const addToSplitPane = useChatStore((state) => state.addToSplitPane);
   const splitPaneChatrooms = useChatStore((state) => state.splitPaneChatrooms);
   const canAcceptMoreSplitPanes = splitPaneChatrooms.length < MAX_SPLIT_PANE_COUNT;
+  const wrapChatroomsList = settings?.general?.wrapChatroomsList;
 
   const [editingChatroomId, setEditingChatroomId] = useState(null);
   const [editingName, setEditingName] = useState("");
@@ -155,22 +156,33 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
       return undefined;
     }
 
+    let scrollRAF = null;
     const handleWheel = (e) => {
       // Only handle vertical wheel events (convert to horizontal scroll)
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
         e.preventDefault();
 
-        // Scroll horizontally based on vertical wheel movement
-        // Increase scroll amount for more responsive scrolling
-        const scrollAmount = e.deltaY > 0 ? 60 : -60;
+        if (scrollRAF) {
+          cancelAnimationFrame(scrollRAF);
+        }
 
-        navbarContainer.scrollLeft += scrollAmount;
+        scrollRAF = requestAnimationFrame(() => {
+          // Scroll horizontally based on vertical wheel movement
+          // Increase scroll amount for more responsive scrolling
+          const scrollAmount = e.deltaY > 0 ? 60 : -60;
+          navbarContainer.scrollLeft += scrollAmount;
+          scrollRAF = null;
+        });
       }
     };
 
     navbarContainer.addEventListener("wheel", handleWheel, { passive: false });
 
     return () => {
+      if (scrollRAF) {
+        cancelAnimationFrame(scrollRAF);
+        scrollRAF = null;
+      }
       navbarContainer.removeEventListener("wheel", handleWheel);
     };
   }, [wrapChatroomsList]);
@@ -245,8 +257,6 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
     setEditingChatroomId(null);
     setEditingName("");
   };
-
-  const wrapChatroomsList = settings?.general?.wrapChatroomsList;
 
   // Setup split zone drop target
   useEffect(() => {

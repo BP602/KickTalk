@@ -169,7 +169,7 @@ const ChatroomTab = memo(
                           aria-live="polite"
                           aria-hidden={unreadCount === 0}
                         >
-                          {unreadCount > 0 ? "unread messages" : ""}
+                          {unreadCount > 0 ? `${unreadCount} unread messages` : ""}
                         </span>
                       </>
                     )}

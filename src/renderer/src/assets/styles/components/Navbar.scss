@@ -4,6 +4,7 @@
   width: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
   background-color: var(--navbar-bg);
   display: flex;
   align-items: center;
@@ -54,10 +55,8 @@
       width: 100%;
 
       .chatroomsContainer {
-        display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        align-items: center;
         flex: 1 1 auto;
         min-width: 0;
 
@@ -124,6 +123,12 @@
         width: 40px;
         padding: 0;
         justify-content: center;
+        outline: none;
+
+        &:focus-visible {
+          border: 2px solid var(--focus-ring, #9fd1ff);
+          background: rgba(255, 255, 255, 0.18);
+        }
 
         span {
           display: none;
@@ -699,6 +704,13 @@
   cursor: default;
   transition: border 0.2s ease-in-out, background 0.2s ease-in-out, color 0.2s ease-in-out;
   user-select: none;
+  outline: none;
+
+  &:focus-visible {
+    border: 2px solid var(--focus-ring, #9fd1ff);
+    background: rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.9);
+  }
 
   &.active {
     border: 2px dashed rgba(255, 255, 255, 0.4);
@@ -710,6 +722,7 @@
   &.disabled {
     cursor: not-allowed;
     opacity: 0.4;
+    pointer-events: none;
   }
 
   svg {
