@@ -68,30 +68,46 @@ export const computeAccessibleKickEmotes = (chatrooms, activeChatroomId) => {
   const seenChannelKeys = new Set();
 
   const pushSet = (targetArray, room, set, overrides = {}) => {
-    if (!set || !Array.isArray(set.emotes) || set.emotes.length === 0) {
+    if (!set) {
       return;
     }
 
-    const sectionKind = overrides.sectionKind || ((set.name || "").toLowerCase() === "channel_set" ? "channel" : "global");
-    const sectionKey = overrides.sectionKey || `${sectionKind}:${room?.id ?? set.name ?? Math.random().toString(36).slice(2)}`;
+    const {
+      sectionKind: overrideSectionKind,
+      sectionKey: overrideSectionKey,
+      sectionLabel: overrideSectionLabel,
+      allowSubscriberEmotes: overrideAllowSubscriberEmotes,
+      emoteFilter,
+    } = overrides;
+
+    const emotes = Array.isArray(set.emotes) ? set.emotes : [];
+    const filteredEmotes = typeof emoteFilter === "function" ? emotes.filter(emoteFilter) : emotes;
+
+    if (filteredEmotes.length === 0) {
+      return;
+    }
+
+    const sectionKind = overrideSectionKind || ((set.name || "").toLowerCase() === "channel_set" ? "channel" : "global");
+    const sectionKey =
+      overrideSectionKey || `${sectionKind}:${room?.id ?? set.name ?? Math.random().toString(36).slice(2)}`;
 
     if (sectionKind === "channel" && seenChannelKeys.has(sectionKey)) {
       return;
     }
 
-    const sectionLabel = overrides.sectionLabel ||
+    const sectionLabel = overrideSectionLabel ||
       (sectionKind === "channel"
         ? room?.displayName || room?.streamerData?.user?.username || set?.user?.username || "Channel Emotes"
         : set?.name || "Kick Emotes");
 
     const allowSubscriberEmotes =
-      typeof overrides.allowSubscriberEmotes === "boolean"
-        ? overrides.allowSubscriberEmotes
+      typeof overrideAllowSubscriberEmotes === "boolean"
+        ? overrideAllowSubscriberEmotes
         : sectionKind !== "channel" || normalizeSubscriptionStatus(room?.userChatroomInfo?.subscription);
 
     const clonedSet = {
       ...set,
-      emotes: (set.emotes || []).map((emote) => ({
+      emotes: filteredEmotes.map((emote) => ({
         ...emote,
         __allowUse: !emote?.subscribers_only || allowSubscriberEmotes,
         __sectionKey: sectionKey,
@@ -168,6 +184,7 @@ export const computeAccessibleKickEmotes = (chatrooms, activeChatroomId) => {
         channelSet?.user?.username ||
         "Channel Emotes",
       allowSubscriberEmotes: true,
+      emoteFilter: (emote) => Boolean(emote?.subscribers_only),
     });
   });
 
