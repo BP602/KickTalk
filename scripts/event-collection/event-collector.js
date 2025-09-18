@@ -19,6 +19,9 @@ class KickEventCollector {
     this.logFile = `kick-events-${new Date().toISOString().slice(0, 10)}.jsonl`;
     this.lastEventTime = Date.now();
     this.heartbeatInterval = null;
+    this.reconnectTimer = null;
+    this.connecting = false;
+    this.statusInterval = null;
 
     // Smart sampling state
     this.eventTypeCounts = new Map();
@@ -112,14 +115,24 @@ class KickEventCollector {
   }
 
   connect() {
+    if (this.connecting) {
+      return;
+    }
+
+    this.connecting = true;
     console.log('Connecting to Kick WebSocket...');
-    
+
     this.ws = new WebSocket(
       "wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=8.4.0-rc2&flash=false"
     );
 
     this.ws.on('open', () => {
       console.log('✓ Connected to Kick WebSocket');
+      this.connecting = false;
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
       this.startHeartbeat();
     });
 
@@ -134,14 +147,18 @@ class KickEventCollector {
 
     this.ws.on('error', (error) => {
       console.error('WebSocket error:', error);
+      this.connecting = false;
     });
 
     this.ws.on('close', () => {
       console.log('WebSocket connection closed');
       this.stopHeartbeat();
-      // Attempt to reconnect after 5 seconds
-      setTimeout(() => {
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+      }
+      this.reconnectTimer = setTimeout(() => {
         console.log('Attempting to reconnect...');
+        this.connecting = false;
         this.connect();
       }, 5000);
     });
@@ -230,7 +247,13 @@ class KickEventCollector {
           return `App\\Events\\ChatMessageEvent (${data.type} - ${celebrationType})`;
         }
         if (data.type === 'message') {
-          return `App\\Events\\ChatMessageEvent (regular)`;
+          const isReply = Boolean(
+            data.metadata?.reply_to ||
+            data.metadata?.replied_to ||
+            data.metadata?.reply ||
+            data.metadata?.parent_message_id
+          );
+          return `App\\Events\\ChatMessageEvent (${isReply ? 'reply' : 'regular'})`;
         }
         return `App\\Events\\ChatMessageEvent (${data.type})`;
       }
@@ -288,6 +311,11 @@ class KickEventCollector {
         });
       }
     }
+
+    const MAX_RAW_LEN = 50_000;
+    if (rawData && rawData.length > MAX_RAW_LEN) {
+      rawData = `${rawData.slice(0, MAX_RAW_LEN)}…(truncated)`;
+    }
     const detailedEventType = this.getDetailedEventType(message.event, data);
 
     // Update event type counts
@@ -343,6 +371,9 @@ class KickEventCollector {
       
       // Also check if websocket is in a bad state
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        if (this.connecting) {
+          return;
+        }
         console.log(`⚠️  WebSocket in bad state (${this.ws?.readyState}), reconnecting...`);
         this.connect();
       }
@@ -386,11 +417,19 @@ class KickEventCollector {
         if (this.ws) {
           this.ws.close();
         }
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
+        if (this.statusInterval) {
+          clearInterval(this.statusInterval);
+          this.statusInterval = null;
+        }
         process.exit(0);
       });
 
       // Status update every 60 seconds
-      setInterval(() => {
+      this.statusInterval = setInterval(() => {
         const stats = this.getEventStats();
         console.log(`📊 Status: ${this.eventCount} total events, ${stats.saved} saved (${stats.skipped} skipped), ${this.connectedChannels.size} channels`);
         console.log(`📊 Event types: ${Array.from(this.eventTypeCounts.entries()).map(([type, count]) => `${type}=${count}`).slice(0, 3).join(', ')}`);

@@ -2,7 +2,7 @@
   min-height: 80px;
   height: auto;
   width: 100%;
-  overflow-x: scroll;
+  overflow-x: auto;
   background-color: var(--navbar-bg);
   display: flex;
   align-items: center;
@@ -110,37 +110,22 @@
 
       .splitPaneDropZoneContainer {
         position: static;
-        background: none;
         height: 40px;
         width: auto;
-        padding: 0;
         display: flex;
         align-items: center;
         flex: 0 0 auto;
+      }
 
-        .splitPaneDropZone {
-          position: static;
-          height: 40px;
-          width: 40px;
-          padding: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: transparent;
-          border: 2px solid transparent;
-          color: rgba(255, 255, 255, 0.3);
-          cursor: default;
-          transition: border 0.2s ease-in-out, background 0.2s ease-in-out, color 0.2s ease-in-out;
+      .splitPaneDropZone {
+        position: static;
+        height: 40px;
+        width: 40px;
+        padding: 0;
+        justify-content: center;
 
-          &.active {
-            border: 2px dashed rgba(255, 255, 255, 0.4);
-            background: rgba(255, 255, 255, 0.2);
-            color: rgba(255, 255, 255, 0.8);
-          }
-
-          span {
-            display: none;
-          }
+        span {
+          display: none;
         }
       }
     }
@@ -692,7 +677,7 @@
   height: 32px;
   width: 80px;
   padding: 0;
-  flex-shrink: 0; // Prevent container from shrinking during drag
+  flex-shrink: 0;
 }
 
 .splitPaneDropZone {
@@ -700,10 +685,11 @@
   top: 0;
   left: 0;
   height: 32px;
+  width: 80px;
   padding: 1px 16px;
   font-size: 15px;
-  align-items: center;
   display: flex;
+  align-items: center;
   gap: 8px;
   border-radius: 4px;
   background: transparent;
@@ -712,7 +698,6 @@
   cursor: default;
   transition: border 0.2s ease-in-out, background 0.2s ease-in-out, color 0.2s ease-in-out;
   user-select: none;
-  width: 80px; // Fixed width
 
   &.active {
     border: 2px dashed rgba(255, 255, 255, 0.4);
@@ -727,7 +712,7 @@
 
   svg {
     flex-shrink: 0;
-    pointer-events: none; // Prevent svg from interfering with drag
+    pointer-events: none;
   }
 
   &.active svg {

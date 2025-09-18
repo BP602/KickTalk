@@ -86,6 +86,7 @@ const ChatroomTab = memo(
           getInitialData: getDraggableData,
           onDragStart: () => setIsDragging(true),
           onDrop: () => setIsDragging(false),
+          onDragEnd: () => setIsDragging(false),
         }),
         dropTargetForElements({
           element,
@@ -165,7 +166,9 @@ const ChatroomTab = memo(
                           role="status"
                           aria-live="polite"
                           aria-hidden={unreadCount === 0}
-                        />
+                        >
+                          {unreadCount > 0 ? "unread messages" : ""}
+                        </span>
                       </>
                     )}
                   </div>

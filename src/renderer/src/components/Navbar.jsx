@@ -41,6 +41,11 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
   const addChatroomDialogRef = useRef(null);
   const splitZoneRef = useRef(null);
   const navbarContainerRef = useRef(null);
+  const canAcceptMoreRef = useRef(canAcceptMoreSplitPanes);
+
+  useEffect(() => {
+    canAcceptMoreRef.current = canAcceptMoreSplitPanes;
+  }, [canAcceptMoreSplitPanes]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -118,14 +123,18 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
 
         // Handle chatroom reordering
         if (destination.data.type === 'chatroom-list') {
-          const sourceIndex = source.data.index;
+          const sourceId = source.data.chatroomId;
           const destinationIndex = destination.data.index;
+          if (destinationIndex == null) return;
 
-          if (sourceIndex !== destinationIndex) {
-            const reordered = Array.from(orderedChatrooms);
-            const [removed] = reordered.splice(sourceIndex, 1);
-            reordered.splice(destinationIndex, 0, removed);
-            reorderChatrooms(reordered);
+          const current = Array.from(orderedChatrooms);
+          const fromIndex = current.findIndex((chatroom) => chatroom.id === sourceId);
+          const boundedDestinationIndex = Math.max(0, Math.min(destinationIndex, current.length - 1));
+
+          if (fromIndex !== -1 && boundedDestinationIndex !== -1 && fromIndex !== boundedDestinationIndex) {
+            const [removed] = current.splice(fromIndex, 1);
+            current.splice(boundedDestinationIndex, 0, removed);
+            reorderChatrooms(current);
           }
         }
       },
@@ -153,10 +162,7 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
         // Increase scroll amount for more responsive scrolling
         const scrollAmount = e.deltaY > 0 ? 60 : -60;
 
-        navbarContainer.scrollBy({
-          left: scrollAmount,
-          behavior: 'smooth'
-        });
+        navbarContainer.scrollLeft += scrollAmount;
       }
     };
 
@@ -254,10 +260,10 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
       element,
       getData: () => ({ type: 'split-zone' }),
       canDrop: ({ source }) => {
-        return source.data.type === 'chatroom-tab' && canAcceptMoreSplitPanes;
+        return source.data.type === 'chatroom-tab' && canAcceptMoreRef.current;
       },
       onDragEnter: () => {
-        if (canAcceptMoreSplitPanes) {
+        if (canAcceptMoreRef.current) {
           setIsDraggingOverSplit(true);
         }
       },
@@ -266,12 +272,12 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
       },
       onDrop: ({ source }) => {
         setIsDraggingOverSplit(false);
-        if (source.data.type === 'chatroom-tab' && canAcceptMoreSplitPanes) {
+        if (source.data.type === 'chatroom-tab' && canAcceptMoreRef.current) {
           addToSplitPane(source.data.chatroomId);
         }
       },
     });
-  }, [canAcceptMoreSplitPanes, addToSplitPane]);
+  }, [addToSplitPane]);
 
   // Setup auto-scroll for navbar container (the actual scrollable element)
   useEffect(() => {
@@ -289,11 +295,17 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
         right: { maximum: 600 }
       },
       // Make the scroll trigger zones larger (default is 50px from edge)
-      threshold: {
-        top: 80,
-        bottom: 80,
-        left: 80,
-        right: 80
+      threshold: ({ element: targetElement }) => {
+        const width = targetElement.clientWidth;
+        const height = targetElement.clientHeight;
+        const edgeX = Math.max(40, Math.round(width * 0.08));
+        const edgeY = Math.max(40, Math.round(height * 0.08));
+        return {
+          top: edgeY,
+          bottom: edgeY,
+          left: edgeX,
+          right: edgeX,
+        };
       }
     });
   }, []);
