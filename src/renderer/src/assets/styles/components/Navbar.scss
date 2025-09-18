@@ -55,6 +55,9 @@
         flex-wrap: wrap;
         gap: 8px;
         align-items: flex-start;
+        flex: 1 1 auto;
+        max-width: clamp(0px, calc(100% - 260px), 100%);
+        min-width: 0;
       }
 
       .navbarAddChatroomContainer {
@@ -693,6 +696,11 @@
     border: 2px dashed rgba(255, 255, 255, 0.4);
     background: rgba(255, 255, 255, 0.2);
     color: rgba(255, 255, 255, 0.8);
+  }
+
+  &.disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
   }
 
   svg {

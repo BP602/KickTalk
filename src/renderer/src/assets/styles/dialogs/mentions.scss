@@ -30,7 +30,9 @@
     .mentionsActions {
       flex: 1 1 25%;
       display: flex;
-      justify-content: end;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
 
       .mentionsCloseBtn {
         background: none;
@@ -41,20 +43,6 @@
         justify-content: center;
         border-radius: 4px;
         cursor: pointer;
-      }
-
-      button {
-        background: none;
-        border: none;
-        padding: 4px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 4px;
-        cursor: pointer;
-      }
-
-      .chattersBtn {
         opacity: 0.5;
         transition: opacity 0.2s ease;
 
@@ -63,13 +51,27 @@
         }
       }
 
-      .chatStreamerInfoModeratorBtn {
-        opacity: 1;
+      .mentionsGlobalActionBtn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: 4px;
         cursor: pointer;
-        transition: opacity 0.2s ease;
+        background: rgba(255, 255, 255, 0.075);
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.2s;
 
-        &.disabled {
-          opacity: 0.5;
+        &:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: rgba(255, 255, 255, 0.85);
+        }
+
+        svg {
+          opacity: 0.7;
         }
       }
     }
@@ -265,26 +267,5 @@
         overflow-wrap: anywhere;
       }
     }
-  }
-}
-
-.mentionsGlobalActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  .mentionsGlobalActionBtn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    height: 28px;
-    padding: 0 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    background: rgba(255, 255, 255, 0.075);
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 14px;
-    font-weight: 600;
-    transition: all 0.2s;
   }
 }

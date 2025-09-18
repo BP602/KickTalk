@@ -32,7 +32,7 @@ KickTalk follows Electron's multi-process architecture with enhanced telemetry a
 
 The application uses a single-page architecture without routing:
 
-```
+```text
 App
 ├── ErrorBoundary
 ├── Loader
@@ -192,7 +192,7 @@ Monitored performance thresholds:
 
 ## Directory Structure
 
-```
+```text
 src/
 ├── main/                    # Main process (Node.js)
 │   ├── index.js            # Application entry point and IPC handlers

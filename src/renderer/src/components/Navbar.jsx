@@ -1,7 +1,8 @@
 import "@assets/styles/components/Navbar.scss";
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import useChatStore from "../providers/ChatProvider";
+import useChatStore, { MAX_SPLIT_PANE_COUNT } from "../providers/ChatProvider";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./Shared/Tooltip";
 import { PlusIcon, XIcon, BellIcon, ChatCenteredTextIcon, SquareSplitHorizontalIcon } from "@phosphor-icons/react";
 import useClickOutside from "../utils/useClickOutside";
 import { useSettings } from "../providers/SettingsProvider";
@@ -24,6 +25,8 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
   const addMentionsTab = useChatStore((state) => state.addMentionsTab);
   const removeMentionsTab = useChatStore((state) => state.removeMentionsTab);
   const addToSplitPane = useChatStore((state) => state.addToSplitPane);
+  const splitPaneChatrooms = useChatStore((state) => state.splitPaneChatrooms);
+  const canAcceptMoreSplitPanes = splitPaneChatrooms.length < MAX_SPLIT_PANE_COUNT;
 
   const [editingChatroomId, setEditingChatroomId] = useState(null);
   const [editingName, setEditingName] = useState("");
@@ -103,8 +106,7 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
   };
 
   const handleDragUpdate = (update) => {
-    // Check if hovering over split zone droppable
-    if (update.destination?.droppableId === 'split-zone') {
+    if (update.destination?.droppableId === 'split-zone' && canAcceptMoreSplitPanes) {
       setIsDraggingOverSplit(true);
     } else {
       setIsDraggingOverSplit(false);
@@ -237,11 +239,12 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
   };
 
   return (
-    <>
-      <div
-        className={clsx(
-          "navbarContainer",
-          settings?.general?.wrapChatroomsList && "wrapChatroomList",
+    <TooltipProvider>
+      <>
+        <div
+          className={clsx(
+            "navbarContainer",
+            settings?.general?.wrapChatroomsList && "wrapChatroomList",
           settings?.general?.compactChatroomsList && "compactChatroomList",
         )}
         ref={chatroomListRef}
@@ -308,24 +311,36 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
               </div>
             )}
 
-            {/* Split Pane Drop Zone - Separate Droppable */}
             <div className="splitPaneDropZoneContainer">
-              <Droppable droppableId="split-zone" direction="horizontal">
-                {(provided, snapshot) => (
-                  <div
-                    ref={(el) => {
-                      provided.innerRef(el);
-                      splitZoneRef.current = el;
-                    }}
-                    {...provided.droppableProps}
-                    className={clsx("splitPaneDropZone", snapshot.isDraggingOver && "active")}
-                  >
-                    <span>Split</span>
-                    <SquareSplitHorizontalIcon weight="bold" size={16} aria-label="Split pane" />
-                    <div style={{ display: 'none' }}>{provided.placeholder}</div>
-                  </div>
-                )}
-              </Droppable>
+              <Tooltip delayDuration={150}>
+                <Droppable droppableId="split-zone" direction="horizontal">
+                  {(provided, snapshot) => (
+                    <TooltipTrigger asChild>
+                      <div
+                        ref={(el) => {
+                          provided.innerRef(el);
+                          splitZoneRef.current = el;
+                        }}
+                        {...provided.droppableProps}
+                        className={clsx(
+                          "splitPaneDropZone",
+                          !canAcceptMoreSplitPanes && "disabled",
+                          snapshot.isDraggingOver && canAcceptMoreSplitPanes && "active",
+                        )}
+                      >
+                        <span>Split</span>
+                        <SquareSplitHorizontalIcon weight="bold" size={16} aria-label="Split pane" />
+                        <div style={{ display: 'none' }}>{provided.placeholder}</div>
+                      </div>
+                    </TooltipTrigger>
+                  )}
+                </Droppable>
+                <TooltipContent side="bottom" sideOffset={8}>
+                  {canAcceptMoreSplitPanes
+                    ? "Drag a chatroom here to open it in a split pane"
+                    : `Split pane limit reached (${MAX_SPLIT_PANE_COUNT})`}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </DragDropContext>
@@ -413,7 +428,8 @@ const Navbar = ({ currentChatroomId, kickId, onSelectChatroom }) => {
           </div>
         )}
       </div>
-    </>
+      </>
+    </TooltipProvider>
   );
 };
 
