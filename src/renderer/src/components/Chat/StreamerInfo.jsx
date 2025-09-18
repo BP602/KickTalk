@@ -188,6 +188,9 @@ const StreamerInfo = memo(
           <ContextMenuItem onSelect={handleRefresh7TV}>Refresh 7TV Emotes</ContextMenuItem>
           <ContextMenuItem onSelect={handleRefreshKickEmotes}>Refresh Kick Emotes</ContextMenuItem>
           <ContextMenuItem onSelect={handleSearch}>Search</ContextMenuItem>
+          {showCloseButton && (
+            <ContextMenuItem onSelect={onClose}>Close Pane</ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => window.open(`https://kick.com/${streamerData?.slug}`, "_blank")}>
             Open Stream in Browser
