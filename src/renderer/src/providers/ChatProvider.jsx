@@ -397,7 +397,23 @@ const getInitialState = () => {
       chatHistoryLength: DEFAULT_CHAT_HISTORY_LENGTH
     },
     draftMessages: new Map(), // Store draft messages per chatroom
+    splitPaneChatrooms: [], // Store chatroom IDs for split pane view
   };
+};
+
+export const MAX_SPLIT_PANE_COUNT = 3;
+
+const normalizeChatroomIdForSplitPane = (rawId) => {
+  if (rawId == null) {
+    return null;
+  }
+
+  if (typeof rawId === 'number') {
+    return Number.isFinite(rawId) ? rawId : null;
+  }
+
+  const parsed = parseInt(String(rawId), 10);
+  return Number.isNaN(parsed) ? null : parsed;
 };
 
 // Cached mention regex to avoid rebuilding on every message
@@ -2260,6 +2276,9 @@ const useChatStore = create((set, get) => ({
         messages,
         connections,
         mentions,
+        splitPaneChatrooms: (state.splitPaneChatrooms || []).filter(
+          (id) => !safeChatroomIdMatch(id, chatroomId, 'removeChatroom'),
+        ),
       };
     });
 
@@ -2289,6 +2308,57 @@ const useChatStore = create((set, get) => ({
 
     // Update local storage
     localStorage.setItem("chatrooms", JSON.stringify(chatroomsWithNewOrder));
+  },
+
+  // Split pane management methods
+  addToSplitPane: (chatroomId) => {
+    const normalizedId = normalizeChatroomIdForSplitPane(chatroomId);
+    if (normalizedId == null) {
+      console.warn('[SplitPane] Ignoring invalid chatroom id for split pane:', chatroomId);
+      return;
+    }
+
+    set((state) => {
+      const currentSplitPanes = state.splitPaneChatrooms || [];
+      if (currentSplitPanes.length >= MAX_SPLIT_PANE_COUNT) {
+        window.app?.telemetry?.recordEvent?.('split_pane_limit_reached', {
+          attemptedChatroomId: String(chatroomId),
+          limit: MAX_SPLIT_PANE_COUNT,
+        });
+        return state;
+      }
+
+      const targetRoom = state.chatrooms.find((room) =>
+        safeChatroomIdMatch(room.id, normalizedId, 'addToSplitPane:lookup'),
+      );
+      if (!targetRoom) {
+        console.warn('[SplitPane] Tried to add unknown chatroom to split pane:', chatroomId);
+        return state;
+      }
+
+      const alreadySplit = currentSplitPanes.some((id) =>
+        safeChatroomIdMatch(id, targetRoom.id, 'addToSplitPane:duplicate'),
+      );
+      if (alreadySplit) {
+        return state;
+      }
+
+      return {
+        splitPaneChatrooms: [...currentSplitPanes, targetRoom.id],
+      };
+    });
+  },
+
+  removeFromSplitPane: (chatroomId) => {
+    set((state) => ({
+      splitPaneChatrooms: (state.splitPaneChatrooms || []).filter(
+        (id) => !safeChatroomIdMatch(id, chatroomId, 'removeFromSplitPane'),
+      ),
+    }));
+  },
+
+  clearSplitPane: () => {
+    set({ splitPaneChatrooms: [] });
   },
 
   handleUserBanned: async (chatroomId, event) => {

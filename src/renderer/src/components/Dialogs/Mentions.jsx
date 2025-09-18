@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import useChatStore from "../../providers/ChatProvider";
 import { useShallow } from "zustand/shallow";
-import { TrashIcon, CaretDownIcon, ArrowUpRightIcon } from "@phosphor-icons/react";
+import { TrashIcon, CaretDownIcon, ArrowUpRightIcon, XIcon } from "@phosphor-icons/react";
 import "../../assets/styles/dialogs/mentions.scss";
 import clsx from "clsx";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../Shared/Dropdown";
@@ -13,7 +13,7 @@ import { KickBadges } from "../Cosmetics/Badges";
 
 dayjs.extend(relativeTime);
 
-const Mentions = ({ setActiveChatroom, chatroomId }) => {
+const Mentions = ({ setActiveChatroom, chatroomId, showCloseButton = false, onClose }) => {
   const [selectedChatroom, setSelectedChatroom] = useState("all");
   const {
     mentions,
@@ -78,7 +78,17 @@ const Mentions = ({ setActiveChatroom, chatroomId }) => {
           <h2>All Mentions</h2>
         </div>
 
-        <div className="mentionsGlobalActions">
+        <div className="mentionsActions">
+          {showCloseButton && (
+            <button
+              type="button"
+              className="mentionsCloseBtn"
+              onClick={onClose}
+              aria-label="Close split pane">
+              <XIcon size={16} weight="bold" />
+            </button>
+          )}
+
           {filteredMentions.length > 0 && (
             <button className="mentionsGlobalActionBtn" onClick={handleClearAll} title="Clear all mentions">
               <span>Clear all</span>

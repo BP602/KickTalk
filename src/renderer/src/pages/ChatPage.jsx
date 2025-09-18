@@ -1,11 +1,13 @@
 import "@assets/styles/pages/ChatPage.scss";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useSettings } from "../providers/SettingsProvider";
-import useChatStore from "../providers/ChatProvider";
+import useChatStore, { MAX_SPLIT_PANE_COUNT } from "../providers/ChatProvider";
 import Chat from "../components/Chat";
 import Navbar from "../components/Navbar";
 import TitleBar from "../components/TitleBar";
 import Mentions from "../components/Dialogs/Mentions";
+import SplitPaneChat from "../components/SplitPaneChat";
+import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
 
 // Telemetry monitoring hook
 const useTelemetryMonitoring = () => {
@@ -75,12 +77,34 @@ const endSpanError = (span, err) => {
 const ChatPage = () => {
   const { settings, updateSettings } = useSettings();
   const setCurrentChatroom = useChatStore((state) => state.setCurrentChatroom);
+  const splitPaneChatroomsRaw = useChatStore((state) => state.splitPaneChatrooms);
+  const removeFromSplitPane = useChatStore((state) => state.removeFromSplitPane);
 
   const [activeChatroomId, setActiveChatroomId] = useState(null);
   const kickUsername = localStorage.getItem("kickUsername");
   const kickId = localStorage.getItem("kickId");
   
   // Instrumented chatroom switching with telemetry
+  // Handle closing main panel when there are split panes
+  const splitPaneChatrooms = splitPaneChatroomsRaw.slice(0, MAX_SPLIT_PANE_COUNT);
+
+  useEffect(() => {
+    if (splitPaneChatroomsRaw.length > MAX_SPLIT_PANE_COUNT) {
+      splitPaneChatroomsRaw.slice(MAX_SPLIT_PANE_COUNT).forEach((chatroomId) => {
+        removeFromSplitPane(chatroomId);
+      });
+    }
+  }, [splitPaneChatroomsRaw, removeFromSplitPane]);
+
+  const handleCloseMainPanel = () => {
+    if (splitPaneChatrooms.length > 0) {
+      // Make the first split pane the new main panel
+      const newMainChatroomId = splitPaneChatrooms[0];
+      removeFromSplitPane(newMainChatroomId);
+      handleChatroomSwitch(newMainChatroomId);
+    }
+  };
+
   const handleChatroomSwitch = (newChatroomId) => {
     const switchSpan = startSpan('chatroom.switch', {
       'chatroom.from': activeChatroomId || 'none',
@@ -143,22 +167,49 @@ const ChatPage = () => {
         </div>
 
         <div className="chatContent">
-          {activeChatroomId && activeChatroomId !== "mentions" ? (
-            <Chat
-              chatroomId={activeChatroomId}
-              kickUsername={kickUsername}
-              kickId={kickId}
-              settings={settings}
-              updateSettings={updateSettings}
-            />
-          ) : activeChatroomId === "mentions" ? (
-            <Mentions setActiveChatroom={setActiveChatroomId} chatroomId={activeChatroomId} />
-          ) : (
-            <div className="chatroomsEmptyState">
-              <h1>No Chatrooms</h1>
-              <p>Add a chatroom by using "CTRL"+"t" or clicking Add button</p>
-            </div>
-          )}
+          <PanelGroup direction="horizontal" className="chatPanels">
+            <Panel defaultSize={splitPaneChatrooms.length > 0 ? 60 : 100} minSize={25}>
+              {activeChatroomId && activeChatroomId !== "mentions" ? (
+                <Chat
+                  chatroomId={activeChatroomId}
+                  kickUsername={kickUsername}
+                  kickId={kickId}
+                  settings={settings}
+                  updateSettings={updateSettings}
+                  showCloseButton={splitPaneChatrooms.length > 0}
+                  onClose={handleCloseMainPanel}
+                />
+              ) : activeChatroomId === "mentions" ? (
+                <Mentions
+                  setActiveChatroom={setActiveChatroomId}
+                  chatroomId={activeChatroomId}
+                  showCloseButton={splitPaneChatrooms.length > 0}
+                  onClose={handleCloseMainPanel}
+                />
+              ) : (
+                <div className="chatroomsEmptyState">
+                  <h1>No Chatrooms</h1>
+                  <p>Add a chatroom by using "CTRL"+"t" or clicking Add button</p>
+                </div>
+              )}
+            </Panel>
+
+            {splitPaneChatrooms.map((chatroomId, index) => (
+                <Fragment key={chatroomId}>
+                  <PanelResizeHandle className="resize-handle" />
+                  <Panel defaultSize={40 / splitPaneChatrooms.length} minSize={20}>
+                  <SplitPaneChat
+                    chatroomId={chatroomId}
+                    kickUsername={kickUsername}
+                    kickId={kickId}
+                    settings={settings}
+                    updateSettings={updateSettings}
+                    onClose={() => removeFromSplitPane(chatroomId)}
+                  />
+                </Panel>
+              </Fragment>
+            ))}
+          </PanelGroup>
         </div>
       </div>
     </div>

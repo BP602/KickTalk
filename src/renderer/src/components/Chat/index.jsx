@@ -11,7 +11,7 @@ import relativeTime from "dayjs/plugin/relativeTime";
 import StreamerInfo from "./StreamerInfo";
 dayjs.extend(relativeTime);
 
-const Chat = ({ chatroomId, kickUsername, kickId, settings, updateSettings }) => {
+const Chat = ({ chatroomId, kickUsername, kickId, settings, updateSettings, showCloseButton, onClose }) => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const chatroom = useChatStore((state) => state.chatrooms.filter((chatroom) => chatroom.id === chatroomId)[0]);
@@ -73,6 +73,8 @@ const Chat = ({ chatroomId, kickUsername, kickId, settings, updateSettings }) =>
         settings={settings}
         handleSearch={handleSearch}
         updateSettings={updateSettings}
+        showCloseButton={showCloseButton}
+        onClose={onClose}
       />
 
       <div className="chatBody">

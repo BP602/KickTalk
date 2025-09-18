@@ -2,7 +2,9 @@
   min-height: 80px;
   height: auto;
   width: 100%;
-  overflow-x: scroll;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
   background-color: var(--navbar-bg);
   display: flex;
   align-items: center;
@@ -31,6 +33,13 @@
     height: auto;
     align-items: center;
     padding-right: 132px;
+
+    .chatroomsContainer {
+      display: flex;
+      gap: 12px;
+      height: auto;
+      align-items: center;
+    }
   }
 
   &.wrapChatroomList {
@@ -38,18 +47,47 @@
     align-items: flex-start;
 
     .chatroomsList {
+      display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      padding: 16px 8px;
       align-items: flex-start;
+      gap: 8px 12px;
+      padding: 16px 12px;
       width: 100%;
 
+      .chatroomsContainer {
+        flex-wrap: wrap;
+        gap: 8px;
+        flex: 1 1 auto;
+        min-width: 0;
+
+        &.chatroomsContainerWrapMode {
+          align-content: flex-start;
+        }
+      }
+
+      .chatroomsTrailingControls {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        flex: 0 0 auto;
+      }
+
+      .chatroomsSeparator {
+        flex: 0 0 1px;
+        height: 28px;
+        margin: 0;
+      }
+
       .navbarAddChatroomContainer {
-        position: relative;
+        position: static;
         background: none;
-        height: 100%;
+        height: auto;
+        width: auto;
         padding: 0;
-        min-height: 100%;
+        display: flex;
+        align-items: center;
 
         .navbarAddChatroomButton {
           height: 40px;
@@ -67,6 +105,33 @@
           span {
             display: none;
           }
+        }
+      }
+
+      .splitPaneDropZoneContainer {
+        position: static;
+        height: 40px;
+        width: auto;
+        display: flex;
+        align-items: center;
+        flex: 0 0 auto;
+      }
+
+      .splitPaneDropZone {
+        position: static;
+        height: 40px;
+        width: 40px;
+        padding: 0;
+        justify-content: center;
+        outline: none;
+
+        &:focus-visible {
+          border: 2px solid var(--focus-ring, #9fd1ff);
+          background: rgba(255, 255, 255, 0.18);
+        }
+
+        span {
+          display: none;
         }
       }
     }
@@ -608,5 +673,67 @@
   100% {
     transform: translate(-50%, -50%);
     opacity: 1;
+  }
+}
+
+// Split Pane Drop Zone - styled like navbarAddChatroomContainer
+.splitPaneDropZoneContainer {
+  position: relative;
+  background: none;
+  height: 32px;
+  width: 80px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.splitPaneDropZone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 32px;
+  width: 80px;
+  padding: 1px 16px;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  border: 2px solid transparent;
+  cursor: default;
+  transition: border 0.2s ease-in-out, background 0.2s ease-in-out, color 0.2s ease-in-out;
+  user-select: none;
+  outline: none;
+
+  &:focus-visible {
+    border: 2px solid var(--focus-ring, #9fd1ff);
+    background: rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  &.active {
+    border: 2px dashed rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.8);
+    cursor: copy;
+  }
+
+  &.disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  svg {
+    flex-shrink: 0;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    &.active svg {
+      transform: scale(1.1);
+      transition: transform 120ms ease-out;
+    }
   }
 }

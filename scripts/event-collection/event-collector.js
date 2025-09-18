@@ -19,11 +19,16 @@ class KickEventCollector {
     this.logFile = `kick-events-${new Date().toISOString().slice(0, 10)}.jsonl`;
     this.lastEventTime = Date.now();
     this.heartbeatInterval = null;
+    this.reconnectTimer = null;
+    this.connecting = false;
+    this.statusInterval = null;
 
     // Smart sampling state
     this.eventTypeCounts = new Map();
     this.lastRegularMessageTime = 0;
+    this.lastReplyMessageTime = 0;
     this.regularMessageInterval = 60 * 60 * 1000; // Sample regular messages every hour
+    this.replyMessageInterval = 60 * 60 * 1000; // Sample reply messages every hour
     this.savedEventCount = 0;
     this.skippedEventCount = 0;
     
@@ -43,6 +48,27 @@ class KickEventCollector {
         slug: `id_${id}` 
       });
     });
+  }
+
+  scheduleReconnect(delayMs = 5000) {
+    if (this.connecting || (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING))) {
+      return;
+    }
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+
+      if (this.connecting || (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING))) {
+        return;
+      }
+
+      console.log('Attempting to reconnect...');
+      this.connect();
+    }, delayMs);
   }
 
   async fetchChannelData(slug) {
@@ -110,14 +136,27 @@ class KickEventCollector {
   }
 
   connect() {
+    if (this.connecting) {
+      return;
+    }
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    this.connecting = true;
     console.log('Connecting to Kick WebSocket...');
-    
+
     this.ws = new WebSocket(
       "wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=8.4.0-rc2&flash=false"
     );
 
     this.ws.on('open', () => {
       console.log('✓ Connected to Kick WebSocket');
+      this.connecting = false;
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
       this.startHeartbeat();
     });
 
@@ -132,16 +171,14 @@ class KickEventCollector {
 
     this.ws.on('error', (error) => {
       console.error('WebSocket error:', error);
+      this.connecting = false;
     });
 
     this.ws.on('close', () => {
       console.log('WebSocket connection closed');
       this.stopHeartbeat();
-      // Attempt to reconnect after 5 seconds
-      setTimeout(() => {
-        console.log('Attempting to reconnect...');
-        this.connect();
-      }, 5000);
+      this.connecting = false;
+      this.scheduleReconnect();
     });
   }
 
@@ -208,22 +245,13 @@ class KickEventCollector {
   }
 
   isInterestingEvent(message) {
-    // Skip internal Pusher events
+    // Skip internal Pusher events only - capture EVERYTHING else
     if (message.event && message.event.startsWith('pusher')) {
       return false;
     }
 
-    // We want all App\Events\ events and any others
-    return message.event && (
-      message.event.startsWith('App\\Events\\') ||
-      message.event.includes('Event') ||
-      message.event.includes('Support') ||
-      message.event.includes('Reward') ||
-      message.event.includes('Donation') ||
-      message.event.includes('Subscription') ||
-      message.event.includes('Follow') ||
-      message.event.includes('Tip')
-    );
+    // Log all non-pusher events to catch new event types early
+    return message.event && message.event.length > 0;
   }
 
   getDetailedEventType(event, data) {
@@ -237,7 +265,13 @@ class KickEventCollector {
           return `App\\Events\\ChatMessageEvent (${data.type} - ${celebrationType})`;
         }
         if (data.type === 'message') {
-          return `App\\Events\\ChatMessageEvent (regular)`;
+          const isReply = Boolean(
+            data.metadata?.reply_to ||
+            data.metadata?.replied_to ||
+            data.metadata?.reply ||
+            data.metadata?.parent_message_id
+          );
+          return `App\\Events\\ChatMessageEvent (${isReply ? 'reply' : 'regular'})`;
         }
         return `App\\Events\\ChatMessageEvent (${data.type})`;
       }
@@ -249,15 +283,27 @@ class KickEventCollector {
   shouldSampleEvent(eventType, data) {
     const now = Date.now();
 
-    // Always sample non-regular events (rare/important events)
-    if (!eventType.includes('(regular)')) {
+    // Always sample rare/important events (not regular or reply)
+    if (!eventType.includes('(regular)') && !eventType.includes('(reply)')) {
       return true;
     }
 
     // For regular messages, sample every hour
-    if (now - this.lastRegularMessageTime >= this.regularMessageInterval) {
-      this.lastRegularMessageTime = now;
-      return true;
+    if (eventType.includes('(regular)')) {
+      if (now - this.lastRegularMessageTime >= this.regularMessageInterval) {
+        this.lastRegularMessageTime = now;
+        return true;
+      }
+      return false;
+    }
+
+    // For reply messages, sample every hour
+    if (eventType.includes('(reply)')) {
+      if (now - this.lastReplyMessageTime >= this.replyMessageInterval) {
+        this.lastReplyMessageTime = now;
+        return true;
+      }
+      return false;
     }
 
     return false;
@@ -267,7 +313,31 @@ class KickEventCollector {
     this.eventCount++;
     this.lastEventTime = Date.now();
 
-    const data = message.data ? JSON.parse(message.data) : null;
+    let data = null;
+    let rawData = null;
+    let dataParseError = null;
+    let sanitizedMessage = message;
+    if (message.data) {
+      rawData = message.data;
+      try {
+        data = JSON.parse(rawData);
+      } catch (error) {
+        dataParseError = error.message;
+        console.warn('Captured event with invalid JSON payload', {
+          event: message.event,
+          channel: message.channel,
+          error: dataParseError,
+        });
+      }
+    }
+
+    const MAX_RAW_LEN = 50_000;
+    if (rawData && rawData.length > MAX_RAW_LEN) {
+      rawData = `${rawData.slice(0, MAX_RAW_LEN)}…(truncated)`;
+    }
+    if (rawData !== null) {
+      sanitizedMessage = { ...message, data: rawData };
+    }
     const detailedEventType = this.getDetailedEventType(message.event, data);
 
     // Update event type counts
@@ -288,9 +358,17 @@ class KickEventCollector {
       event: message.event,
       channel: message.channel,
       data: data,
-      raw: message,
+      raw: sanitizedMessage,
       detailedEventType: detailedEventType
     };
+
+    if (rawData !== null) {
+      logEntry.rawData = rawData;
+    }
+
+    if (dataParseError) {
+      logEntry.dataParseError = dataParseError;
+    }
 
     // Console output for monitoring
     console.log(`[${this.eventCount}] ${detailedEventType} on ${message.channel} (SAVED)`);
@@ -315,8 +393,13 @@ class KickEventCollector {
       
       // Also check if websocket is in a bad state
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        console.log(`⚠️  WebSocket in bad state (${this.ws?.readyState}), reconnecting...`);
-        this.connect();
+        if (this.connecting) {
+          return;
+        }
+        console.log(`⚠️  WebSocket in bad state (${this.ws?.readyState}), scheduling reconnect...`);
+        if (!this.reconnectTimer) {
+          this.scheduleReconnect(0);
+        }
       }
     }, 30000);
   }
@@ -358,11 +441,20 @@ class KickEventCollector {
         if (this.ws) {
           this.ws.close();
         }
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
+        this.stopHeartbeat();
+        if (this.statusInterval) {
+          clearInterval(this.statusInterval);
+          this.statusInterval = null;
+        }
         process.exit(0);
       });
 
       // Status update every 60 seconds
-      setInterval(() => {
+      this.statusInterval = setInterval(() => {
         const stats = this.getEventStats();
         console.log(`📊 Status: ${this.eventCount} total events, ${stats.saved} saved (${stats.skipped} skipped), ${this.connectedChannels.size} channels`);
         console.log(`📊 Event types: ${Array.from(this.eventTypeCounts.entries()).map(([type, count]) => `${type}=${count}`).slice(0, 3).join(', ')}`);
