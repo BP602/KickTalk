@@ -16,7 +16,7 @@ import kickLogoIcon from "../../assets/logos/kickLogoIcon.svg?asset";
 const Settings = () => {
   const { updateSettings, settings } = useSettings();
   const [activeSection, setActiveSection] = useState("general");
-  const [userData, setUserData] = useState(null);
+  const [, setUserData] = useState(null);
   const [openColorPicker, setOpenColorPicker] = useState(false);
   const [settingsData, setSettingsData] = useState(null);
   const [appInfo, setAppInfo] = useState(null);

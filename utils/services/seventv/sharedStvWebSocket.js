@@ -75,9 +75,9 @@ const updateCosmetics = async (body) => {
           name: data.name,
           style: data.function,
           shape: data.shape,
-          backgroundImage:
-            `${data.function || "linear-gradient"}(${isDeg_or_Shape}, ${gradient})` ||
-            `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
+          backgroundImage: data.function || data.style
+            ? `${data.function || "linear-gradient"}(${isDeg_or_Shape}, ${gradient})`
+            : `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
           shadows: null,
           KIND: "non-animated",
           url: data.image_url,
@@ -88,9 +88,9 @@ const updateCosmetics = async (body) => {
           name: data.name,
           style: data.function,
           shape: data.shape,
-          backgroundImage:
-            `url('${[data.image_url]}')` ||
-            `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
+          backgroundImage: data.image_url
+            ? `url('${[data.image_url]}')`
+            : `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
           shadows: null,
           KIND: "animated",
           url: data.image_url,
@@ -138,7 +138,7 @@ let tracer;
 try {
   const { trace } = require('@opentelemetry/api');
   tracer = trace.getTracer('kicktalk-shared-7tv-websocket', '1.0.0');
-} catch (e) {
+} catch (_e) {
   // Fallback if OpenTelemetry not available
   tracer = {
     startSpan: (name, options) => ({ 

@@ -1,9 +1,5 @@
 import axios from "axios";
 
-const getPersonalEmoteSet = async (userId) => {
-  const response = await axios.get(`https://7tv.io/v3/users/${userId}/emote-sets/personal`);
-  return response.data;
-};
 
 const getChannelEmotes = async (channelId) => {
   console.log("[7tv Emotes] Fetching channel emotes for", channelId);

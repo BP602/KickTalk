@@ -146,7 +146,7 @@ class CircuitBreaker {
       if (fallback && typeof fallback === 'function') {
         try {
           return await fallback();
-        } catch (fallbackError) {
+        } catch (_fallbackError) {
           throw error; // Return original error if fallback fails
         }
       }
@@ -429,7 +429,7 @@ const ErrorMonitor = {
           
           this.recordRecovery(errorRecord.error_id, 'fallback', true, duration);
           return fallbackResult;
-        } catch (fallbackError) {
+        } catch (_fallbackError) {
           this.recordRecovery(errorRecord.error_id, 'fallback', false);
         }
       }

@@ -5,7 +5,7 @@ const processQueue = async () => {
   if (isFetching || fetchQueue.length === 0) return;
 
   isFetching = true;
-  const { input, resolve, reject } = fetchQueue.shift();
+  const { input, resolve } = fetchQueue.shift();
 
   const apiStart = Date.now();
   try {

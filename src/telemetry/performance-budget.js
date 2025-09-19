@@ -1,13 +1,11 @@
 // KickTalk Performance Budget & User Experience Impact Analysis
-const { metrics, trace } = require('@opentelemetry/api');
-const { ErrorMonitor } = require('./error-monitoring');
+const { metrics } = require('@opentelemetry/api');
 
 // Lazy load UserAnalytics to avoid circular dependency
 let UserAnalytics = null;
 
 const pkg = require('../../package.json');
 const meter = metrics.getMeter('kicktalk-performance-budget', pkg.version);
-const tracer = trace.getTracer('kicktalk-performance-budget', pkg.version);
 
 // Performance Budget Metrics
 const performanceBudgetViolation = meter.createCounter('kicktalk_performance_budget_violations_total', {
@@ -459,7 +457,6 @@ class PerformanceBudgetMonitor {
           this.monitorMemoryUsage(memMB);
 
           // CPU usage monitoring (simplified)
-          const cpuUsage = process.cpuUsage();
           // This is a simplified CPU calculation - in practice you'd want more sophisticated monitoring
           
         } catch (error) {

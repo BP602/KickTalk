@@ -498,7 +498,6 @@ export const MessageParser = ({
 
     if (messageContentCache.has(cacheKey)) {
       // No span for cache hits (reduce trace noise)
-      const parseTime = performance.now() - startTime;
       return messageContentCache.get(cacheKey);
     }
 

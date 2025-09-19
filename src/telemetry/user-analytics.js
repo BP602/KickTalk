@@ -1,6 +1,5 @@
 // KickTalk User Experience Analytics & Session Tracking
-const { metrics, trace, context } = require('@opentelemetry/api');
-const { ErrorMonitor } = require('./error-monitoring');
+const { metrics, trace } = require('@opentelemetry/api');
 
 const pkg = require('../../package.json');
 const meter = metrics.getMeter('kicktalk-user-analytics', pkg.version);
@@ -100,14 +99,6 @@ let performanceCorrelationData = {
   error_impact_sessions: new Set()
 };
 
-// User satisfaction scoring factors
-const SATISFACTION_FACTORS = {
-  RESPONSE_TIME_WEIGHT: 0.3,
-  ERROR_RATE_WEIGHT: 0.25,
-  ENGAGEMENT_WEIGHT: 0.2,
-  CONNECTION_QUALITY_WEIGHT: 0.15,
-  FEATURE_ADOPTION_WEIGHT: 0.1
-};
 
 class UserSession {
   constructor(sessionId, userId = null) {
@@ -161,7 +152,7 @@ class UserSession {
   }
 
   getFeatureFromAction(actionType) {
-    for (const [category, config] of Object.entries(FEATURE_CATEGORIES)) {
+    for (const [, config] of Object.entries(FEATURE_CATEGORIES)) {
       if (config.actions.some(action => actionType.includes(action))) {
         return config.name;
       }
@@ -226,7 +217,6 @@ class UserSession {
   }
 
   calculateFinalSatisfactionScore() {
-    const sessionDuration = this.getSessionDuration();
     const engagementRate = this.getEngagementRate();
     const errorRate = this.actions.length > 0 ? this.errorCount / this.actions.length : 0;
     const avgResponseTime = this.getAverageResponseTime();
@@ -344,8 +334,6 @@ const UserAnalytics = {
       return;
     }
 
-    const startTime = Date.now();
-    
     return tracer.startActiveSpan(`user_action_${actionType}`, (span) => {
       try {
         // Record the action
@@ -531,7 +519,7 @@ const UserAnalytics = {
           userBehaviorData.delete(sessionId);
           cleanedHistoricalData++;
         }
-      } catch (error) {
+      } catch (_error) {
         // If session ID format is unexpected, clean it up anyway if too old
         if (data.timestamp && data.timestamp < historicalCutoff) {
           userBehaviorData.delete(sessionId);
@@ -544,7 +532,7 @@ const UserAnalytics = {
     const adoptionCutoff = Date.now() - (30 * 24 * 60 * 60 * 1000);
     let cleanedAdoptionData = 0;
     
-    for (const [userId, features] of featureAdoptionData) {
+    for (const [userId] of featureAdoptionData) {
       // Remove adoption data if no recent sessions for this user
       const hasRecentSession = Array.from(userBehaviorData.values())
         .some(data => data.user_id === userId && 

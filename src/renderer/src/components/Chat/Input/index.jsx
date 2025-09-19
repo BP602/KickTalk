@@ -1037,7 +1037,7 @@ const ReplyCapture = ({ chatroomId, setReplyData, chatInputRef }) => {
                     has_sender: !!data.sender
                   });
                 }
-              } catch (e) {
+              } catch (_e) {
                 // Telemetry recording failed, but don't break the flow
               }
             })();

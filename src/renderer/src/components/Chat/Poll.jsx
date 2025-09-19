@@ -32,18 +32,16 @@ const Poll = memo(
 
     if (!pollDetails?.title) return null;
 
-    const [poll, setPoll] = useState(pollDetails);
     const [percentRemaining, setPercentRemaining] = useState(0);
 
     const [selectedOption, setSelectedOption] = useState(pollDetails?.voted_option_id || null);
-    const [hasVoted, setHasVoted] = useState(pollDetails?.has_voted || false);
+    const [hasVoted] = useState(pollDetails?.has_voted || false);
     const [pollWinner, setPollWinner] = useState(null);
     const [isPollExpanded, setIsPollExpanded] = useState(false);
 
     const isPollEnded = pollDetails?.remaining <= 0;
 
     const currentTime = Date.now();
-    let startTime = pollDetails?.start_time || currentTime;
     let endTime = null;
 
     const intervalTimerRef = useRef(null);
@@ -138,7 +136,7 @@ const Poll = memo(
               );
             }
           }
-        } catch (error) {}
+        } catch (_error) {}
 
         return;
       }
@@ -200,7 +198,6 @@ const Poll = memo(
             const hasVoted = pollDetails?.voted_option_id === option.id;
 
             // Option has Won
-            const isSelected = selectedOption === option.id;
             const isWinner = pollWinner === option.id && isPollEnded;
 
             return (

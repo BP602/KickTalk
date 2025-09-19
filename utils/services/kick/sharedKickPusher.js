@@ -3,7 +3,7 @@ let tracer;
 try {
   const { trace } = require('@opentelemetry/api');
   tracer = trace.getTracer('kicktalk-shared-kick-pusher', '1.0.0');
-} catch (e) {
+} catch (_e) {
   // Fallback if OpenTelemetry not available
   tracer = {
     startSpan: (name, options) => ({ 

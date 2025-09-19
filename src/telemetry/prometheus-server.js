@@ -17,7 +17,7 @@ const startMetricsServer = (port = 9464) => {
     try {
       const { PrometheusRegistry: PR } = require('@opentelemetry/exporter-prometheus');
       PrometheusRegistry = PR;
-    } catch (error) {
+    } catch (_error) {
       console.warn('[Metrics]: @opentelemetry/exporter-prometheus not available, using fallback');
       PrometheusRegistry = null;
     }
@@ -48,8 +48,6 @@ const startMetricsServer = (port = 9464) => {
     
     // Fallback: create a simple HTTP server that returns basic metrics
     try {
-      const { metrics } = require('@opentelemetry/api');
-      
       metricsServer = http.createServer((req, res) => {
         if (req.url === '/metrics' && req.method === 'GET') {
           res.writeHead(200, { 
