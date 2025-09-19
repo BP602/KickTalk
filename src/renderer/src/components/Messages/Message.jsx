@@ -41,19 +41,24 @@ const Message = ({
   const getDeleteMessage = useChatStore(useShallow((state) => state.getDeleteMessage));
   const [rightClickedEmote, setRightClickedEmote] = useState(null);
 
-  let userStyle;
+  const senderUsername = message?.sender?.username ?? null;
+  const senderId = message?.sender?.id ?? null;
 
-  if (message?.sender && type !== "replyThread") {
-    if (type === "dialog") {
-      userStyle = dialogUserStyle;
-    } else {
-      userStyle = useCosmeticsStore(
-        useShallow((state) =>
-          state.getUserStyle({ username: message?.sender?.username, userId: message?.sender?.id }),
-        ),
-      );
-    }
-  }
+  const cosmeticsUserStyle = useCosmeticsStore(
+    useShallow((state) => {
+      if (type === "dialog" || type === "replyThread") {
+        return undefined;
+      }
+
+      if (!senderUsername && !senderId) {
+        return undefined;
+      }
+
+      return state.getUserStyle({ username: senderUsername, userId: senderId });
+    }),
+  );
+
+  const userStyle = type === "dialog" ? dialogUserStyle : cosmeticsUserStyle;
 
   // CheckIcon if user can moderate
   const canModerate = useMemo(
