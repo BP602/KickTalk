@@ -907,12 +907,31 @@ const useChatStore = create((set, get) => ({
         case "cosmetic.create":
           useCosmeticsStore?.getState()?.addCosmetics(body);
           break;
-        case "entitlement.create":
-          const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
-          const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
+        case "entitlement.create": {
+          const kickConnection = body?.object?.user?.connections?.find((connection) => {
+            const platform = connection?.platform ?? connection?.type;
+            return platform && String(platform).toUpperCase() === "KICK";
+          });
 
-          useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
+          const identity = {
+            username:
+              kickConnection?.username ||
+              body?.object?.user?.username ||
+              body?.object?.user?.display_name,
+            userId:
+              kickConnection?.id ??
+              kickConnection?.user_id ??
+              kickConnection?.userId ??
+              kickConnection?.platform_id ??
+              kickConnection?.platformId ??
+              kickConnection?.external_id ??
+              kickConnection?.externalId ??
+              null,
+          };
+
+          useCosmeticsStore?.getState()?.addUserStyle(identity, body);
           break;
+        }
 
         default:
           break;
@@ -1903,9 +1922,27 @@ const useChatStore = create((set, get) => ({
         useCosmeticsStore?.getState()?.addCosmetics(body);
         break;
       case "entitlement.create": {
-        const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
-        const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
-        useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
+        const kickConnection = body?.object?.user?.connections?.find((connection) => {
+          const platform = connection?.platform ?? connection?.type;
+          return platform && String(platform).toUpperCase() === "KICK";
+        });
+
+        const identity = {
+          username:
+            kickConnection?.username ||
+            body?.object?.user?.username ||
+            body?.object?.user?.display_name,
+          userId:
+            kickConnection?.id ??
+            kickConnection?.user_id ??
+            kickConnection?.userId ??
+            kickConnection?.platform_id ??
+            kickConnection?.platformId ??
+            kickConnection?.external_id ??
+            kickConnection?.externalId ??
+            null,
+        };
+        useCosmeticsStore?.getState()?.addUserStyle(identity, body);
         break;
       }
       default:

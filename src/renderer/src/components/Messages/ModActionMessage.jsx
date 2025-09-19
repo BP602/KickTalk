@@ -20,7 +20,7 @@ const ModActionMessage = ({ message, chatroomId, allStvEmotes, subscriberBadges,
       const user = await window.app.kick.getUserChatroomInfo(chatroomName, usernameDialog);
       if (!user?.data?.id) return;
 
-      const userStyle = getUserStyle(usernameDialog);
+      const userStyle = getUserStyle({ username: usernameDialog, userId: user?.data?.id });
 
       const userDialogInfo = {
         id: user.data.id,
@@ -42,7 +42,7 @@ const ModActionMessage = ({ message, chatroomId, allStvEmotes, subscriberBadges,
         cords: [0, 300],
       });
     },
-    [chatroomName, username, chatroomId, allStvEmotes, subscriberBadges],
+    [chatroomName, username, chatroomId, allStvEmotes, subscriberBadges, getUserStyle],
   );
 
   return (
