@@ -6,7 +6,7 @@ let tracer;
 try {
   const { trace } = require('@opentelemetry/api');
   tracer = trace.getTracer('kicktalk-connection-manager', '1.0.0');
-} catch (e) {
+} catch (_e) {
   // Fallback if OpenTelemetry not available
   tracer = {
     startSpan: (name, options) => ({ 

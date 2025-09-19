@@ -6,8 +6,6 @@ import STVLogo from "../../../assets/logos/stvLogo.svg?asset";
 import { CaretDownIcon, GlobeIcon, LockIcon, UserIcon } from "@phosphor-icons/react";
 import useClickOutside from "../../../utils/useClickOutside";
 import KickLogoIcon from "../../../assets/logos/kickLogoIcon.svg?asset";
-import useChatStore from "../../../providers/ChatProvider";
-import { useShallow } from "zustand/react/shallow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../Shared/Tooltip";
 import { useAccessibleKickEmotes } from "./useAccessibleKickEmotes";
 import { useAllStvEmotes } from "../hooks/useAllStvEmotes";

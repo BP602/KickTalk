@@ -74,7 +74,6 @@ const genRequestId = () => {
 };
 
 // Initialize telemetry early if enabled
-let initTelemetry = null;
 let shutdownTelemetry = null;
 let isTelemetryEnabled = () => false; // Default fallback
 
@@ -2196,7 +2195,7 @@ const findStreamlink = () => {
           if (result.status === 0) {
             return path;
           }
-        } catch (pathError) {
+        } catch (_pathError) {
           // Command not found in PATH, continue
           continue;
         }
@@ -2206,7 +2205,7 @@ const findStreamlink = () => {
           return path;
         }
       }
-    } catch (error) {
+    } catch (_error) {
       // Continue checking other paths
       continue;
     }

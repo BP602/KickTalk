@@ -3,7 +3,6 @@ import RegularMessage from "./RegularMessage";
 import { ArrowBendUpRightIcon } from "@phosphor-icons/react";
 import useChatStore from "../../providers/ChatProvider";
 import { useShallow } from "zustand/shallow";
-import { memo, useMemo } from "react";
 
 const ReplyMessage = ({
   message,

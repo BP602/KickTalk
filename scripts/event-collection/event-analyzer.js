@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const fs = require('fs');
-const path = require('path');
 const readline = require('readline');
 
 /**
@@ -68,7 +67,7 @@ class KickEventAnalyzer {
           console.log(`  Processed ${processedCount} events...`);
         }
 
-      } catch (error) {
+      } catch (_error) {
         console.warn('Skipping malformed line:', line.substring(0, 100));
       }
     }

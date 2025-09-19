@@ -377,7 +377,7 @@ const getInitialState = () => {
   const savedPersonalEmoteSets = JSON.parse(localStorage.getItem("stvPersonalEmoteSets")) || [];
 
   const chatrooms = savedChatrooms.map((room) => {
-    const { pinDetails = null, pollDetails = null, chatters = [], ...rest } = room;
+    const { pinDetails, pollDetails, chatters, ...rest } = room;
     return rest;
   });
 
@@ -692,7 +692,7 @@ const useChatStore = create((set, get) => ({
         'message.content_length': content?.length || 0
       });
       
-      const errMsg = chatroomErrorHandler(error);
+      const ___ = chatroomErrorHandler(error);
 
       // Find and mark the optimistic message as failed
       const messages = get().messages[chatroomId] || [];
@@ -824,7 +824,7 @@ const useChatStore = create((set, get) => ({
         'reply.original_message_id': metadata.original_message?.id
       });
       
-      const errMsg = chatroomErrorHandler(error);
+      const ___ = chatroomErrorHandler(error);
 
       // Find and mark the optimistic reply as failed
       const messages = get().messages[chatroomId] || [];
@@ -907,12 +907,13 @@ const useChatStore = create((set, get) => ({
         case "cosmetic.create":
           useCosmeticsStore?.getState()?.addCosmetics(body);
           break;
-        case "entitlement.create":
+        case "entitlement.create": {
           const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
           const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
 
           useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
           break;
+        }
 
         default:
           break;
@@ -970,7 +971,6 @@ const useChatStore = create((set, get) => ({
 
       // Fetch fresh channel info on connect to sync current chatroom state
       // This ensures we get up-to-date mode information (emote mode, slow mode, etc.)
-      const wasConnectedBefore = __wsConnectedOnce.get(chatroom.id) === true;
       __wsConnectedOnce.set(chatroom.id, true);
 
       // Always fetch current state - both for first connect and reconnects
@@ -1097,7 +1097,7 @@ const useChatStore = create((set, get) => ({
       const parsedEvent = JSON.parse(event.detail.data);
 
       switch (event.detail.event) {
-        case "App\\Events\\ChatMessageEvent":
+        case "App\\Events\\ChatMessageEvent": {
           // Add user to chatters list if they're not already in there
           get().addChatter(chatroom.id, parsedEvent?.sender);
 
@@ -1186,6 +1186,7 @@ const useChatStore = create((set, get) => ({
           }
 
           break;
+        }
         case "App\\Events\\MessageDeletedEvent":
           get().handleMessageDelete(chatroom.id, parsedEvent.message.id);
           break;

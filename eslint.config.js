@@ -89,7 +89,9 @@ module.exports = [
       react: { version: "detect" },
     },
     rules: {
-      // Keep defaults; enable stricter rules later as desired.
+      // Essential React rules to properly detect JSX usage
+      "react/jsx-uses-react": "error",
+      "react/jsx-uses-vars": "error",
     },
   },
 ];

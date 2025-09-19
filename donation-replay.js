@@ -21,13 +21,6 @@ window.replayDonation = (amount = '$25', username = 'GenerousDonor', message = '
     timestamp: new Date().toISOString()
   };
 
-  // Create the pusher event structure
-  const pusherEvent = {
-    event: 'App\\Events\\DonationEvent', // Using generic donation event
-    data: JSON.stringify(donationEventData),
-    channel: 'chatrooms.69188411' // Your current chatroom
-  };
-
   console.log('📤 Dispatching donation event:', donationEventData);
 
   // Dispatch the event through the SharedKickPusher
@@ -63,12 +56,6 @@ window.replayGiftSub = (gifterUsername = 'GiftMaster', recipientUsername = 'Luck
     gifted_usernames: [recipientUsername],
     gifter_username: gifterUsername,
     gifter_total: total
-  };
-
-  const pusherEvent = {
-    event: 'App\\Events\\GiftedSubscriptionsEvent',
-    data: JSON.stringify(giftSubEventData),
-    channel: 'chatrooms.69188411'
   };
 
   console.log('📤 Dispatching gift subscription event:', giftSubEventData);

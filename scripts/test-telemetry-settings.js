@@ -13,80 +13,114 @@ const Store = require('electron-store');
 // Test configuration
 const store = new Store();
 
-async function testTelemetryDisabled() {
-  console.log('\n=== TEST 1: Telemetry DISABLED ===');
-  
-  // Disable telemetry
-  store.set('telemetry', { enabled: false });
-  console.log('✓ Set telemetry.enabled = false');
-  
-  // Start the app and capture logs
-  console.log('Starting app with telemetry disabled...');
-  const proc = spawn('npm', ['run', 'dev'], {
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const RUNTIME_WAIT_MS = Number(process.env.TELEMETRY_TEST_RUNTIME_MS || 5000);
+const SHUTDOWN_TIMEOUT_MS = Number(process.env.TELEMETRY_TEST_SHUTDOWN_TIMEOUT_MS || 2000);
+const SKIP_RUNTIME_TESTS = process.env.SKIP_TELEMETRY_RUNTIME === '1';
+const originalTelemetrySetting = store.get('telemetry');
+
+function restoreTelemetrySetting() {
+  if (typeof originalTelemetrySetting === 'undefined') {
+    store.delete('telemetry');
+    console.log('\nRestored telemetry setting: deleted (was undefined)');
+  } else {
+    store.set('telemetry', originalTelemetrySetting);
+    console.log(`\nRestored telemetry.enabled = ${originalTelemetrySetting?.enabled}`);
+  }
+}
+
+async function runAppAndCollectLogs(label) {
+  console.log(`Starting app with telemetry ${label}...`);
+
+  const proc = spawn(npmCommand, ['run', 'dev'], {
+    cwd: path.join(__dirname, '..'),
     env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' },
     stdio: 'pipe'
   });
-  
+
   let logs = '';
-  proc.stdout.on('data', (data) => logs += data.toString());
-  proc.stderr.on('data', (data) => logs += data.toString());
-  
-  // Wait 5 seconds then kill
-  await new Promise(resolve => setTimeout(resolve, 5000));
-  proc.kill();
-  
-  // Check logs for telemetry behavior
+  let spawnError;
+
+  proc.stdout.on('data', (data) => {
+    logs += data.toString();
+  });
+  proc.stderr.on('data', (data) => {
+    logs += data.toString();
+  });
+  proc.on('error', (err) => {
+    spawnError = err;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, RUNTIME_WAIT_MS));
+  proc.kill('SIGTERM');
+
+  await new Promise((resolve) => {
+    const fallback = setTimeout(() => {
+      if (proc.exitCode === null) {
+        proc.kill('SIGKILL');
+      }
+      resolve();
+    }, SHUTDOWN_TIMEOUT_MS);
+
+    proc.once('close', () => {
+      clearTimeout(fallback);
+      resolve();
+    });
+  });
+
+  if (spawnError) {
+    throw spawnError;
+  }
+
+  return logs;
+}
+
+async function testTelemetryDisabled() {
+  console.log('\n=== TEST 1: Telemetry DISABLED ===');
+
+  store.set('telemetry', { enabled: false });
+  console.log('✓ Set telemetry.enabled = false');
+
+  const logs = await runAppAndCollectLogs('disabled');
+
   const checks = {
     'Telemetry disabled by user settings': logs.includes('Telemetry disabled by user settings'),
     'SDK not initialized': logs.includes('skipping initialization') || logs.includes('SDK creation skipped'),
     'No OTLP connection': !logs.includes('OTLP') || !logs.includes('exporter'),
     'No spans created': !logs.includes('span started') && !logs.includes('websocket.connect')
   };
-  
+
   console.log('\nResults:');
   for (const [check, passed] of Object.entries(checks)) {
     console.log(`  ${passed ? '✓' : '✗'} ${check}`);
   }
-  
-  return Object.values(checks).every(v => v);
+
+  return Object.values(checks).every(Boolean);
 }
 
 async function testTelemetryEnabled() {
   console.log('\n=== TEST 2: Telemetry ENABLED ===');
-  
-  // Enable telemetry
+
   store.set('telemetry', { enabled: true });
   console.log('✓ Set telemetry.enabled = true');
-  
-  // Start the app and capture logs
-  console.log('Starting app with telemetry enabled...');
-  const proc = spawn('npm', ['run', 'dev'], {
-    env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' },
-    stdio: 'pipe'
-  });
-  
-  let logs = '';
-  proc.stdout.on('data', (data) => logs += data.toString());
-  proc.stderr.on('data', (data) => logs += data.toString());
-  
-  // Wait 5 seconds then kill
-  await new Promise(resolve => setTimeout(resolve, 5000));
-  proc.kill();
-  
-  // Check logs for telemetry behavior
+
+  const logs = await runAppAndCollectLogs('enabled');
+
   const checks = {
     'SDK initialized': logs.includes('NodeSDK') || logs.includes('Web tracer initialized'),
     'OTLP configured': logs.includes('OTLP') || logs.includes('exporter'),
     'Instrumentation active': logs.includes('instrumentation') || logs.includes('WebSocket instrumentation installed')
   };
-  
+
   console.log('\nResults:');
   for (const [check, passed] of Object.entries(checks)) {
     console.log(`  ${passed ? '✓' : '✗'} ${check}`);
   }
-  
-  return Object.values(checks).every(v => v);
+
+  return Object.values(checks).every(Boolean);
 }
+
+
 
 async function testIPCHandlers() {
   console.log('\n=== TEST 3: IPC Handlers Check Settings ===');
@@ -122,8 +156,12 @@ async function runAllTests() {
   
   try {
     // Note: These tests require the app to be built
-    // results.push(await testTelemetryDisabled());
-    // results.push(await testTelemetryEnabled());
+    if (SKIP_RUNTIME_TESTS) {
+      console.log('\n[warning] Skipping runtime telemetry tests (set SKIP_TELEMETRY_RUNTIME=1 to suppress this warning intentionally).');
+    } else {
+      results.push(await testTelemetryDisabled());
+      results.push(await testTelemetryEnabled());
+    }
     results.push(await testIPCHandlers());
     
     console.log('\n' + '='.repeat(50));
@@ -141,13 +179,11 @@ async function runAllTests() {
       console.log('\n✗ Some tests failed. Review the implementation.');
     }
     
-    // Restore original setting
-    const originalSetting = store.get('telemetry', { enabled: false });
-    console.log(`\nRestored telemetry.enabled = ${originalSetting.enabled}`);
-    
   } catch (error) {
     console.error('Test error:', error);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    restoreTelemetrySetting();
   }
 }
 

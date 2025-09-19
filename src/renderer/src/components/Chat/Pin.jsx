@@ -13,14 +13,28 @@ const Pin = memo(
     const pinnedBy = pinDetails?.pinned_by || pinDetails?.pinnedBy;
     const originalSender = pinDetails?.message?.sender;
 
-    const getUnpinMessage = async () => {
-      if (!canModerate) return;
-      const response = await window.app.kick.getUnpinMessage(chatroomName);
+    const handleUnpinClick = async () => {
+      if (!canModerate || !chatroomName) return;
 
-      if (response?.code === 201) {
-        setShowPinnedMessage(false);
+      try {
+        const response = await window?.app?.kick?.getUnpinMessage?.(chatroomName);
+
+        if (response?.code === 201) {
+          setShowPinnedMessage(false);
+        } else if (response?.ok === false || response?.code >= 400) {
+          console.warn("[Chat][Pin] Unpin request failed", {
+            chatroomName,
+            response,
+          });
+        }
+      } catch (error) {
+        console.error("[Chat][Pin] Failed to unpin message", {
+          chatroomName,
+          error: error?.message || error,
+        });
       }
     };
+
 
     return (
       <div className={clsx("pinnedMessage", showPinnedMessage && !showChatters && "open", isPinnedMessageOpen && "expanded")}>
@@ -43,7 +57,11 @@ const Pin = memo(
                 />
               </button>
               {canModerate && (
-                <button onClick={() => setShowPinnedMessage(false)}>
+                <button
+                  onClick={() => {
+                    void handleUnpinClick();
+                  }}
+                >
                   <PushPinSlashIcon size={16} weight="fill" aria-label="Hide Pinned Message" />
                 </button>
               )}

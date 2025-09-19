@@ -19,10 +19,6 @@ const Mentions = ({ setActiveChatroom, chatroomId, showCloseButton = false, onCl
     mentions,
     getAllMentions,
     getChatroomMentions,
-    getUnreadMentionCount,
-    getChatroomUnreadMentionCount,
-    markAllMentionsAsRead,
-    markChatroomMentionsAsRead,
     clearAllMentions,
     clearChatroomMentions,
     chatrooms,
@@ -47,17 +43,7 @@ const Mentions = ({ setActiveChatroom, chatroomId, showCloseButton = false, onCl
     return allMentions;
   }, [selectedChatroom, mentions, getChatroomMentions]);
 
-  const unreadCount = useMemo(() => {
-    return selectedChatroom === "all" ? getUnreadMentionCount() : getChatroomUnreadMentionCount(selectedChatroom);
-  }, [selectedChatroom, getUnreadMentionCount, getChatroomUnreadMentionCount]);
 
-  const handleMarkAllAsRead = () => {
-    if (selectedChatroom === "all") {
-      markAllMentionsAsRead();
-    } else {
-      markChatroomMentionsAsRead(selectedChatroom);
-    }
-  };
 
   const handleClearAll = () => {
     if (selectedChatroom === "all") {

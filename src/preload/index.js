@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, shell, session } from "electron";
+import { contextBridge, ipcRenderer, shell } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import {
   sendMessageToChannel,
@@ -10,7 +10,6 @@ import {
   getUserChatroomInfo,
   getSelfChatroomInfo,
   getSilencedUsers,
-  getLinkThumbnail,
   getInitialChatroomMessages,
   getInitialPollInfo,
   getSubmitPollVote,
@@ -32,8 +31,6 @@ import {
 
   // Kick Auth for Events
   getKickAuthForEvents,
-  getUpdateTitle,
-  getClearChatroom,
 } from "../../utils/services/kick/kickAPI";
 import { getUserStvProfile, getChannelEmotes } from "../../utils/services/seventv/stvAPI";
 

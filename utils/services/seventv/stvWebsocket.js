@@ -73,9 +73,9 @@ const updateCosmetics = async (body) => {
           name: data.name,
           style: data.function,
           shape: data.shape,
-          backgroundImage:
-            `${data.function || "linear-gradient"}(${isDeg_or_Shape}, ${gradient})` ||
-            `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
+          backgroundImage: data.function || data.style
+            ? `${data.function || "linear-gradient"}(${isDeg_or_Shape}, ${gradient})`
+            : `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
           shadows: null,
           KIND: "non-animated",
           url: data.image_url,
@@ -86,9 +86,9 @@ const updateCosmetics = async (body) => {
           name: data.name,
           style: data.function,
           shape: data.shape,
-          backgroundImage:
-            `url('${[data.image_url]}')` ||
-            `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
+          backgroundImage: data.image_url
+            ? `url('${[data.image_url]}')`
+            : `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
           shadows: null,
           KIND: "animated",
           url: data.image_url,
@@ -189,13 +189,12 @@ class StvWebSocket extends EventTarget {
         await this.delay(100);
       }
 
-      const waitTime = Date.now() - waitStartTime;
-
       // Subscribe to user & cosmetic events
       if (this.stvId !== "0") {
         this.subscribeToUserEvents();
         this.subscribeToCosmeticEvents();
       } else {
+        // No STV ID
       }
 
       // Subscribe to entitlement events
@@ -206,8 +205,10 @@ class StvWebSocket extends EventTarget {
         if (this.stvEmoteSetId !== "0") {
           this.subscribeToEmoteSetEvents();
         } else {
+          // No emote set ID
         }
       } else {
+        // No channel kick ID
       }
 
       // Setup message handler

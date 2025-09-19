@@ -3,7 +3,6 @@
 const WebSocket = require('ws');
 const https = require('https');
 const fs = require('fs');
-const path = require('path');
 
 /**
  * Kick Event Collector
@@ -129,7 +128,7 @@ class KickEventCollector {
     console.log(`Loaded ${this.channelData.size} IDs to monitor`);
     
     // Print the IDs we'll monitor
-    for (const [slug, data] of this.channelData) {
+    for (const [, data] of this.channelData) {
       console.log(`✓ ID ${data.id} - will try both streamer and chatroom patterns`);
     }
     console.log('');
@@ -214,7 +213,7 @@ class KickEventCollector {
     
     // For each ID, subscribe to both streamer channel patterns AND chatroom patterns
     // since we don't know which type each ID is
-    for (const [slug, data] of this.channelData) {
+    for (const [, data] of this.channelData) {
       const channels = [
         // Streamer channel patterns (in case this ID is a streamer ID)
         `channel_${data.id}`,

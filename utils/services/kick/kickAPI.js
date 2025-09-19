@@ -54,24 +54,6 @@ const getKickAuthForEvents = async (eventChannelName, socketId, sessionCookie, k
  *
  */
 
-const getFollowChannel = async (channelName) => {
-  // TODO: Error Handling for already following and not following
-  //   {
-  //     "message": "The given data was invalid.",
-  //     "errors": {
-  //         "channel": [
-  //             "You are not following this channel."
-  //         ]
-  //     }
-  // }
-  const response = await axios.post(`${APIUrl}/api/v2/channels/${channelName}/follow`);
-  return response.data;
-};
-
-const getUnfollowChannel = async (channelName) => {
-  const response = await axios.delete(`${APIUrl}/api/v2/channels/${channelName}/follow`);
-  return response.data;
-};
 
 /**
  *
@@ -555,6 +537,7 @@ const getSubmitPollVote = async (channelName, optionId, sessionCookie, kickSessi
 
     return response.data;
   } catch (error) {
+    console.error('Poll vote error:', error);
     throw error;
   }
 };

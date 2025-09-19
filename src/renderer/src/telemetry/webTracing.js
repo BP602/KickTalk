@@ -5,7 +5,7 @@ import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import { FetchInstrumentation } from '@opentelemetry/instrumentation-fetch';
 import { XMLHttpRequestInstrumentation } from '@opentelemetry/instrumentation-xml-http-request';
 // In sdk-trace-web v2, addSpanProcessor is not available; use SimpleSpanProcessor from sdk-trace-base
-import { SimpleSpanProcessor, AlwaysOnSampler } from '@opentelemetry/sdk-trace-base';
+import { AlwaysOnSampler } from '@opentelemetry/sdk-trace-base';
 import { context, trace } from '@opentelemetry/api';
 
 // Check if telemetry is enabled before doing anything
@@ -457,7 +457,8 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
             return origFetch(input, init);
           };
           // Sanitize AnyValue tree for collector limits and JSON mapping correctness
-          const sanitizeAnyValue = (av) => {
+          // eslint-disable-next-line no-unused-vars -- Function is used recursively within its own definition
+          const ___sanitizeAnyValue = (av) => {
             try {
               if (!av || typeof av !== 'object') return { stringValue: '' };
               if (Object.prototype.hasOwnProperty.call(av, 'stringValue')) {
@@ -477,13 +478,13 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
               }
               if (Object.prototype.hasOwnProperty.call(av, 'arrayValue')) {
                 const vals = Array.isArray(av.arrayValue?.values) ? av.arrayValue.values : [];
-                const capped = vals.slice(0, 64).map(sanitizeAnyValue);
+                const capped = vals.slice(0, 64).map(___sanitizeAnyValue);
                 return { arrayValue: { values: capped } };
               }
               if (Object.prototype.hasOwnProperty.call(av, 'kvlistValue')) {
                 // Not used by us; be safe
                 const list = Array.isArray(av.kvlistValue?.values) ? av.kvlistValue.values : [];
-                const sanitized = list.slice(0, 64).map((kv) => ({ key: String(kv.key).slice(0,128), value: sanitizeAnyValue(kv.value) }));
+                const sanitized = list.slice(0, 64).map((kv) => ({ key: String(kv.key).slice(0,128), value: ___sanitizeAnyValue(kv.value) }));
                 return { kvlistValue: { values: sanitized } };
               }
               if (Object.prototype.hasOwnProperty.call(av, 'bytesValue')) {
@@ -494,20 +495,6 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
             } catch {
               return { stringValue: '' };
             }
-          };
-          const sanitizeAttributes = (kvs) => {
-            try {
-              const out = [];
-              const seen = new Set();
-              for (const kv of Array.isArray(kvs) ? kvs : []) {
-                const key = String(kv?.key ?? '').slice(0, 128);
-                if (!key || seen.has(key)) continue;
-                seen.add(key);
-                out.push({ key, value: sanitizeAnyValue(kv?.value) });
-                if (out.length >= 128) break; // cap attribute count
-              }
-              return out;
-            } catch { return []; }
           };
         } else {
           console.warn('[Renderer OTEL]: window.fetch not available; fetch interceptor skipped');
@@ -783,7 +770,7 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
             }
           };
           // Local sanitizers to ensure availability within _toOtlpJson scope
-          const sanitizeAnyValue = (av) => {
+          const ___sanitizeAnyValue = (av) => {
             try {
               if (!av || typeof av !== 'object') return { stringValue: '' };
               if (Object.prototype.hasOwnProperty.call(av, 'stringValue')) {
@@ -802,12 +789,12 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
               }
               if (Object.prototype.hasOwnProperty.call(av, 'arrayValue')) {
                 const vals = Array.isArray(av.arrayValue?.values) ? av.arrayValue.values : [];
-                const capped = vals.slice(0, 64).map(sanitizeAnyValue);
+                const capped = vals.slice(0, 64).map(___sanitizeAnyValue);
                 return { arrayValue: { values: capped } };
               }
               if (Object.prototype.hasOwnProperty.call(av, 'kvlistValue')) {
                 const list = Array.isArray(av.kvlistValue?.values) ? av.kvlistValue.values : [];
-                const sanitized = list.slice(0, 64).map((kv) => ({ key: String(kv.key).slice(0,128), value: sanitizeAnyValue(kv.value) }));
+                const sanitized = list.slice(0, 64).map((kv) => ({ key: String(kv.key).slice(0,128), value: ___sanitizeAnyValue(kv.value) }));
                 return { kvlistValue: { values: sanitized } };
               }
               if (Object.prototype.hasOwnProperty.call(av, 'bytesValue')) {
@@ -818,7 +805,7 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
               return { stringValue: '' };
             }
           };
-          const sanitizeAttributes = (kvs) => {
+          const ___sanitizeAttributes = (kvs) => {
             try {
               const out = [];
               const seen = new Set();
@@ -826,7 +813,7 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
                 const key = String(kv?.key ?? '').slice(0, 128);
                 if (!key || seen.has(key)) continue;
                 seen.add(key);
-                out.push({ key, value: sanitizeAnyValue(kv?.value) });
+                out.push({ key, value: ___sanitizeAnyValue(kv?.value) });
                 if (out.length >= 128) break;
               }
               return out;
@@ -853,7 +840,7 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
                 }
               }
             } catch {}
-            attrs = sanitizeAttributes(attrs);
+            attrs = ___sanitizeAttributes(attrs);
             // Convert times
             let startNs = toEpochNanos(s.startTime);
             let endNs = toEpochNanos(s.endTime);
@@ -1292,7 +1279,6 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
           'service.namespace': 'kicktalk'
         }
       });
-      const activeCtx = trace.setSpan(context.active(), parent);
 
       registerInstrumentations({
         instrumentations: [
@@ -1959,112 +1945,121 @@ try {
     writable: false,
     value: async () => {
       const testId = Math.random().toString(36).substring(2, 8);
-      const nowNs = BigInt(Date.now()) * 1000000n; // Convert to nanoseconds
-      const traceId = testId.padEnd(32, '0'); // Ensure 32 chars
-      const spanId = testId.substring(0, 8).padEnd(16, '0'); // Ensure 16 chars
-      
-      const payload = {
-        resourceSpans: [{
-          resource: {
-            attributes: [
-              { key: "service.name", value: { stringValue: "kicktalk-verification" } },
-              { key: "service.namespace", value: { stringValue: "kicktalk" } },
-              { key: "deployment.environment", value: { stringValue: "development" } }
-            ]
-          },
-          scopeSpans: [{
-            scope: { 
-              name: "kicktalk-verification",
-              version: "1.0.0"
-            },
-            spans: [{
-              traceId,
-              spanId,
-              name: "grafana_verification_test",
-              kind: 1,
-              startTimeUnixNano: nowNs.toString(),
-              endTimeUnixNano: (nowNs + 1000000000n).toString(), // +1 second
-              status: { code: 1 },
-              attributes: [
-                { key: "test.id", value: { stringValue: testId } },
-                { key: "test.method", value: { stringValue: "javascript_fetch" } },
-                { key: "verification.timestamp", value: { stringValue: new Date().toISOString() } }
-              ]
-            }]
-          }]
-        }]
-      };
+      let traceId = testId.padEnd(32, '0');
+      let spanId = testId.substring(0, 8).padEnd(16, '0');
+      const startedAt = performance.now();
+      const startTimeNs = BigInt(Date.now()) * 1_000_000n;
+      const endTimeNs = startTimeNs + 1_000_000_000n; // +1 second
 
       try {
-        console.log(`[Grafana Verification][${testId}] Sending test trace via OpenTelemetry API...`);
-        
-        // Use the OpenTelemetry tracer to create a real span instead of direct fetch
+        console.log(`[Grafana Verification][${testId}] Sending test trace via IPC relay...`);
+
+        const telemetryBridge = window.telemetry;
+        if (!telemetryBridge?.exportTracesJson) {
+          throw new Error('window.telemetry.exportTracesJson bridge is unavailable');
+        }
+
+        const timestampIso = new Date().toISOString();
+
+        // Create a real span so instrumentation is exercised alongside manual payload
         const { trace } = await import('@opentelemetry/api');
         const tracer = trace.getTracer('kicktalk-verification');
-        
+
         const span = tracer.startSpan('grafana_verification_test', {
           attributes: {
             'service.name': 'kicktalk-verification',
             'test.id': testId,
-            'test.method': 'otel_tracer',
-            'verification.timestamp': new Date().toISOString()
+            'test.method': 'ipc_relay',
+            'verification.timestamp': timestampIso
           }
         });
-        
-        // Add some events and end the span to trigger export
+
         span.addEvent('verification_test_started');
         span.addEvent('verification_test_completed');
         span.end();
-        
-        // Force flush to ensure it gets exported
-        const provider = window.__KT_TRACE_PROVIDER__;
+
+        const provider = window.__KT_OTEL_PROVIDER__ || window.__KT_TRACE_PROVIDER__;
         if (provider && typeof provider.forceFlush === 'function') {
           await provider.forceFlush();
+        } else {
+          console.warn(`[Grafana Verification][${testId}] No OTEL provider with forceFlush registered; continuing with IPC export.`);
         }
-        
+
         const spanContext = span.spanContext();
-        const traceId = spanContext.traceId;
-        const spanId = spanContext.spanId;
-        
-        console.log(`[Grafana Verification][${testId}] Span created and exported via IPC:`, {
-          testId,
-          traceId,
-          spanId,
-          method: 'otel_tracer_api'
-        });
-        
-        // Simulate success response since we used the working IPC system
-        const response = { ok: true, status: 200, statusText: 'OK' };
-        const result = 'Exported via IPC relay system';
+        traceId = spanContext?.traceId || traceId;
+        spanId = spanContext?.spanId || spanId;
+
+        const payload = {
+          resourceSpans: [{
+            resource: {
+              attributes: [
+                { key: 'service.name', value: { stringValue: 'kicktalk-verification' } },
+                { key: 'service.namespace', value: { stringValue: 'kicktalk' } },
+                { key: 'deployment.environment', value: { stringValue: 'development' } },
+                { key: 'test.id', value: { stringValue: testId } },
+                { key: 'test.method', value: { stringValue: 'ipc_relay' } }
+              ]
+            },
+            scopeSpans: [{
+              scope: {
+                name: 'kicktalk-verification',
+                version: '1.0.0'
+              },
+              spans: [{
+                traceId,
+                spanId,
+                name: 'grafana_verification_test',
+                kind: 1,
+                startTimeUnixNano: startTimeNs.toString(),
+                endTimeUnixNano: endTimeNs.toString(),
+                status: { code: 1 },
+                attributes: [
+                  { key: 'test.id', value: { stringValue: testId } },
+                  { key: 'verification.timestamp', value: { stringValue: timestampIso } }
+                ]
+              }]
+            }]
+          }]
+        };
+
+        const response = await telemetryBridge.exportTracesJson(payload);
+
+        if (!response?.ok) {
+          const reason = response?.reason || 'unknown_error';
+          const status = response?.status ? `status ${response.status}` : 'no status';
+          throw new Error(`IPC relay rejected trace export (${status}, reason: ${reason})`);
+        }
+
+        const totalDuration = Math.round(performance.now() - startedAt);
 
         console.log(`[Grafana Verification][${testId}] Export completed:`, {
           testId,
           traceId,
           spanId,
-          status: response.status,
-          statusText: response.statusText,
-          result,
+          status: response.status ?? 200,
+          requestId: response.requestId,
+          durationMs: totalDuration,
           grafanaTraceUrl: `https://kicktalk.grafana.net/explore?left=%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22query%22%3A%22${traceId}%22%7D%5D%7D`
         });
 
         return {
-          success: response.ok,
+          success: true,
           testId,
           traceId,
           spanId,
-          status: response.status,
-          result,
-          message: response.ok ? 
-            `✅ Trace sent successfully! Check Grafana in 1-2 minutes for trace ID: ${traceId}` :
-            `❌ Failed to send trace: ${response.status} ${response.statusText}`
+          status: response.status ?? 200,
+          requestId: response.requestId,
+          message: `✅ Trace sent successfully! Check Grafana in 1-2 minutes for trace ID: ${traceId}`
         };
       } catch (error) {
         console.error(`[Grafana Verification][${testId}] Error:`, error);
         return {
           success: false,
           testId,
+          traceId,
+          spanId,
           error: error.message,
-          message: `❌ Network error: ${error.message}`
+          message: `❌ Telemetry export failed: ${error.message}`
         };
       }
     }

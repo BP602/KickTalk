@@ -4,7 +4,7 @@ import { userKickTalkBadges } from "@utils/kickTalkBadges";
 import clsx from "clsx";
 import Message from "../Messages/Message";
 import { PushPinIcon, ArrowUpRightIcon, CopyIcon, GavelIcon, UserPlusIcon, CheckIcon } from "@phosphor-icons/react";
-import { KickBadges, KickTalkBadges, StvBadges } from "../Cosmetics/Badges";
+import { KickBadges, StvBadges } from "../Cosmetics/Badges";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../Shared/Tooltip";
 
 // TODO: Add Kick Talk Badges to UserIcon Dialog
@@ -25,7 +25,7 @@ const User = () => {
 
   const kickUsername = localStorage.getItem("kickUsername");
 
-  const [silencedUsers, setSilencedUsers] = useState(() => {
+  const [, setSilencedUsers] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("silencedUsers")) || { data: [] };
     } catch (e) {
