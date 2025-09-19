@@ -47,7 +47,11 @@ const Message = ({
     if (type === "dialog") {
       userStyle = dialogUserStyle;
     } else {
-      userStyle = useCosmeticsStore(useShallow((state) => state.getUserStyle(message?.sender?.username)));
+      userStyle = useCosmeticsStore(
+        useShallow((state) =>
+          state.getUserStyle({ username: message?.sender?.username, userId: message?.sender?.id }),
+        ),
+      );
     }
   }
 

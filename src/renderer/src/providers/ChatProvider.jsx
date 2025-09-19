@@ -908,11 +908,28 @@ const useChatStore = create((set, get) => ({
           useCosmeticsStore?.getState()?.addCosmetics(body);
           break;
         case "entitlement.create": {
-          const username =
-            body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username ||
-            body?.object?.user?.username;
+          const kickConnection = body?.object?.user?.connections?.find((connection) => {
+            const platform = connection?.platform ?? connection?.type;
+            return platform && String(platform).toUpperCase() === "KICK";
+          });
 
-          useCosmeticsStore?.getState()?.addUserStyle(username, body);
+          const identity = {
+            username:
+              kickConnection?.username ||
+              body?.object?.user?.username ||
+              body?.object?.user?.display_name,
+            userId:
+              kickConnection?.id ??
+              kickConnection?.user_id ??
+              kickConnection?.userId ??
+              kickConnection?.platform_id ??
+              kickConnection?.platformId ??
+              kickConnection?.external_id ??
+              kickConnection?.externalId ??
+              null,
+          };
+
+          useCosmeticsStore?.getState()?.addUserStyle(identity, body);
           break;
         }
 
@@ -1905,10 +1922,27 @@ const useChatStore = create((set, get) => ({
         useCosmeticsStore?.getState()?.addCosmetics(body);
         break;
       case "entitlement.create": {
-        const username =
-          body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username ||
-          body?.object?.user?.username;
-        useCosmeticsStore?.getState()?.addUserStyle(username, body);
+        const kickConnection = body?.object?.user?.connections?.find((connection) => {
+          const platform = connection?.platform ?? connection?.type;
+          return platform && String(platform).toUpperCase() === "KICK";
+        });
+
+        const identity = {
+          username:
+            kickConnection?.username ||
+            body?.object?.user?.username ||
+            body?.object?.user?.display_name,
+          userId:
+            kickConnection?.id ??
+            kickConnection?.user_id ??
+            kickConnection?.userId ??
+            kickConnection?.platform_id ??
+            kickConnection?.platformId ??
+            kickConnection?.external_id ??
+            kickConnection?.externalId ??
+            null,
+        };
+        useCosmeticsStore?.getState()?.addUserStyle(identity, body);
         break;
       }
       default:
