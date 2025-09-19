@@ -1,5 +1,10 @@
 import { create } from "zustand";
 
+const normalizeUsername = (username) => {
+  if (!username || typeof username !== "string") return null;
+  return username.replaceAll("-", "_").toLowerCase();
+};
+
 const useCosmeticsStore = create((set, get) => ({
   userStyles: {},
   globalCosmetics: {
@@ -8,23 +13,32 @@ const useCosmeticsStore = create((set, get) => ({
   },
 
   addUserStyle: async (username, body) => {
-    if (!body?.object?.user?.style) return;
-    const transformedUsername = username.toLowerCase();
-    const userStyle = body.object.user;
+    const userStyle = body?.object?.user;
+    const style = userStyle?.style;
+    if (!style) return;
+
+    const fallbackUsername = username || userStyle?.username || userStyle?.display_name;
+    const transformedUsername = normalizeUsername(fallbackUsername);
+    if (!transformedUsername) return;
 
     set((state) => {
       const currentStyle = state.userStyles[transformedUsername] || {};
-      if (currentStyle.badgeId === body.object.user.style.badge_id && currentStyle.paintId === body.object.user.style.paint_id)
+      if (
+        currentStyle.badgeId === style.badge_id &&
+        currentStyle.paintId === style.paint_id &&
+        currentStyle.color === style.color
+      ) {
         return state;
+      }
 
       return {
         userStyles: {
           ...state.userStyles,
           [transformedUsername]: {
-            badgeId: userStyle.style.badge_id,
-            paintId: userStyle.style.paint_id,
-            color: userStyle.style.color,
-            kickConnection: userStyle.connections?.find((c) => c.type === "KICK"),
+            badgeId: style.badge_id,
+            paintId: style.paint_id,
+            color: style.color,
+            kickConnection: userStyle.connections?.find((c) => c.type === "KICK" || c.platform === "KICK"),
             entitlement: body,
             userId: userStyle.id,
             username: userStyle.username,
@@ -36,8 +50,8 @@ const useCosmeticsStore = create((set, get) => ({
   },
 
   getUserStyle: (username) => {
-    if (!username) return null;
-    const transformedUsername = username.toLowerCase();
+    const transformedUsername = normalizeUsername(username);
+    if (!transformedUsername) return null;
     const userStyle = get().userStyles[transformedUsername];
 
     if (!userStyle?.badgeId && !userStyle?.paintId) return null;
@@ -66,21 +80,23 @@ const useCosmeticsStore = create((set, get) => ({
   },
 
   getUserBadge: (username) => {
-    const transformedUsername = username.toLowerCase();
+    const transformedUsername = normalizeUsername(username);
+    if (!transformedUsername) return null;
 
     const userStyle = get().userStyles[transformedUsername];
     if (!userStyle?.badgeId) return null;
 
-    return get().globalCosmetics[userStyle.badgeId];
+    return get().globalCosmetics?.badges?.find((badge) => badge.id === userStyle.badgeId) || null;
   },
 
   getUserPaint: (username) => {
-    const transformedUsername = username.toLowerCase();
+    const transformedUsername = normalizeUsername(username);
+    if (!transformedUsername) return null;
 
     const userStyle = get().userStyles[transformedUsername];
     if (!userStyle?.paintId) return null;
 
-    return get().globalCosmetics[userStyle.paintId];
+    return get().globalCosmetics?.paints?.find((paint) => paint.id === userStyle.paintId) || null;
   },
 }));
 

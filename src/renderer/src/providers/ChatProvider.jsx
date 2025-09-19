@@ -907,12 +907,14 @@ const useChatStore = create((set, get) => ({
         case "cosmetic.create":
           useCosmeticsStore?.getState()?.addCosmetics(body);
           break;
-        case "entitlement.create":
-          const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
-          const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
+        case "entitlement.create": {
+          const username =
+            body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username ||
+            body?.object?.user?.username;
 
-          useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
+          useCosmeticsStore?.getState()?.addUserStyle(username, body);
           break;
+        }
 
         default:
           break;
@@ -1903,9 +1905,10 @@ const useChatStore = create((set, get) => ({
         useCosmeticsStore?.getState()?.addCosmetics(body);
         break;
       case "entitlement.create": {
-        const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
-        const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
-        useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
+        const username =
+          body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username ||
+          body?.object?.user?.username;
+        useCosmeticsStore?.getState()?.addUserStyle(username, body);
         break;
       }
       default:
