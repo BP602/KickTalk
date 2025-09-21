@@ -1926,6 +1926,7 @@ const useChatStore = create((set, get) => ({
         get().handleEmoteSetUpdate(chatroomId, body);
         break;
       case "cosmetic.create":
+      case "cosmetic.create": {
         console.log(
           `[ChatProvider] Applying cosmetic catalog update for ${chatroomId ?? 'all chatrooms'}`,
           {
@@ -1933,16 +1934,18 @@ const useChatStore = create((set, get) => ({
             paints: body?.paints?.length,
           },
         );
-        const cosmetics = useCosmeticsStore?.getState()?.addCosmetics;
-        if (cosmetics) {
-          console.log(`[ChatProvider] Calling CosmeticsStore.addCosmetics with body:`, {
+        const addCosmetics = useCosmeticsStore?.getState()?.addCosmetics;
+        if (addCosmetics) {
+          if (window.__KT_TELEMETRY_UTILS__?.shouldLogDebug?.()) console.log(`[ChatProvider] Calling CosmeticsStore.addCosmetics with body:`, {
             badges: body?.badges?.length,
             paints: body?.paints?.length
           });
-          cosmetics(body);
+          addCosmetics(body);
         } else {
           console.error(`[ChatProvider] CosmeticsStore.addCosmetics method not available!`);
         }
+        break;
+      }
         break;
       case "entitlement.create": {
         const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
