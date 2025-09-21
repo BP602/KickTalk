@@ -29,9 +29,26 @@ try {
   console.warn('[Renderer OTEL]: Could not check user settings:', error.message);
 }
 
-console.log('[DEBUG] webTracing.js module loading - telemetry enabled:', telemetryEnabled);
-console.log('[DEBUG] window available:', typeof window !== 'undefined');
-console.log('[DEBUG] window.WebSocket available:', typeof window?.WebSocket === 'function');
+// Check if debug logging is enabled
+const debugEnabled = (() => {
+  try {
+    const value = import.meta.env.RENDERER_VITE_TELEMETRY_DEBUG;
+
+    if (typeof value === 'string') {
+      return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+    }
+
+    return Boolean(value);
+  } catch {
+    return false;
+  }
+})();
+
+if (debugEnabled) {
+  console.log('[DEBUG] webTracing.js module loading - telemetry enabled:', telemetryEnabled);
+  console.log('[DEBUG] window available:', typeof window !== 'undefined');
+  console.log('[DEBUG] window.WebSocket available:', typeof window?.WebSocket === 'function');
+}
 
 // Only install WebSocket instrumentation if telemetry is enabled
 if (telemetryEnabled) {
@@ -654,7 +671,8 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
               } catch {}
             }
             
-            console.log(`[Renderer OTEL][${exportId}] IPCSpanExporter.export() called:`, {
+            if (debugEnabled) {
+              console.log(`[Renderer OTEL][${exportId}] IPCSpanExporter.export() called:`, {
               exportId,
               exportCount: this.exportCount,
               spanCount: spanArray.length,
@@ -664,26 +682,34 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
               spanIds: traceInfo.spanIds.slice(0, 3), // First 3 span IDs  
               spanNames: traceInfo.spanNames,
               parentSpanIds: traceInfo.parentSpanIds.slice(0, 3)
-            });
+              });
+            }
             
             const req = this._toOtlpJson(spans);
             const reqSize = JSON.stringify(req).length;
             
-            console.log(`[Renderer OTEL][${exportId}] Converted to OTLP JSON:`, {
+            if (debugEnabled) {
+              console.log(`[Renderer OTEL][${exportId}] Converted to OTLP JSON:`, {
               exportId,
               requestSize: reqSize,
               resourceSpansCount: req.resourceSpans?.length || 0,
               traceIds: traceInfo.traceIds,
               actualTraceIds: traceInfo.traceIds,
               traceIdLengths: traceInfo.traceIds.map(id => id?.length || 0)
-            });
+              });
+            }
             
             const res = await window.telemetry.exportTracesJson(req);
             const duration = performance.now() - startTime;
             
             const ok = !!res?.ok && (!res.status || (res.status >= 200 && res.status < 300));
             
-            console.log(`[Renderer OTEL][${exportId}] IPC export result:`, {
+            // Only log export results in NORMAL+ telemetry level or when debug is enabled
+            const currentLevel = getTelemetryLevel();
+            const shouldLogExport = debugEnabled || (TELEMETRY_LEVELS[currentLevel]?.priority >= 2);
+
+            if (shouldLogExport) {
+              console.log(`[Renderer OTEL][${exportId}] IPC export result:`, {
               exportId,
               success: ok,
               duration: `${Math.round(duration)}ms`,
@@ -692,7 +718,8 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
               requestId: res?.requestId,
               traceIds: traceInfo.traceIds,
               returnedTraceIds: res?.traceIds
-            });
+              });
+            }
             
             resultCallback({ code: ok ? 0 : 1 });
           } catch (e) {
@@ -883,7 +910,8 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
             const directConversion = rawSec * 1000000000n + rawNs;
             const directDate = new Date(Number(directConversion) / 1e6);
             
-            console.log(`[Renderer OTEL] Span validation debug:`, {
+            if (debugEnabled) {
+              console.log(`[Renderer OTEL] Span validation debug:`, {
               traceId,
               traceIdHexLength: traceId.length,
               spanId,
@@ -955,6 +983,7 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
                 });
               }
             } catch {}
+            }
             
             // Per OTLP spec for HTTP, span status should be UNSET (omitted) for success.
             // Only include status if it is an error.
@@ -969,12 +998,14 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
               };
             }
             
-            console.log(`[Renderer OTEL] Status filtering debug:`, {
+            if (debugEnabled) {
+              console.log(`[Renderer OTEL] Status filtering debug:`, {
               originalStatusCode: statusCode,
               originalStatusMessage: s.status?.message,
               isError,
               willAddStatus: isError
-            });
+              });
+            }
             
             const spanName = (s.name || 'span');
             const spanOut = {

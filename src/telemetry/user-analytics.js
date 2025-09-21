@@ -6,6 +6,42 @@ const pkg = require('../../package.json');
 const meter = metrics.getMeter('kicktalk-user-analytics', pkg.version);
 const tracer = trace.getTracer('kicktalk-user-analytics', pkg.version);
 
+// Respect main-process telemetry verbosity to avoid console spam
+const TELEMETRY_LEVELS = {
+  MINIMAL: 1,
+  NORMAL: 2,
+  VERBOSE: 3,
+};
+
+const parseBoolean = (value) => {
+  if (typeof value === 'string') {
+    return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+  }
+  return Boolean(value);
+};
+
+const resolveTelemetryLevel = () => {
+  const level = process.env.MAIN_VITE_TELEMETRY_LEVEL || process.env.TELEMETRY_LEVEL || 'NORMAL';
+  const normalized = String(level || 'NORMAL').trim().toUpperCase();
+  return TELEMETRY_LEVELS[normalized] ? normalized : 'NORMAL';
+};
+
+const telemetryLevel = resolveTelemetryLevel();
+const telemetryDebug = parseBoolean(process.env.MAIN_VITE_TELEMETRY_DEBUG);
+
+const shouldLog = (required = 'NORMAL') => {
+  if (telemetryDebug) return true;
+  const currentPriority = TELEMETRY_LEVELS[telemetryLevel] || TELEMETRY_LEVELS.NORMAL;
+  const requiredPriority = TELEMETRY_LEVELS[required] || TELEMETRY_LEVELS.NORMAL;
+  return currentPriority >= requiredPriority;
+};
+
+const analyticsLog = (requiredLevel, ...args) => {
+  if (shouldLog(requiredLevel)) {
+    console.log(...args);
+  }
+};
+
 // User Experience Metrics
 const sessionDuration = meter.createHistogram('kicktalk_session_duration_seconds', {
   description: 'User session duration in seconds',
@@ -279,7 +315,7 @@ class UserSession {
     const finalScore = this.calculateFinalSatisfactionScore();
     this.satisfactionScore = finalScore;
     
-    console.log(`[User Analytics] Session ${this.sessionId} ended: ${this.getSessionDuration()}s, satisfaction: ${finalScore.toFixed(1)}/10`);
+    analyticsLog('NORMAL', `[User Analytics] Session ${this.sessionId} ended: ${this.getSessionDuration()}s, satisfaction: ${finalScore.toFixed(1)}/10`);
   }
 }
 
@@ -293,7 +329,7 @@ const UserAnalytics = {
     const session = new UserSession(sessionId, userId);
     activeSessions.set(sessionId, session);
     
-    console.log(`[User Analytics] Started session ${sessionId} for user ${userId || 'anonymous'}`);
+    analyticsLog('NORMAL', `[User Analytics] Started session ${sessionId} for user ${userId || 'anonymous'}`);
     return session;
   },
 
@@ -319,7 +355,7 @@ const UserAnalytics = {
 
     // Record final satisfaction score
     const finalScore = session.satisfactionScore;
-    console.log(`[User Analytics] Session satisfaction: ${finalScore.toFixed(2)}/10`);
+    analyticsLog('NORMAL', `[User Analytics] Session satisfaction: ${finalScore.toFixed(2)}/10`);
 
     // Store session data for correlation analysis
     userBehaviorData.set(sessionId, {
@@ -417,7 +453,7 @@ const UserAnalytics = {
     }
     featureAdoptionData.get(userKey).add(featureName);
 
-    console.log(`[User Analytics] Feature usage: ${featureName}.${action} by ${session.userId}`);
+    analyticsLog('VERBOSE', `[User Analytics] Feature usage: ${featureName}.${action} by ${session.userId}`);
   },
 
   /**
@@ -453,7 +489,7 @@ const UserAnalytics = {
       timestamp: Date.now()
     });
 
-    console.log(`[User Analytics] Connection quality: ${quality}/10 (${eventType}) for session ${sessionId}`);
+    analyticsLog('VERBOSE', `[User Analytics] Connection quality: ${quality}/10 (${eventType}) for session ${sessionId}`);
   },
 
   /**
@@ -586,7 +622,7 @@ const UserAnalytics = {
 
     const cleanupDuration = Date.now() - cleanupStartTime;
     
-    console.log(`[User Analytics] Cleanup completed in ${cleanupDuration}ms:`, {
+    analyticsLog('VERBOSE', `[User Analytics] Cleanup completed in ${cleanupDuration}ms:`, {
       active_sessions_cleaned: cleanedSessions,
       historical_data_cleaned: cleanedHistoricalData, 
       adoption_data_cleaned: cleanedAdoptionData,
@@ -633,7 +669,7 @@ const UserAnalytics = {
       error_impact_sessions: new Set()
     };
 
-    console.log(`[User Analytics] Force cleanup completed:`, {
+    analyticsLog('VERBOSE', `[User Analytics] Force cleanup completed:`, {
       before: beforeCounts,
       after: {
         activeSessions: activeSessions.size,

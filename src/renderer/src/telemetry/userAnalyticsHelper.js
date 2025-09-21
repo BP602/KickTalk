@@ -1,6 +1,53 @@
 // KickTalk Renderer User Analytics & Performance Budget Helper
 import { randomUUID } from 'crypto';
 
+const TELEMETRY_LEVELS = {
+  MINIMAL: 1,
+  NORMAL: 2,
+  VERBOSE: 3,
+};
+
+const parseBoolean = (value) => {
+  if (typeof value === 'string') {
+    return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+  }
+  return Boolean(value);
+};
+
+const resolveRendererTelemetryLevel = () => {
+  try {
+    const raw = import.meta?.env?.RENDERER_VITE_TELEMETRY_LEVEL;
+    if (typeof raw === 'string' && raw.trim()) {
+      const normalized = raw.trim().toUpperCase();
+      return TELEMETRY_LEVELS[normalized] ? normalized : 'NORMAL';
+    }
+  } catch {}
+  return 'NORMAL';
+};
+
+const rendererTelemetryLevel = resolveRendererTelemetryLevel();
+const rendererTelemetryDebug = (() => {
+  try {
+    if (import.meta?.env && 'RENDERER_VITE_TELEMETRY_DEBUG' in import.meta.env) {
+      return parseBoolean(import.meta.env.RENDERER_VITE_TELEMETRY_DEBUG);
+    }
+  } catch {}
+  return false;
+})();
+
+const shouldLogAnalytics = (required = 'NORMAL') => {
+  if (rendererTelemetryDebug) return true;
+  const currentPriority = TELEMETRY_LEVELS[rendererTelemetryLevel] || TELEMETRY_LEVELS.NORMAL;
+  const requiredPriority = TELEMETRY_LEVELS[required] || TELEMETRY_LEVELS.NORMAL;
+  return currentPriority >= requiredPriority;
+};
+
+const analyticsLog = (requiredLevel, ...args) => {
+  if (shouldLogAnalytics(requiredLevel)) {
+    console.log(...args);
+  }
+};
+
 // Generate session ID based on environment capabilities
 const generateSessionId = () => {
   try {
@@ -85,7 +132,7 @@ class RendererUserAnalytics {
         viewport_height: window.innerHeight
       });
 
-      console.log(`[User Analytics] Session initialized: ${this.sessionId} for user ${userId || 'anonymous'}`);
+      analyticsLog('NORMAL', `[User Analytics] Session initialized: ${this.sessionId} for user ${userId || 'anonymous'}`);
       return session;
     } catch (error) {
       console.error('[User Analytics] Failed to initialize session:', error);
@@ -104,7 +151,7 @@ class RendererUserAnalytics {
         sessionId: this.sessionId
       });
 
-      console.log(`[User Analytics] Session ended: ${this.sessionId}`);
+      analyticsLog('NORMAL', `[User Analytics] Session ended: ${this.sessionId}`);
       
       this.sessionId = null;
       this.userId = null;
@@ -145,7 +192,7 @@ class RendererUserAnalytics {
         this.startEngagementTracking();
       }
 
-      console.log(`[User Analytics] Action recorded: ${actionType}`);
+      analyticsLog('VERBOSE', `[User Analytics] Action recorded: ${actionType}`);
       return true;
     } catch (error) {
       console.error('[User Analytics] Failed to record action:', error);
@@ -167,7 +214,7 @@ class RendererUserAnalytics {
         context
       });
 
-      console.log(`[User Analytics] Feature usage: ${featureName}.${action}`);
+      analyticsLog('VERBOSE', `[User Analytics] Feature usage: ${featureName}.${action}`);
     } catch (error) {
       console.error('[User Analytics] Failed to record feature usage:', error);
     }
@@ -185,7 +232,7 @@ class RendererUserAnalytics {
         engagementSeconds
       });
 
-      console.log(`[User Analytics] Chat engagement: ${engagementSeconds}s`);
+      analyticsLog('VERBOSE', `[User Analytics] Chat engagement: ${engagementSeconds}s`);
     } catch (error) {
       console.error('[User Analytics] Failed to record chat engagement:', error);
     }
@@ -204,7 +251,7 @@ class RendererUserAnalytics {
         eventType
       });
 
-      console.log(`[User Analytics] Connection quality: ${quality}/10 (${eventType})`);
+      analyticsLog('VERBOSE', `[User Analytics] Connection quality: ${quality}/10 (${eventType})`);
     } catch (error) {
       console.error('[User Analytics] Failed to record connection quality:', error);
     }

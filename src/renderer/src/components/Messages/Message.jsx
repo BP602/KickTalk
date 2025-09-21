@@ -1,5 +1,5 @@
 import "@assets/styles/components/Chat/Message.scss";
-import { useCallback, useRef, useMemo, useState } from "react";
+import { useCallback, useRef, useMemo, useState, useEffect } from "react";
 import ModActionMessage from "./ModActionMessage";
 import RegularMessage from "./RegularMessage";
 import EmoteUpdateMessage from "./EmoteUpdateMessage";
@@ -58,7 +58,56 @@ const Message = ({
     }),
   );
 
+  const ensureUserStyle = useCosmeticsStore((state) => state.ensureUserStyle);
+
   const userStyle = type === "dialog" ? dialogUserStyle : cosmeticsUserStyle;
+
+  useEffect(() => {
+    if (type === "dialog" || type === "replyThread") return;
+    if (!senderUsername && !senderId) return;
+
+    console.debug("[Message] user style applied", {
+      senderUsername,
+      senderId,
+      hasBadge: Boolean(userStyle?.badgeId || userStyle?.badge?.id),
+      hasPaint: Boolean(userStyle?.paintId || userStyle?.paint?.id),
+      color: userStyle?.color,
+    });
+  }, [userStyle, senderUsername, senderId, type]);
+
+  useEffect(() => {
+    const sevenTVSettings = settings?.sevenTV;
+    const sevenTVEnabled = sevenTVSettings?.enabled !== false;
+    const paintsEnabled = sevenTVSettings?.paints !== false;
+    const badgesEnabled = sevenTVSettings?.badges !== false;
+
+    if (!sevenTVEnabled) return;
+    if (!paintsEnabled && !badgesEnabled) return;
+    if (!ensureUserStyle) return;
+    if (type === "dialog" || type === "replyThread") return;
+    if (!senderUsername && !senderId) return;
+    if (userStyle?.badgeId || userStyle?.paintId || userStyle?.color) return;
+
+    console.debug("[Message] hydrating 7TV cosmetics", {
+      senderUsername,
+      senderId,
+      paintsEnabled,
+      badgesEnabled,
+    });
+
+    ensureUserStyle({ username: senderUsername, userId: senderId });
+  }, [
+    ensureUserStyle,
+    senderUsername,
+    senderId,
+    type,
+    userStyle?.badgeId,
+    userStyle?.paintId,
+    userStyle?.color,
+    settings?.sevenTV?.enabled,
+    settings?.sevenTV?.paints,
+    settings?.sevenTV?.badges,
+  ]);
 
   // CheckIcon if user can moderate
   const canModerate = useMemo(
