@@ -1893,6 +1893,15 @@ const useChatStore = create((set, get) => ({
   handleStvMessage: (chatroomId, eventDetail) => {
     const { type, body } = eventDetail;
 
+    console.log(
+      `[ChatProvider] Received 7TV event ${type} for ${chatroomId ?? 'broadcast'}`,
+      {
+        badgeCount: body?.badges?.length,
+        paintCount: body?.paints?.length,
+        entitlementUser: body?.object?.user?.username,
+      },
+    );
+
     switch (type) {
       case "connection_established":
         break;
@@ -1900,11 +1909,26 @@ const useChatStore = create((set, get) => ({
         get().handleEmoteSetUpdate(chatroomId, body);
         break;
       case "cosmetic.create":
+        console.log(
+          `[ChatProvider] Applying cosmetic catalog update for ${chatroomId ?? 'all chatrooms'}`,
+          {
+            badges: body?.badges?.length,
+            paints: body?.paints?.length,
+          },
+        );
         useCosmeticsStore?.getState()?.addCosmetics(body);
         break;
       case "entitlement.create": {
         const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
         const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
+        console.log(
+          `[ChatProvider] Processing entitlement for ${transformedUsername || 'unknown user'}`,
+          {
+            badgeId: body?.object?.user?.style?.badge_id,
+            paintId: body?.object?.user?.style?.paint_id,
+            chatroomId,
+          },
+        );
         useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
         break;
       }

@@ -174,6 +174,10 @@ class SharedStvWebSocket extends EventTarget {
       stvEmoteSetId,
     });
 
+    console.log(
+      `[Shared7TV]: Registered chatroom ${chatroomId} (kick=${channelKickID}, stvUser=${stvId}, stvSet=${stvEmoteSetId})`,
+    );
+
     // If we're already connected, subscribe to this chatroom's events
     if (this.connectionState === 'connected') {
       this.subscribeToChatroomEvents(chatroomId);
@@ -398,6 +402,10 @@ class SharedStvWebSocket extends EventTarget {
       return;
     }
 
+    console.log(
+      `[Shared7TV]: Preparing subscriptions for chatroom ${chatroomId} (kick=${chatroomData.channelKickID}, emoteSet=${chatroomData.stvEmoteSetId})`,
+    );
+
     const { channelKickID, stvEmoteSetId } = chatroomData;
 
     // Validate IDs for specific subscriptions
@@ -474,6 +482,9 @@ class SharedStvWebSocket extends EventTarget {
 
     const eventKey = `cosmetic.*:${channelKickID}`;
     if (this.subscribedEvents.has(eventKey)) {
+      console.log(
+        `[Shared7TV]: Cosmetic subscription already active for Kick channel ${channelKickID} (chatroom ${chatroomId})`,
+      );
       return;
     }
 
@@ -502,6 +513,9 @@ class SharedStvWebSocket extends EventTarget {
 
     const eventKey = `entitlement.*:${channelKickID}`;
     if (this.subscribedEvents.has(eventKey)) {
+      console.log(
+        `[Shared7TV]: Entitlement subscription already active for Kick channel ${channelKickID} (chatroom ${chatroomId})`,
+      );
       return;
     }
 
@@ -575,6 +589,14 @@ class SharedStvWebSocket extends EventTarget {
         // Find which chatroom this event belongs to
         const chatroomId = this.findChatroomForEvent(body, type);
 
+        console.log(
+          `[Shared7TV]: Received ${type} for ${chatroomId === null ? 'broadcast' : `chatroom ${chatroomId}`}`,
+          {
+            channelContext: body?.context || body?.condition || null,
+            entitlementUser: body?.object?.user?.username,
+          },
+        );
+
         switch (type) {
           case "user.update":
             this.dispatchEvent(
@@ -603,6 +625,14 @@ class SharedStvWebSocket extends EventTarget {
           case "cosmetic.create":
             updateCosmetics(body);
 
+            console.log(
+              `[Shared7TV]: Forwarding cosmetic catalog update to ${chatroomId === null ? 'all chatrooms' : chatroomId}`,
+              {
+                badgeCount: cosmetics?.badges?.length,
+                paintCount: cosmetics?.paints?.length,
+              },
+            );
+
             this.dispatchEvent(
               new CustomEvent("message", {
                 detail: {
@@ -616,6 +646,14 @@ class SharedStvWebSocket extends EventTarget {
 
           case "entitlement.create":
             if (body.kind === 10) {
+              console.log(
+                `[Shared7TV]: Forwarding entitlement for ${body?.object?.user?.username || 'unknown user'}`,
+                {
+                  chatroomId,
+                  badgeId: body?.object?.user?.style?.badge_id,
+                  paintId: body?.object?.user?.style?.paint_id,
+                },
+              );
               this.dispatchEvent(
                 new CustomEvent("message", {
                   detail: {
@@ -637,7 +675,7 @@ class SharedStvWebSocket extends EventTarget {
   findChatroomForEvent(body, type) {
     // Try to identify which chatroom this event belongs to
     // This is a best-effort approach since 7TV events don't always include channel context
-    
+
     // For user events, broadcast to all chatrooms
     if (type.startsWith("user.")) {
       return null; // null means broadcast to all chatrooms
@@ -654,6 +692,17 @@ class SharedStvWebSocket extends EventTarget {
 
     // For cosmetic and entitlement events, they should include channel context
     // but if not, we'll broadcast to all chatrooms
+    if (type.startsWith("cosmetic.") || type.startsWith("entitlement.")) {
+      const contextId = body?.context?.id || body?.condition?.id || null;
+      console.log(
+        `[Shared7TV]: Unable to directly map ${type} to a chatroom, broadcasting`,
+        {
+          contextId,
+          knownChatrooms: Array.from(this.chatrooms.values()).map((data) => data.channelKickID),
+        },
+      );
+    }
+
     return null;
   }
 

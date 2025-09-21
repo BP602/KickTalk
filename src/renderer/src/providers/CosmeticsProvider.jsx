@@ -12,6 +12,15 @@ const useCosmeticsStore = create((set, get) => ({
     const transformedUsername = username.toLowerCase();
     const userStyle = body.object.user;
 
+    console.log(
+      `[CosmeticsStore] Upserting style for ${transformedUsername}`,
+      {
+        badgeId: userStyle?.style?.badge_id,
+        paintId: userStyle?.style?.paint_id,
+        entitlementId: body?.object?.id,
+      },
+    );
+
     set((state) => {
       const currentStyle = state.userStyles[transformedUsername] || {};
       if (currentStyle.badgeId === body.object.user.style.badge_id && currentStyle.paintId === body.object.user.style.paint_id)
@@ -54,6 +63,14 @@ const useCosmeticsStore = create((set, get) => ({
   },
 
   addCosmetics: (body) => {
+    console.log(
+      `[CosmeticsStore] Updating global cosmetics catalog`,
+      {
+        badges: body?.badges?.length,
+        paints: body?.paints?.length,
+      },
+    );
+
     set(() => {
       const newState = {
         globalCosmetics: {
