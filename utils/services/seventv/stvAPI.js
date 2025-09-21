@@ -97,6 +97,211 @@ const getChannelEmotes = async (channelId) => {
   }
 };
 
+// Helper function to get full user profile with cosmetics by 7TV user ID
+const getUserCosmeticsById = async (stvUserId) => {
+  try {
+    const response = await axios.get(`https://7tv.io/v3/users/${stvUserId}`);
+    if (response?.data?.style) {
+      console.log(`[7TV Cosmetics] Found cosmetics for 7TV user: ${stvUserId}`);
+      console.log(`[7TV Cosmetics] Style data:`, response.data.style);
+      console.log(`[7TV Cosmetics] Username:`, response.data.username);
+      // Wrap in expected structure for CosmeticsProvider
+      return { user: response.data };
+    }
+  } catch (error) {
+    console.error(`[7TV Cosmetics] Error getting cosmetics for ${stvUserId}:`, error?.message || error);
+  }
+  return null;
+};
+
+const getUserCosmetics = async ({ userId, username }) => {
+  if (!userId && !username) {
+    return null;
+  }
+
+  // Helper function to get 7TV user ID from Kick connection using REST API
+  const get7TVUserIdFromKick = async (kickIdentifier) => {
+    try {
+      console.log(`[7TV Cosmetics] Looking up 7TV user via REST API for Kick: ${kickIdentifier}`);
+
+      // Try the v3 REST API endpoint for kick connections
+      const response = await axios.get(`https://7tv.io/v3/users/kick/${kickIdentifier}`);
+
+      if (response?.data?.user?.id) {
+        console.log(`[7TV Cosmetics] Found 7TV user ID: ${response.data.user.id} for Kick: ${kickIdentifier}`);
+        return response.data.user.id;
+      }
+    } catch (error) {
+      console.error(`[7TV Cosmetics] REST API lookup error for ${kickIdentifier}:`, error?.message || error);
+    }
+
+    return null;
+  };
+
+
+  // Primary strategy: Use userId if available (most reliable)
+  if (userId) {
+    console.log(`[7TV Cosmetics] Trying userId: ${userId}`);
+    const stvUserId = await get7TVUserIdFromKick(userId);
+    if (stvUserId) {
+      const cosmetics = await getUserCosmeticsById(stvUserId);
+      if (cosmetics) {
+        return cosmetics;
+      }
+      console.log(`[7TV Cosmetics] No cosmetics for 7TV user id ${stvUserId}, will try username next if available`);
+    } else {
+      console.log(`[7TV Cosmetics] Kick userId lookup failed, will try username next if available`);
+    }
+  }
+
+  // Fallback: Try username if provided (even if userId lookup failed)
+  if (username) {
+    console.log(`[7TV Cosmetics] Trying username fallback: ${username}`);
+    const stvUserId = await get7TVUserIdFromKick(username);
+    if (stvUserId) {
+      const cosmetics = await getUserCosmeticsById(stvUserId);
+      if (cosmetics) {
+        return cosmetics;
+      }
+    }
+  }
+
+  console.log(`[7TV Cosmetics] No cosmetics found for user: ${username} (${userId})`);
+  return null;
+};
+
+const getAllPaints = async () => {
+  try {
+    console.log("[7TV Cosmetics] Loading all paint definitions...");
+
+    const paintQuery = `
+      query GetAllPaints {
+        paints {
+          paints {
+            id
+            name
+            data {
+              layers {
+                id
+                opacity
+                ty {
+                  ... on PaintLayerTypeRadialGradient {
+                    stops {
+                      at
+                      color {
+                        hex
+                        r
+                        g
+                        b
+                        a
+                      }
+                    }
+                    shape
+                  }
+                  ... on PaintLayerTypeLinearGradient {
+                    angle
+                    stops {
+                      at
+                      color {
+                        hex
+                        r
+                        g
+                        b
+                        a
+                      }
+                    }
+                  }
+                  ... on PaintLayerTypeSingleColor {
+                    color {
+                      hex
+                      r
+                      g
+                      b
+                      a
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await axios.post(
+      "https://7tv.io/v4/gql",
+      {
+        query: paintQuery,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (response?.data?.data?.paints?.paints) {
+      const paints = response.data.data.paints.paints;
+      console.log(`[7TV Cosmetics] Loaded ${paints.length} paint definitions`);
+      return paints;
+    }
+
+    return [];
+  } catch (error) {
+    console.error("[7TV Cosmetics] Error loading paint definitions:", error?.message || error);
+    return [];
+  }
+};
+
+const getAllBadges = async () => {
+  try {
+    console.log("[7TV Cosmetics] Loading all badge definitions...");
+
+    const badgeQuery = `
+      query GetAllBadges {
+        badges {
+          badges {
+            id
+            name
+            description
+            images {
+              url
+              mime
+              size
+              scale
+              width
+              height
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await axios.post(
+      "https://7tv.io/v4/gql",
+      {
+        query: badgeQuery,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (response?.data?.data?.badges?.badges) {
+      const badges = response.data.data.badges.badges;
+      console.log(`[7TV Cosmetics] Loaded ${badges.length} badge definitions`);
+      return badges;
+    }
+
+    return [];
+  } catch (error) {
+    console.error("[7TV Cosmetics] Error loading badge definitions:", error?.message || error);
+    return [];
+  }
+};
+
 const sendUserPresence = async (stvId, userId) => {
   try {
     const response = await axios.post(
@@ -251,4 +456,147 @@ const getUserStvProfile = async (platformId) => {
   }
 };
 
-export { getChannelEmotes, sendUserPresence, getUserStvProfile };
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const toColorString = (color, layerOpacity = 1) => {
+  if (!color) return null;
+
+  if (typeof color === "string") {
+    return color;
+  }
+
+  if (color.hex) {
+    // The API already encodes alpha into the hex value when available (#RRGGBBAA)
+    return color.hex;
+  }
+
+  const r = Number.isFinite(color.r) ? clamp(Math.round(color.r), 0, 255) : null;
+  const g = Number.isFinite(color.g) ? clamp(Math.round(color.g), 0, 255) : null;
+  const b = Number.isFinite(color.b) ? clamp(Math.round(color.b), 0, 255) : null;
+
+  if ([r, g, b].some((value) => value === null)) {
+    return null;
+  }
+
+  const baseAlpha = Number.isFinite(color.a) ? clamp(color.a, 0, 1) : 1;
+  const alpha = clamp(baseAlpha * layerOpacity, 0, 1);
+
+  if (alpha >= 1) {
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  // Trim trailing zeros for cleaner CSS
+  const alphaString = Number(alpha.toFixed(3)).toString();
+  return `rgba(${r}, ${g}, ${b}, ${alphaString})`;
+};
+
+const makeGradientStops = (stops = [], layerOpacity = 1) => {
+  return stops
+    .map((stop) => {
+      const color = toColorString(stop?.color, layerOpacity);
+      if (!color) return null;
+
+      if (typeof stop?.at === "number") {
+        const percentage = clamp(Math.round(stop.at * 100), 0, 100);
+        return `${color} ${percentage}%`;
+      }
+
+      return color;
+    })
+    .filter(Boolean)
+    .join(", ");
+};
+
+const convertLayerToBackground = (layer) => {
+  if (!layer?.ty) return null;
+
+  const { ty } = layer;
+  const layerOpacity = "opacity" in layer ? clamp(layer.opacity ?? 1, 0, 1) : 1;
+
+  // Gradients with stops
+  if (Array.isArray(ty.stops) && ty.stops.length) {
+    const stops = makeGradientStops(ty.stops, layerOpacity);
+    if (!stops) return null;
+
+    if (ty.shape) {
+      const shape = String(ty.shape || "ellipse").toLowerCase();
+      return `radial-gradient(${shape}, ${stops})`;
+    }
+
+    const angle = Number.isFinite(ty.angle) ? `${ty.angle}deg` : "180deg";
+    return `linear-gradient(${angle}, ${stops})`;
+  }
+
+  // Solid color layer
+  if (ty.color) {
+    const color = toColorString(ty.color, layerOpacity);
+    if (color) {
+      return color;
+    }
+  }
+
+  // Image layers
+  const imageUrl = ty?.image?.url || ty?.url;
+  if (imageUrl) {
+    const parts = [`url(${imageUrl})`];
+
+    if (ty.size) {
+      parts.push(`/ ${ty.size}`);
+    }
+
+    if (ty.position) {
+      parts.push(` ${ty.position}`);
+    }
+
+    if (ty.repeat) {
+      parts.push(` ${ty.repeat}`);
+    }
+
+    return parts.join("");
+  }
+
+  return null;
+};
+
+const convertShadowsToCSS = (shadows = []) => {
+  const cssShadows = shadows
+    .map((shadow) => {
+      if (!shadow) return null;
+
+      const color = toColorString(shadow.color, shadow.opacity ?? 1);
+      if (!color) return null;
+
+      const offsetX = Number.isFinite(shadow.x_offset) ? `${shadow.x_offset}px` : "0px";
+      const offsetY = Number.isFinite(shadow.y_offset) ? `${shadow.y_offset}px` : "0px";
+      const blur = Number.isFinite(shadow.blur) ? `${shadow.blur}px` : "0px";
+
+      return `drop-shadow(${offsetX} ${offsetY} ${blur} ${color})`;
+    })
+    .filter(Boolean);
+
+  return cssShadows.length ? cssShadows.join(" ") : null;
+};
+
+// Convert 7TV paint definition to CSS background-image
+const convertPaintToCSS = (paintDefinition) => {
+  const layers = paintDefinition?.data?.layers;
+  if (!Array.isArray(layers) || layers.length === 0) {
+    return null;
+  }
+
+  const backgrounds = layers.map(convertLayerToBackground).filter(Boolean);
+  if (!backgrounds.length) {
+    return null;
+  }
+
+  // CSS paints the first background on top; reverse to maintain the 7TV layer ordering
+  const backgroundImage = backgrounds.reverse().join(", ");
+  const boxShadow = convertShadowsToCSS(paintDefinition?.data?.shadows);
+
+  return {
+    backgroundImage,
+    boxShadow,
+  };
+};
+
+export { getChannelEmotes, sendUserPresence, getUserStvProfile, getUserCosmetics, getUserCosmeticsById, getAllPaints, getAllBadges, convertPaintToCSS };
