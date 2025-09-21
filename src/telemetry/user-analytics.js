@@ -2,6 +2,34 @@
 const { metrics, trace, context } = require('@opentelemetry/api');
 const { ErrorMonitor } = require('./error-monitoring');
 
+// Debug configuration for user analytics
+const getTelemetryDebug = () => {
+  try {
+    // Check consolidated VITE_ vars first (available to all processes), then fall back to old vars
+    // Note: In main process, we access these via process.env since they're embedded at build time
+    return process.env.VITE_TELEMETRY_DEBUG === 'true' ||
+           process.env.MAIN_VITE_TELEMETRY_DEBUG === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const getTelemetryLevel = () => {
+  try {
+    // Check consolidated VITE_ vars first (available to all processes), then fall back to old vars
+    const level = process.env.VITE_TELEMETRY_LEVEL ||
+                  process.env.MAIN_VITE_TELEMETRY_LEVEL ||
+                  'NORMAL';
+    return level.toUpperCase();
+  } catch {
+    return 'NORMAL';
+  }
+};
+
+const shouldLogDebug = () => {
+  return getTelemetryDebug() || getTelemetryLevel() === 'VERBOSE';
+};
+
 const pkg = require('../../package.json');
 const meter = metrics.getMeter('kicktalk-user-analytics', pkg.version);
 const tracer = trace.getTracer('kicktalk-user-analytics', pkg.version);
@@ -279,7 +307,9 @@ class UserSession {
     const finalScore = this.calculateFinalSatisfactionScore();
     this.satisfactionScore = finalScore;
     
-    console.log(`[User Analytics] Session ${this.sessionId} ended: ${this.getSessionDuration()}s, satisfaction: ${finalScore.toFixed(1)}/10`);
+    if (shouldLogDebug()) {
+      console.log(`[User Analytics] Session ${this.sessionId} ended: ${this.getSessionDuration()}s, satisfaction: ${finalScore.toFixed(1)}/10`);
+    }
   }
 }
 
@@ -293,7 +323,9 @@ const UserAnalytics = {
     const session = new UserSession(sessionId, userId);
     activeSessions.set(sessionId, session);
     
-    console.log(`[User Analytics] Started session ${sessionId} for user ${userId || 'anonymous'}`);
+    if (shouldLogDebug()) {
+      console.log(`[User Analytics] Started session ${sessionId} for user ${userId || 'anonymous'}`);
+    }
     return session;
   },
 
@@ -319,7 +351,9 @@ const UserAnalytics = {
 
     // Record final satisfaction score
     const finalScore = session.satisfactionScore;
-    console.log(`[User Analytics] Session satisfaction: ${finalScore.toFixed(2)}/10`);
+    if (shouldLogDebug()) {
+      console.log(`[User Analytics] Session satisfaction: ${finalScore.toFixed(2)}/10`);
+    }
 
     // Store session data for correlation analysis
     userBehaviorData.set(sessionId, {
@@ -417,7 +451,9 @@ const UserAnalytics = {
     }
     featureAdoptionData.get(userKey).add(featureName);
 
-    console.log(`[User Analytics] Feature usage: ${featureName}.${action} by ${session.userId}`);
+    if (shouldLogDebug()) {
+      console.log(`[User Analytics] Feature usage: ${featureName}.${action} by ${session.userId}`);
+    }
   },
 
   /**
@@ -453,7 +489,9 @@ const UserAnalytics = {
       timestamp: Date.now()
     });
 
-    console.log(`[User Analytics] Connection quality: ${quality}/10 (${eventType}) for session ${sessionId}`);
+    if (shouldLogDebug()) {
+      console.log(`[User Analytics] Connection quality: ${quality}/10 (${eventType}) for session ${sessionId}`);
+    }
   },
 
   /**
@@ -586,16 +624,18 @@ const UserAnalytics = {
 
     const cleanupDuration = Date.now() - cleanupStartTime;
     
-    console.log(`[User Analytics] Cleanup completed in ${cleanupDuration}ms:`, {
-      active_sessions_cleaned: cleanedSessions,
-      historical_data_cleaned: cleanedHistoricalData, 
+    if (shouldLogDebug()) {
+      console.log(`[User Analytics] Cleanup completed in ${cleanupDuration}ms:`, {
+        active_sessions_cleaned: cleanedSessions,
+        historical_data_cleaned: cleanedHistoricalData, 
       adoption_data_cleaned: cleanedAdoptionData,
       performance_data_cleaned: cleanedPerfData,
       active_sessions_remaining: activeSessions.size,
-      historical_data_remaining: userBehaviorData.size,
-      feature_adoption_users: featureAdoptionData.size,
-      error_impact_sessions: performanceCorrelationData.error_impact_sessions.size
-    });
+        historical_data_remaining: userBehaviorData.size,
+        feature_adoption_users: featureAdoptionData.size,
+        error_impact_sessions: performanceCorrelationData.error_impact_sessions.size
+      });
+    }
 
     return {
       cleaned: cleanedSessions + cleanedHistoricalData + cleanedAdoptionData + cleanedPerfData,
@@ -633,15 +673,17 @@ const UserAnalytics = {
       error_impact_sessions: new Set()
     };
 
-    console.log(`[User Analytics] Force cleanup completed:`, {
-      before: beforeCounts,
-      after: {
-        activeSessions: activeSessions.size,
-        historicalData: userBehaviorData.size,
-        featureAdoption: featureAdoptionData.size,
-        errorImpactSessions: performanceCorrelationData.error_impact_sessions.size
-      }
-    });
+    if (shouldLogDebug()) {
+      console.log(`[User Analytics] Force cleanup completed:`, {
+        before: beforeCounts,
+        after: {
+          activeSessions: activeSessions.size,
+          historicalData: userBehaviorData.size,
+          featureAdoption: featureAdoptionData.size,
+          errorImpactSessions: performanceCorrelationData.error_impact_sessions.size
+        }
+      });
+    }
 
     return beforeCounts;
   },

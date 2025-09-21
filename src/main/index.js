@@ -133,6 +133,33 @@ try {
   console.warn('[Telemetry]: Failed to set service.version from package/app version:', e?.message || e);
 }
 
+// Telemetry debug configuration for main process
+const getTelemetryDebug = () => {
+  try {
+    // Check consolidated VITE_ vars first (available to all processes), then fall back to old vars
+    return import.meta.env.VITE_TELEMETRY_DEBUG === 'true' ||
+           import.meta.env.MAIN_VITE_TELEMETRY_DEBUG === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const getTelemetryLevel = () => {
+  try {
+    // Check consolidated VITE_ vars first (available to all processes), then fall back to old vars
+    const level = import.meta.env.VITE_TELEMETRY_LEVEL ||
+                  import.meta.env.MAIN_VITE_TELEMETRY_LEVEL ||
+                  'NORMAL';
+    return level.toUpperCase();
+  } catch {
+    return 'NORMAL';
+  }
+};
+
+const shouldLogDebug = () => {
+  return getTelemetryDebug() || getTelemetryLevel() === 'VERBOSE';
+};
+
 // Load metrics with fallback
 let metrics = null;
 try {
@@ -686,8 +713,10 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
   const startedAt = Date.now();
   
   try {
-    console.log(`[OTEL IPC Relay][${requestId}] Received trace export from renderer`);
-    console.log(`[OTEL IPC Relay][${requestId}] Payload size: ${JSON.stringify(exportJson || {}).length} chars`);
+    if (shouldLogDebug()) {
+      console.log(`[OTEL IPC Relay][${requestId}] Received trace export from renderer`);
+      console.log(`[OTEL IPC Relay][${requestId}] Payload size: ${JSON.stringify(exportJson || {}).length} chars`);
+    }
     
     const base = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "";
     const endpoint = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
@@ -732,7 +761,9 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
       timeout: 15000,
     };
 
-    console.log(`[OTEL IPC Relay][${requestId}] → POST ${url.hostname}${options.path}`);
+    if (shouldLogDebug()) {
+      console.log(`[OTEL IPC Relay][${requestId}] → POST ${url.hostname}${options.path}`);
+    }
 
     const result = await new Promise((resolve, reject) => {
       const req = https.request(options, (res) => {
@@ -742,7 +773,9 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
           const ms = Date.now() - startedAt;
           const responseBody = Buffer.concat(chunks).toString("utf8");
           
-          console.log(`[OTEL IPC Relay][${requestId}] ← ${res.statusCode} (${ms}ms)`);
+          if (shouldLogDebug()) {
+            console.log(`[OTEL IPC Relay][${requestId}] ← ${res.statusCode} (${ms}ms)`);
+          }
           resolve({ statusCode: res.statusCode || 0, responseBody });
         });
       });
@@ -762,7 +795,9 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
     });
 
     const success = result.statusCode >= 200 && result.statusCode < 300;
-    console.log(`[OTEL IPC Relay][${requestId}] Result: ${success ? 'success' : 'failed'}`);
+    if (shouldLogDebug()) {
+      console.log(`[OTEL IPC Relay][${requestId}] Result: ${success ? 'success' : 'failed'}`);
+    }
 
     return { ok: success, status: result.statusCode, requestId };
   } catch (e) {
