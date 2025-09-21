@@ -218,11 +218,23 @@ class StvWebSocket extends EventTarget {
   handleConnectionError() {
     this.reconnectAttempts++;
     console.log(`[7TV]: Connection error. Attempt ${this.reconnectAttempts}`);
+    try {
+      window.app?.telemetry?.recordWebSocketError?.(`7tv_${this.channelKickID}`, 'connection_error', {
+        attempt: this.reconnectAttempts,
+        channelKickID: this.channelKickID
+      });
+    } catch (_) {}
   }
 
   handleReconnection() {
     if (!this.shouldReconnect) {
       console.log(`[7TV]: Reconnection disabled for chatroom ${this.channelKickID}`);
+      try {
+        window.app?.telemetry?.recordWebSocketEvent?.(`7tv_${this.channelKickID}`, 'reconnection_disabled', {
+          attempt: this.reconnectAttempts,
+          channelKickID: this.channelKickID
+        });
+      } catch (_) {}
       return;
     }
 
@@ -232,6 +244,14 @@ class StvWebSocket extends EventTarget {
     const delay = this.startDelay * Math.pow(2, step - 1);
 
     console.log(`[7TV]: Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    try {
+      window.app?.telemetry?.recordWebSocketEvent?.(`7tv_${this.channelKickID}`, 'reconnection_scheduled', {
+        attempt: this.reconnectAttempts,
+        delay_ms: delay,
+        step: step,
+        channelKickID: this.channelKickID
+      });
+    } catch (_) {}
 
     setTimeout(() => {
       this.connect();
@@ -332,8 +352,120 @@ class StvWebSocket extends EventTarget {
       try {
         const msg = JSON.parse(event.data);
 
-        // Log ALL messages to see if we're getting any at all
+        // Handle different 7TV opcodes
+        switch (msg?.op) {
+          case 0: // Dispatch (actual events)
+            console.log(`[7TV]: Dispatch event received for channel ${this.channelKickID}`, { type: msg?.d?.type });
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'dispatch', msg?.d?.type);
+            } catch (_) {}
+            break;
+          case 1: // Hello (connection established)
+            console.log(`[7TV]: Hello received for channel ${this.channelKickID}`, {
+              heartbeat_interval: msg?.d?.heartbeat_interval,
+              session_id: msg?.d?.session_id
+            });
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'hello', null, {
+                heartbeat_interval: msg?.d?.heartbeat_interval,
+                has_session_id: !!msg?.d?.session_id
+              });
+            } catch (_) {}
+            return;
+          case 2: // Heartbeat
+            console.log(`[7TV]: Heartbeat received for channel ${this.channelKickID}`, { count: msg?.d?.count });
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'heartbeat', null, {
+                count: msg?.d?.count
+              });
+            } catch (_) {}
+            return; // Don't process heartbeats further
+          case 4: // Reconnect (server requests reconnection)
+            console.log(`[7TV]: Reconnect request received for channel ${this.channelKickID}`, msg?.d);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'reconnect', null, {
+                reason: msg?.d?.reason
+              });
+            } catch (_) {}
+            return;
+          case 5: // Ack (acknowledgment)
+            console.log(`[7TV]: ACK received for channel ${this.channelKickID}`, {
+              command: msg?.d?.command,
+              type: msg?.d?.data?.type,
+              id: msg?.d?.data?.id
+            });
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'ack', msg?.d?.data?.type, {
+                command: msg?.d?.command
+              });
+            } catch (_) {}
+            return;
+          case 6: // Error
+            console.error(`[7TV]: Error received for channel ${this.channelKickID}`, {
+              message: msg?.d?.message,
+              code: msg?.d?.code,
+              data: msg?.d?.data
+            });
+            try {
+              window.app?.telemetry?.recordWebSocketError?.(`7tv_${this.channelKickID}`, msg?.d?.message, {
+                code: msg?.d?.code,
+                data: msg?.d?.data
+              });
+            } catch (_) {}
+            return;
+          case 7: // EndOfStream
+            console.log(`[7TV]: End of stream received for channel ${this.channelKickID}`, msg?.d);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'end_of_stream', null, msg?.d);
+            } catch (_) {}
+            return;
+          case 33: // Identify (client authentication)
+            console.log(`[7TV]: Identify opcode (should not be received by client) for channel ${this.channelKickID}`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'identify_unexpected', null);
+            } catch (_) {}
+            return;
+          case 34: // Resume (session resumption)
+            console.log(`[7TV]: Resume opcode (should not be received by client) for channel ${this.channelKickID}`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'resume_unexpected', null);
+            } catch (_) {}
+            return;
+          case 35: // Subscribe (subscription request)
+            console.log(`[7TV]: Subscribe opcode (should not be received by client) for channel ${this.channelKickID}`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'subscribe_unexpected', null);
+            } catch (_) {}
+            return;
+          case 36: // Unsubscribe (unsubscription request)
+            console.log(`[7TV]: Unsubscribe opcode (should not be received by client) for channel ${this.channelKickID}`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'unsubscribe_unexpected', null);
+            } catch (_) {}
+            return;
+          case 37: // Signal
+            console.log(`[7TV]: Signal received for channel ${this.channelKickID}`, msg?.d);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'signal', null, msg?.d);
+            } catch (_) {}
+            return;
+          case 38: // Bridge (deprecated)
+            console.log(`[7TV]: Bridge opcode received (deprecated) for channel ${this.channelKickID}`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'bridge_deprecated', null);
+            } catch (_) {}
+            return;
+          default:
+            console.log(`[7TV]: Unknown opcode ${msg?.op} for channel ${this.channelKickID}:`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.(`7tv_${this.channelKickID}`, 'unknown_opcode', null, {
+                opcode: msg?.op
+              });
+            } catch (_) {}
+            return;
+        }
 
+        // Only process dispatch events (op: 0) that have a body
         if (!msg?.d?.body) {
           return;
         }

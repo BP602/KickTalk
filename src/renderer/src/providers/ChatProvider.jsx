@@ -551,7 +551,9 @@ const useChatStore = create((set, get) => ({
 
     if (stvPresenceUpdates.has(userId)) {
       const lastUpdateTime = stvPresenceUpdates.get(userId);
-      console.log("[7tv Presence]: Last update time for chatroom:", userId, lastUpdateTime, stvPresenceUpdates);
+      if (window.__KT_TELEMETRY_UTILS__?.shouldLogDebug?.()) {
+        console.log("[7tv Presence]: Last update time for chatroom:", userId, lastUpdateTime, stvPresenceUpdates);
+      }
       if (currentTime - lastUpdateTime < PRESENCE_UPDATE_INTERVAL) {
         return;
       }
@@ -1509,10 +1511,23 @@ const useChatStore = create((set, get) => ({
       // 7TV event handlers
       onStvMessage: (event) => {
         try {
-          const { chatroomId } = event.detail;
+          const { chatroomId, type, body } = event.detail;
+          console.log(`[ChatProvider] Received 7TV event from shared WebSocket`, {
+            type,
+            chatroomId,
+            hasBody: !!body,
+            entitlementUser: body?.object?.user?.username,
+            badgeId: body?.object?.user?.style?.badge_id,
+            paintId: body?.object?.user?.style?.paint_id,
+            badgeCount: body?.badges?.length,
+            paintCount: body?.paints?.length
+          });
+
           if (chatroomId) {
+            console.log(`[ChatProvider] Routing event ${type} to specific chatroom: ${chatroomId}`);
             get().handleStvMessage(chatroomId, event.detail);
           } else {
+            console.log(`[ChatProvider] Broadcasting event ${type} to all chatrooms (${chatrooms.length} total)`);
             // Broadcast to all chatrooms if no specific chatroom
             chatrooms.forEach(chatroom => {
               get().handleStvMessage(chatroom.id, event.detail);
@@ -1625,7 +1640,9 @@ const useChatStore = create((set, get) => ({
         get().connectToChatroom(chatroom);
 
         // Connect to 7TV WebSocket
-        get().connectToStvWebSocket(chatroom);
+        // DISABLED: Using shared connection system via connectionManager.initializeConnections
+        console.log(`[ChatProvider] Skipping individual 7TV connection for chatroom ${chatroom.id} - using shared connection system`);
+        // get().connectToStvWebSocket(chatroom);
       }
     });
   },
@@ -1916,7 +1933,16 @@ const useChatStore = create((set, get) => ({
             paints: body?.paints?.length,
           },
         );
-        useCosmeticsStore?.getState()?.addCosmetics(body);
+        const cosmetics = useCosmeticsStore?.getState()?.addCosmetics;
+        if (cosmetics) {
+          console.log(`[ChatProvider] Calling CosmeticsStore.addCosmetics with body:`, {
+            badges: body?.badges?.length,
+            paints: body?.paints?.length
+          });
+          cosmetics(body);
+        } else {
+          console.error(`[ChatProvider] CosmeticsStore.addCosmetics method not available!`);
+        }
         break;
       case "entitlement.create": {
         const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
@@ -1929,7 +1955,13 @@ const useChatStore = create((set, get) => ({
             chatroomId,
           },
         );
-        useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
+        const addUserStyle = useCosmeticsStore?.getState()?.addUserStyle;
+        if (addUserStyle) {
+          console.log(`[ChatProvider] Calling CosmeticsStore.addUserStyle for ${transformedUsername}`);
+          addUserStyle(transformedUsername, body);
+        } else {
+          console.error(`[ChatProvider] CosmeticsStore.addUserStyle method not available!`);
+        }
         break;
       }
       default:
@@ -2169,7 +2201,9 @@ const useChatStore = create((set, get) => ({
       get().connectToChatroom(newChatroom);
 
       // Connect to 7TV WebSocket
-      get().connectToStvWebSocket(newChatroom);
+      // DISABLED: Using shared connection system via connectionManager.initializeConnections
+      console.log(`[ChatProvider] Skipping individual 7TV connection for new chatroom ${newChatroom.id} - using shared connection system`);
+      // get().connectToStvWebSocket(newChatroom);
 
       // Save to local storage
       localStorage.setItem("chatrooms", JSON.stringify([...savedChatrooms, newChatroom]));
@@ -4055,7 +4089,9 @@ if (window.location.pathname === "/" || window.location.pathname.endsWith("index
         if (chatrooms?.length === 0) return;
 
         chatrooms.forEach((chatroom) => {
-          console.log("[7tv Presence]: Sending presence check for chatroom:", chatroom.streamerData.user_id);
+          if (window.__KT_TELEMETRY_UTILS__?.shouldLogDebug?.()) {
+            console.log("[7tv Presence]: Sending presence check for chatroom:", chatroom.streamerData.user_id);
+          }
           useChatStore.getState().sendPresenceUpdate(storeStvId, chatroom.streamerData.user_id);
         });
       },

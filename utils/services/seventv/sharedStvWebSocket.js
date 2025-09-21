@@ -344,10 +344,25 @@ class SharedStvWebSocket extends EventTarget {
       await this.delay(1000);
 
       // Subscribe to events for all chatrooms
+      console.log(`[Shared7TV]: Starting subscription to all events for ${this.chatrooms.size} chatrooms`);
+      try {
+        window.app?.telemetry?.recordWebSocketEvent?.('7tv_shared', 'subscription_start', {
+          chatroom_count: this.chatrooms.size
+        });
+      } catch (_) {}
       await this.subscribeToAllEvents();
+      console.log(`[Shared7TV]: Finished subscribing to all events`);
+      try {
+        window.app?.telemetry?.recordWebSocketEvent?.('7tv_shared', 'subscription_complete', {
+          chatroom_count: this.chatrooms.size,
+          subscribed_events: this.subscribedEvents.size
+        });
+      } catch (_) {}
 
       // Setup message handler
+      console.log(`[Shared7TV]: Setting up message handler`);
       this.setupMessageHandler();
+      console.log(`[Shared7TV]: Message handler setup complete`);
 
       // Dispatch connection event
       this.dispatchEvent(
@@ -365,11 +380,22 @@ class SharedStvWebSocket extends EventTarget {
   handleConnectionError() {
     this.reconnectAttempts++;
     console.log(`[Shared7TV]: Connection error. Attempt ${this.reconnectAttempts}`);
+    try {
+      window.app?.telemetry?.recordWebSocketError?.('7tv_shared', 'connection_error', {
+        attempt: this.reconnectAttempts,
+        chatroom_count: this.chatrooms.size
+      });
+    } catch (_) {}
   }
 
   handleReconnection() {
     if (!this.shouldReconnect) {
       console.log(`[Shared7TV]: Reconnection disabled`);
+      try {
+        window.app?.telemetry?.recordWebSocketEvent?.('7tv_shared', 'reconnection_disabled', {
+          attempt: this.reconnectAttempts
+        });
+      } catch (_) {}
       return;
     }
 
@@ -379,6 +405,13 @@ class SharedStvWebSocket extends EventTarget {
     const delay = this.startDelay * Math.pow(2, step - 1);
 
     console.log(`[Shared7TV]: Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1})`);
+    try {
+      window.app?.telemetry?.recordWebSocketEvent?.('7tv_shared', 'reconnection_scheduled', {
+        attempt: this.reconnectAttempts + 1,
+        delay_ms: delay,
+        step: step
+      });
+    } catch (_) {}
 
     setTimeout(() => {
       this.connect();
@@ -475,8 +508,10 @@ class SharedStvWebSocket extends EventTarget {
    * Subscribe to cosmetic events for a specific chatroom
    */
   async subscribeToCosmeticEvents(chatroomId, channelKickID) {
+    console.log(`[Shared7TV]: Attempting to subscribe to cosmetic events for chatroom ${chatroomId}, channelKickID: ${channelKickID}`);
+
     if (!this.chat || this.chat.readyState !== WebSocket.OPEN) {
-      console.log(`[Shared7TV]: Cannot subscribe to cosmetic events - WebSocket not ready`);
+      console.log(`[Shared7TV]: Cannot subscribe to cosmetic events - WebSocket not ready. State: ${this.chat?.readyState}`);
       return;
     }
 
@@ -497,6 +532,7 @@ class SharedStvWebSocket extends EventTarget {
       },
     };
 
+    console.log(`[Shared7TV]: Sending cosmetic subscription message:`, subscribeAllCosmetics);
     this.chat.send(JSON.stringify(subscribeAllCosmetics));
     this.subscribedEvents.add(eventKey);
     console.log(`[Shared7TV]: Subscribed to cosmetic.* events for chatroom ${chatroomId}`);
@@ -506,8 +542,10 @@ class SharedStvWebSocket extends EventTarget {
    * Subscribe to entitlement events for a specific chatroom
    */
   async subscribeToEntitlementEvents(chatroomId, channelKickID) {
+    console.log(`[Shared7TV]: Attempting to subscribe to entitlement events for chatroom ${chatroomId}, channelKickID: ${channelKickID}`);
+
     if (!this.chat || this.chat.readyState !== WebSocket.OPEN) {
-      console.log(`[Shared7TV]: Cannot subscribe to entitlement events - WebSocket not ready`);
+      console.log(`[Shared7TV]: Cannot subscribe to entitlement events - WebSocket not ready. State: ${this.chat?.readyState}`);
       return;
     }
 
@@ -528,6 +566,7 @@ class SharedStvWebSocket extends EventTarget {
       },
     };
 
+    console.log(`[Shared7TV]: Sending entitlement subscription message:`, subscribeAllEntitlements);
     this.chat.send(JSON.stringify(subscribeAllEntitlements));
     this.subscribedEvents.add(eventKey);
     console.log(`[Shared7TV]: Subscribed to entitlement.* events for chatroom ${chatroomId}`);
@@ -579,12 +618,152 @@ class SharedStvWebSocket extends EventTarget {
 
   setupMessageHandler() {
     this.chat.onmessage = (event) => {
+      console.log(`[Shared7TV]: Raw WebSocket message received:`, event.data);
       try {
         const msg = JSON.parse(event.data);
+        console.log(`[Shared7TV]: Parsed message:`, {
+          op: msg?.op,
+          type: msg?.d?.type,
+          hasBody: !!msg?.d?.body,
+          fullMessage: msg
+        });
 
-        if (!msg?.d?.body) return;
+        // Handle different 7TV opcodes
+        switch (msg?.op) {
+          case 0: // Dispatch (actual events)
+            console.log(`[Shared7TV]: Dispatch event received`, { type: msg?.d?.type });
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'dispatch', msg?.d?.type);
+            } catch (_) {}
+            break;
+          case 1: // Hello (connection established)
+            console.log(`[Shared7TV]: Hello received`, {
+              heartbeat_interval: msg?.d?.heartbeat_interval,
+              session_id: msg?.d?.session_id
+            });
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'hello', null, {
+                heartbeat_interval: msg?.d?.heartbeat_interval,
+                has_session_id: !!msg?.d?.session_id
+              });
+            } catch (_) {}
+            return;
+          case 2: // Heartbeat
+            console.log(`[Shared7TV]: Heartbeat received`, { count: msg?.d?.count });
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'heartbeat', null, {
+                count: msg?.d?.count
+              });
+            } catch (_) {}
+            return; // Don't process heartbeats further
+          case 4: // Reconnect (server requests reconnection)
+            console.log(`[Shared7TV]: Reconnect request received`, msg?.d);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'reconnect', null, {
+                reason: msg?.d?.reason
+              });
+            } catch (_) {}
+            // Handle reconnection logic if needed
+            return;
+          case 5: // Ack (acknowledgment)
+            console.log(`[Shared7TV]: ACK received`, {
+              command: msg?.d?.command,
+              type: msg?.d?.data?.type,
+              id: msg?.d?.data?.id
+            });
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'ack', msg?.d?.data?.type, {
+                command: msg?.d?.command
+              });
+            } catch (_) {}
+            return;
+          case 6: // Error
+            console.error(`[Shared7TV]: Error received`, {
+              message: msg?.d?.message,
+              code: msg?.d?.code,
+              data: msg?.d?.data
+            });
+            try {
+              window.app?.telemetry?.recordWebSocketError?.('7tv_shared', msg?.d?.message, {
+                code: msg?.d?.code,
+                data: msg?.d?.data
+              });
+            } catch (_) {}
+            return;
+          case 7: // EndOfStream
+            console.log(`[Shared7TV]: End of stream received`, msg?.d);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'end_of_stream', null, msg?.d);
+            } catch (_) {}
+            return;
+          case 33: // Identify (client authentication)
+            console.log(`[Shared7TV]: Identify opcode (should not be received by client)`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'identify_unexpected', null);
+            } catch (_) {}
+            return;
+          case 34: // Resume (session resumption)
+            console.log(`[Shared7TV]: Resume opcode (should not be received by client)`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'resume_unexpected', null);
+            } catch (_) {}
+            return;
+          case 35: // Subscribe (subscription request)
+            console.log(`[Shared7TV]: Subscribe opcode (should not be received by client)`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'subscribe_unexpected', null);
+            } catch (_) {}
+            return;
+          case 36: // Unsubscribe (unsubscription request)
+            console.log(`[Shared7TV]: Unsubscribe opcode (should not be received by client)`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'unsubscribe_unexpected', null);
+            } catch (_) {}
+            return;
+          case 37: // Signal
+            console.log(`[Shared7TV]: Signal received`, msg?.d);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'signal', null, msg?.d);
+            } catch (_) {}
+            return;
+          case 38: // Bridge (deprecated)
+            console.log(`[Shared7TV]: Bridge opcode received (deprecated)`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'bridge_deprecated', null);
+            } catch (_) {}
+            return;
+          default:
+            console.log(`[Shared7TV]: Unknown opcode ${msg?.op}:`, msg);
+            try {
+              window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'unknown_opcode', null, {
+                opcode: msg?.op
+              });
+            } catch (_) {}
+            return;
+        }
+
+        // Only process dispatch events (op: 0) that have a body
+        if (!msg?.d?.body) {
+          console.log(`[Shared7TV]: Dispatch event has no body, skipping:`, msg);
+          return;
+        }
 
         const { body, type } = msg.d;
+
+        // DIAGNOSTIC: Log all cosmetic-related events with detailed info
+        if (type?.includes('cosmetic') || type?.includes('entitlement')) {
+          console.log(`[Shared7TV DIAGNOSTIC]: Cosmetic event received`, {
+            type: type,
+            objectKind: body?.object?.kind,
+            objectId: body?.object?.id,
+            userId: body?.object?.user?.id,
+            username: body?.object?.user?.username,
+            platform: body?.context?.platform || body?.condition?.platform,
+            channelId: body?.context?.id || body?.condition?.id,
+            hasData: !!body?.object?.data,
+            fullBody: body
+          });
+        }
 
         // Find which chatroom this event belongs to
         const chatroomId = this.findChatroomForEvent(body, type);
@@ -599,6 +778,7 @@ class SharedStvWebSocket extends EventTarget {
 
         switch (type) {
           case "user.update":
+            console.log(`[Shared7TV]: Dispatching user.update event for chatroomId: ${chatroomId}`);
             this.dispatchEvent(
               new CustomEvent("message", {
                 detail: {
@@ -611,6 +791,7 @@ class SharedStvWebSocket extends EventTarget {
             break;
 
           case "emote_set.update":
+            console.log(`[Shared7TV]: Dispatching emote_set.update event for chatroomId: ${chatroomId}`);
             this.dispatchEvent(
               new CustomEvent("message", {
                 detail: {
@@ -633,6 +814,11 @@ class SharedStvWebSocket extends EventTarget {
               },
             );
 
+            console.log(`[Shared7TV]: Dispatching cosmetic.create event for chatroomId: ${chatroomId}`, {
+              badgeCount: cosmetics?.badges?.length,
+              paintCount: cosmetics?.paints?.length,
+              eventDetail: { chatroomId, type: "cosmetic.create" }
+            });
             this.dispatchEvent(
               new CustomEvent("message", {
                 detail: {
@@ -654,6 +840,12 @@ class SharedStvWebSocket extends EventTarget {
                   paintId: body?.object?.user?.style?.paint_id,
                 },
               );
+              console.log(`[Shared7TV]: Dispatching entitlement.create event for chatroomId: ${chatroomId}`, {
+                username: body?.object?.user?.username,
+                badgeId: body?.object?.user?.style?.badge_id,
+                paintId: body?.object?.user?.style?.paint_id,
+                eventDetail: { chatroomId, type: "entitlement.create" }
+              });
               this.dispatchEvent(
                 new CustomEvent("message", {
                   detail: {
