@@ -28,11 +28,13 @@ const updateCosmetics = async (body) => {
         return;
       }
 
-      cosmetics.badges.push({
+      const newBadge = {
         id: data.id === "00000000000000000000000000" ? data.ref_id || "default_id" : data.id,
         title: data.tooltip,
         url: `https:${data.host.url}/${data.host.files[data.host.files.length - 1].name}`,
-      });
+      };
+      cosmetics.badges.push(newBadge);
+      console.log(`[Shared7TV] Added badge: ${newBadge.title}`);
     }
   } else if (object?.kind === "PAINT") {
     if (!object.user) {
@@ -117,6 +119,7 @@ const updateCosmetics = async (body) => {
       }
 
       cosmetics.paints.push(push);
+      console.log(`[Shared7TV] Added paint: ${push.name}`);
     }
   } else if (
     object?.name === "Personal Emotes" ||
@@ -167,20 +170,51 @@ class SharedStvWebSocket extends EventTarget {
     this.connectionSpan = null; // Track current connection span
   }
 
-  addChatroom(chatroomId, channelKickID, stvId = "0", stvEmoteSetId = "0") {
-    this.chatrooms.set(chatroomId, {
+  addChatroom(chatroomId, channelKickID, stvId = "0", stvEmoteSetId = "0", chatroomData = null) {
+    // Store all available ID variants for diagnostic subscriptions
+    const storedData = {
       channelKickID: String(channelKickID),
       stvId,
       stvEmoteSetId,
-    });
+    };
+
+    // Add additional ID variants if chatroomData is provided
+    if (chatroomData) {
+      storedData.idVariants = {
+        chatroom_id: String(chatroomId),
+        streamer_id: String(channelKickID), // This is chatroomData.streamerData.id
+        streamer_user_id: chatroomData.streamerData?.user_id ? String(chatroomData.streamerData.user_id) : null,
+        username: chatroomData.streamerData?.username || null,
+        user_username: chatroomData.streamerData?.user?.username || null,
+        slug: chatroomData.slug || null,
+      };
+    } else {
+      // Fallback for legacy calls - just store the basic IDs
+      storedData.idVariants = {
+        chatroom_id: String(chatroomId),
+        streamer_id: String(channelKickID),
+      };
+    }
+
+    this.chatrooms.set(chatroomId, storedData);
 
     console.log(
       `[Shared7TV]: Registered chatroom ${chatroomId} (kick=${channelKickID}, stvUser=${stvId}, stvSet=${stvEmoteSetId})`,
     );
 
     // If we're already connected, subscribe to this chatroom's events
+    console.log(`[Shared7TV DIAGNOSTIC]: addChatroom called for ${chatroomId}`, {
+      connectionState: this.connectionState,
+      willSubscribe: this.connectionState === 'connected',
+      totalChatrooms: this.chatrooms.size,
+      channelKickID: channelKickID
+    });
+
     if (this.connectionState === 'connected') {
+      console.log(`[Shared7TV DIAGNOSTIC]: Subscribing to events for new chatroom ${chatroomId}`);
       this.subscribeToChatroomEvents(chatroomId);
+    } else {
+      console.log(`[Shared7TV DIAGNOSTIC]: WebSocket not connected (${this.connectionState}), will subscribe when connected`);
     }
   }
 
@@ -429,6 +463,8 @@ class SharedStvWebSocket extends EventTarget {
   }
 
   async subscribeToChatroomEvents(chatroomId) {
+    console.log(`[Shared7TV DIAGNOSTIC]: subscribeToChatroomEvents called for ${chatroomId}`);
+
     const chatroomData = this.chatrooms.get(chatroomId);
     if (!chatroomData) {
       console.log(`[Shared7TV]: Chatroom ${chatroomId} not found`);
@@ -491,7 +527,6 @@ class SharedStvWebSocket extends EventTarget {
 
     const subscribeUserMessage = {
       op: 35,
-      t: Date.now(),
       d: {
         type: "user.*",
         condition: { object_id: chatroomWithStvId.stvId },
@@ -505,11 +540,9 @@ class SharedStvWebSocket extends EventTarget {
   }
 
   /**
-   * Subscribe to cosmetic events for a specific chatroom
+   * Subscribe to cosmetic events for a specific chatroom (using wildcard like Firefox extension)
    */
   async subscribeToCosmeticEvents(chatroomId, channelKickID) {
-    console.log(`[Shared7TV]: Attempting to subscribe to cosmetic events for chatroom ${chatroomId}, channelKickID: ${channelKickID}`);
-
     if (!this.chat || this.chat.readyState !== WebSocket.OPEN) {
       console.log(`[Shared7TV]: Cannot subscribe to cosmetic events - WebSocket not ready. State: ${this.chat?.readyState}`);
       return;
@@ -517,33 +550,27 @@ class SharedStvWebSocket extends EventTarget {
 
     const eventKey = `cosmetic.*:${channelKickID}`;
     if (this.subscribedEvents.has(eventKey)) {
-      console.log(
-        `[Shared7TV]: Cosmetic subscription already active for Kick channel ${channelKickID} (chatroom ${chatroomId})`,
-      );
+      console.log(`[Shared7TV]: Cosmetic subscription already exists for channel ${channelKickID}`);
       return;
     }
 
-    const subscribeAllCosmetics = {
+    const subscribeCosmeticAll = {
       op: 35,
-      t: Date.now(),
       d: {
         type: "cosmetic.*",
-        condition: { platform: "KICK", ctx: "channel", id: channelKickID },
+        condition: { ctx: "channel", platform: "KICK", id: channelKickID },
       },
     };
 
-    console.log(`[Shared7TV]: Sending cosmetic subscription message:`, subscribeAllCosmetics);
-    this.chat.send(JSON.stringify(subscribeAllCosmetics));
+    console.log(`[Shared7TV]: Subscribing to cosmetic.* events for channel ${channelKickID}`);
+    this.chat.send(JSON.stringify(subscribeCosmeticAll));
     this.subscribedEvents.add(eventKey);
-    console.log(`[Shared7TV]: Subscribed to cosmetic.* events for chatroom ${chatroomId}`);
   }
 
   /**
-   * Subscribe to entitlement events for a specific chatroom
+   * Subscribe to entitlement events for a specific chatroom (using wildcard like Firefox extension)
    */
   async subscribeToEntitlementEvents(chatroomId, channelKickID) {
-    console.log(`[Shared7TV]: Attempting to subscribe to entitlement events for chatroom ${chatroomId}, channelKickID: ${channelKickID}`);
-
     if (!this.chat || this.chat.readyState !== WebSocket.OPEN) {
       console.log(`[Shared7TV]: Cannot subscribe to entitlement events - WebSocket not ready. State: ${this.chat?.readyState}`);
       return;
@@ -551,35 +578,23 @@ class SharedStvWebSocket extends EventTarget {
 
     const eventKey = `entitlement.*:${channelKickID}`;
     if (this.subscribedEvents.has(eventKey)) {
-      console.log(
-        `[Shared7TV]: Entitlement subscription already active for Kick channel ${channelKickID} (chatroom ${chatroomId})`,
-      );
+      console.log(`[Shared7TV]: Entitlement subscription already exists for channel ${channelKickID}`);
       return;
     }
 
-    const subscribeAllEntitlements = {
+    const subscribeEntitlementAll = {
       op: 35,
-      t: Date.now(),
       d: {
         type: "entitlement.*",
-        condition: { platform: "KICK", ctx: "channel", id: channelKickID },
+        condition: { ctx: "channel", platform: "KICK", id: channelKickID },
       },
     };
 
-    console.log(`[Shared7TV]: Sending entitlement subscription message:`, subscribeAllEntitlements);
-    this.chat.send(JSON.stringify(subscribeAllEntitlements));
+    console.log(`[Shared7TV]: Subscribing to entitlement.* events for channel ${channelKickID}`);
+    this.chat.send(JSON.stringify(subscribeEntitlementAll));
     this.subscribedEvents.add(eventKey);
-    console.log(`[Shared7TV]: Subscribed to entitlement.* events for chatroom ${chatroomId}`);
 
-    this.dispatchEvent(
-      new CustomEvent("open", {
-        detail: {
-          body: "SUBSCRIBED",
-          type: "entitlement.*",
-          chatroomId,
-        },
-      }),
-    );
+    this.dispatchEvent(new CustomEvent("open", { detail: { body: "SUBSCRIBED", type: "entitlement.*" } }));
   }
 
   /**
@@ -604,7 +619,6 @@ class SharedStvWebSocket extends EventTarget {
 
     const subscribeAllEmoteSets = {
       op: 35,
-      t: Date.now(),
       d: {
         type: "emote_set.*",
         condition: { object_id: stvEmoteSetId },
@@ -618,24 +632,24 @@ class SharedStvWebSocket extends EventTarget {
 
   setupMessageHandler() {
     this.chat.onmessage = (event) => {
-      console.log(`[Shared7TV]: Raw WebSocket message received:`, event.data);
       try {
         const msg = JSON.parse(event.data);
-        console.log(`[Shared7TV]: Parsed message:`, {
-          op: msg?.op,
-          type: msg?.d?.type,
-          hasBody: !!msg?.d?.body,
-          fullMessage: msg
-        });
+        // Only log non-heartbeat messages
+        if (msg?.op !== 2) {
+          console.log(`[Shared7TV]: Message received:`, {
+            op: msg?.op,
+            type: msg?.d?.type,
+            hasBody: !!msg?.d?.body
+          });
+        }
 
         // Handle different 7TV opcodes
         switch (msg?.op) {
           case 0: // Dispatch (actual events)
-            console.log(`[Shared7TV]: Dispatch event received`, { type: msg?.d?.type });
             try {
               window.app?.telemetry?.recordWebSocketMessage?.('7tv_shared', 'dispatch', msg?.d?.type);
             } catch (_) {}
-            break;
+            break; // Break here to continue to event processing logic below the switch statement
           case 1: // Hello (connection established)
             console.log(`[Shared7TV]: Hello received`, {
               heartbeat_interval: msg?.d?.heartbeat_interval,
@@ -750,19 +764,9 @@ class SharedStvWebSocket extends EventTarget {
 
         const { body, type } = msg.d;
 
-        // DIAGNOSTIC: Log all cosmetic-related events with detailed info
+        // Log cosmetic-related events (condensed)
         if (type?.includes('cosmetic') || type?.includes('entitlement')) {
-          console.log(`[Shared7TV DIAGNOSTIC]: Cosmetic event received`, {
-            type: type,
-            objectKind: body?.object?.kind,
-            objectId: body?.object?.id,
-            userId: body?.object?.user?.id,
-            username: body?.object?.user?.username,
-            platform: body?.context?.platform || body?.condition?.platform,
-            channelId: body?.context?.id || body?.condition?.id,
-            hasData: !!body?.object?.data,
-            fullBody: body
-          });
+          console.log(`[Shared7TV]: ${type} event for ${body?.object?.user?.username || 'unknown'}`);
         }
 
         // Find which chatroom this event belongs to
@@ -806,19 +810,6 @@ class SharedStvWebSocket extends EventTarget {
           case "cosmetic.create":
             updateCosmetics(body);
 
-            console.log(
-              `[Shared7TV]: Forwarding cosmetic catalog update to ${chatroomId === null ? 'all chatrooms' : chatroomId}`,
-              {
-                badgeCount: cosmetics?.badges?.length,
-                paintCount: cosmetics?.paints?.length,
-              },
-            );
-
-            console.log(`[Shared7TV]: Dispatching cosmetic.create event for chatroomId: ${chatroomId}`, {
-              badgeCount: cosmetics?.badges?.length,
-              paintCount: cosmetics?.paints?.length,
-              eventDetail: { chatroomId, type: "cosmetic.create" }
-            });
             this.dispatchEvent(
               new CustomEvent("message", {
                 detail: {
@@ -831,21 +822,8 @@ class SharedStvWebSocket extends EventTarget {
             break;
 
           case "entitlement.create":
-            if (body.kind === 10) {
-              console.log(
-                `[Shared7TV]: Forwarding entitlement for ${body?.object?.user?.username || 'unknown user'}`,
-                {
-                  chatroomId,
-                  badgeId: body?.object?.user?.style?.badge_id,
-                  paintId: body?.object?.user?.style?.paint_id,
-                },
-              );
-              console.log(`[Shared7TV]: Dispatching entitlement.create event for chatroomId: ${chatroomId}`, {
-                username: body?.object?.user?.username,
-                badgeId: body?.object?.user?.style?.badge_id,
-                paintId: body?.object?.user?.style?.paint_id,
-                eventDetail: { chatroomId, type: "entitlement.create" }
-              });
+            // Process entitlements for both cosmetics (kind 10) and emote sets (kind 5)
+            if (body.kind === 10 || body.kind === 5) {
               this.dispatchEvent(
                 new CustomEvent("message", {
                   detail: {
@@ -857,6 +835,18 @@ class SharedStvWebSocket extends EventTarget {
               );
             }
             break;
+
+          case "entitlement.delete":
+            this.dispatchEvent(
+              new CustomEvent("message", {
+                detail: {
+                  body,
+                  type: "entitlement.delete",
+                  chatroomId,
+                },
+              }),
+            );
+            break;
         }
       } catch (error) {
         console.log("[Shared7TV] Error parsing message:", error);
@@ -866,7 +856,6 @@ class SharedStvWebSocket extends EventTarget {
 
   findChatroomForEvent(body, type) {
     // Try to identify which chatroom this event belongs to
-    // This is a best-effort approach since 7TV events don't always include channel context
 
     // For user events, broadcast to all chatrooms
     if (type.startsWith("user.")) {
@@ -882,17 +871,22 @@ class SharedStvWebSocket extends EventTarget {
       }
     }
 
-    // For cosmetic and entitlement events, they should include channel context
-    // but if not, we'll broadcast to all chatrooms
+    // For cosmetic and entitlement events, check all ID variants to see which subscription received this
     if (type.startsWith("cosmetic.") || type.startsWith("entitlement.")) {
       const contextId = body?.context?.id || body?.condition?.id || null;
-      console.log(
-        `[Shared7TV]: Unable to directly map ${type} to a chatroom, broadcasting`,
-        {
-          contextId,
-          knownChatrooms: Array.from(this.chatrooms.values()).map((data) => data.channelKickID),
-        },
-      );
+
+      if (contextId) {
+        // Check each chatroom's ID variants to see which one matches
+        for (const [chatroomId, data] of this.chatrooms) {
+          const idVariants = data.idVariants || {};
+
+          for (const [idType, idValue] of Object.entries(idVariants)) {
+            if (idValue && String(idValue) === String(contextId)) {
+              return chatroomId;
+            }
+          }
+        }
+      }
     }
 
     return null;

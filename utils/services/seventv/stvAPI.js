@@ -251,4 +251,120 @@ const getUserStvProfile = async (platformId) => {
   }
 };
 
-export { getChannelEmotes, sendUserPresence, getUserStvProfile };
+const getChannelCosmetics = async (channelId) => {
+  try {
+    console.log("[7TV Cosmetics] Fetching global cosmetics catalog");
+
+    // Fetch the global cosmetics catalog using v2 API (v3 removed cosmetics endpoints)
+    // This provides the base catalog of badges and paints that WebSocket events reference
+    const response = await axios.get(`https://api.7tv.app/v2/cosmetics`);
+
+    if (response.status !== 200 || !response.data) {
+      console.warn("[7TV Cosmetics] Failed to fetch cosmetics:", response.status);
+      return { badges: [], paints: [] };
+    }
+
+    const cosmeticsData = response.data;
+    const cosmetics = { badges: [], paints: [] };
+
+    // Process badges from v2 API response
+    if (cosmeticsData.badges?.length) {
+      cosmetics.badges = cosmeticsData.badges.map(badge => ({
+        id: badge.id,
+        title: badge.tooltip || badge.name,
+        url: `https:${badge.urls?.[badge.urls.length - 1] || badge.urls?.[0]}`,
+      }));
+      console.log(`[7TV Cosmetics] Loaded ${cosmetics.badges.length} badges`);
+    }
+
+    // Process paints from v2 API response
+    if (cosmeticsData.paints?.length) {
+      cosmetics.paints = cosmeticsData.paints.map(paint => {
+        const randomColor = "#00f742";
+        let paintObject = {};
+
+        if (paint.data?.stops?.length) {
+          const normalizedColors = paint.data.stops.map((stop) => ({
+            at: stop.at * 100,
+            color: stop.color,
+          }));
+
+          const gradient = normalizedColors.map((stop) => `${argbToRgba(stop.color)} ${stop.at}%`).join(", ");
+
+          let paintFunction = paint.data.function?.toLowerCase().replace("_", "-");
+          if (paint.data.repeat) {
+            paintFunction = `repeating-${paintFunction}`;
+          }
+
+          let isDeg_or_Shape = `${paint.data.angle}deg`;
+          if (paintFunction !== "linear-gradient" && paintFunction !== "repeating-linear-gradient") {
+            isDeg_or_Shape = paint.data.shape;
+          }
+
+          paintObject = {
+            id: paint.id,
+            name: paint.data.name,
+            style: paint.data.function,
+            shape: paint.data.shape,
+            backgroundImage: `${paintFunction || "linear-gradient"}(${isDeg_or_Shape}, ${gradient})` ||
+              `${paint.data.style || "linear-gradient"}(${paint.data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
+            shadows: null,
+            KIND: "non-animated",
+            url: paint.data.image_url,
+          };
+        } else {
+          paintObject = {
+            id: paint.id,
+            name: paint.data.name,
+            style: paint.data.function,
+            shape: paint.data.shape,
+            backgroundImage: `url('${paint.data.image_url}')` ||
+              `${paint.data.style || "linear-gradient"}(${paint.data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
+            shadows: null,
+            KIND: "animated",
+            url: paint.data.image_url,
+          };
+        }
+
+        // Process shadows if present
+        if (paint.data.shadows?.length) {
+          const shadow = paint.data.shadows
+            .map((shadow) => {
+              let rgbaColor = argbToRgba(shadow.color);
+              rgbaColor = rgbaColor.replace(/rgba\((\d+), (\d+), (\d+), (\d+(\.\d+)?)\)/, `rgba($1, $2, $3)`);
+              return `drop-shadow(${rgbaColor} ${shadow.x_offset}px ${shadow.y_offset}px ${shadow.radius}px)`;
+            })
+            .join(" ");
+          paintObject.shadows = shadow;
+        }
+
+        return paintObject;
+      });
+      console.log(`[7TV Cosmetics] Loaded ${cosmetics.paints.length} paints`);
+    }
+
+    console.log("[7TV Cosmetics] Total cosmetics loaded:", {
+      badges: cosmetics.badges.length,
+      paints: cosmetics.paints.length
+    });
+
+    return cosmetics;
+  } catch (error) {
+    console.error("[7TV Cosmetics] Error fetching cosmetics:", error.message);
+    return { badges: [], paints: [] };
+  }
+};
+
+// Helper function to convert ARGB to RGBA
+const argbToRgba = (color) => {
+  if (color < 0) {
+    color = color >>> 0;
+  }
+
+  const red = (color >> 24) & 0xff;
+  const green = (color >> 16) & 0xff;
+  const blue = (color >> 8) & 0xff;
+  return `rgba(${red}, ${green}, ${blue}, 1)`;
+};
+
+export { getChannelEmotes, sendUserPresence, getUserStvProfile, getChannelCosmetics };

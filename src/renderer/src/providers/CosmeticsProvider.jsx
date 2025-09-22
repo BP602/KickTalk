@@ -45,8 +45,12 @@ const useCosmeticsStore = create((set, get) => ({
 
     set((state) => {
       const currentStyle = state.userStyles[transformedUsername] || {};
-      if (currentStyle.badgeId === body.object.user.style.badge_id && currentStyle.paintId === body.object.user.style.paint_id)
-        return state;
+      const newBadgeId = body.object.user.style.badge_id;
+      const newPaintId = body.object.user.style.paint_id;
+
+      if (currentStyle.badgeId === newBadgeId && currentStyle.paintId === newPaintId) {
+        return state; // Skip duplicate style update
+      }
 
       return {
         userStyles: {
@@ -66,6 +70,82 @@ const useCosmeticsStore = create((set, get) => ({
     });
   },
 
+  removeUserStyle: async (username, body) => {
+    console.log(`[CosmeticsStore DIAGNOSTIC] removeUserStyle called`, {
+      username,
+      hasBody: !!body,
+      refId: body?.object?.ref_id,
+      kind: body?.object?.kind,
+      fullBody: body
+    });
+
+    const transformedUsername = username.toLowerCase();
+    const refId = body?.object?.ref_id;
+    const kind = body?.object?.kind;
+
+    if (!refId || !kind) {
+      console.log(`[CosmeticsStore DIAGNOSTIC] Missing ref_id or kind in entitlement.delete`, {
+        refId,
+        kind
+      });
+      return;
+    }
+
+    console.log(
+      `[CosmeticsStore DIAGNOSTIC] Removing ${kind} entitlement for ${transformedUsername}`,
+      {
+        refId,
+        kind
+      }
+    );
+
+    set((state) => {
+      const currentStyle = state.userStyles[transformedUsername];
+      if (!currentStyle) {
+        console.log(`[CosmeticsStore DIAGNOSTIC] No existing style for ${transformedUsername}, nothing to remove`);
+        return state;
+      }
+
+      // Based on Chatterino spec: remove by kind and ref_id
+      let updatedStyle = { ...currentStyle };
+      let hasChanges = false;
+
+      if (kind === "BADGE" && currentStyle.badgeId === refId) {
+        updatedStyle.badgeId = null;
+        hasChanges = true;
+        console.log(`[CosmeticsStore DIAGNOSTIC] Removed badge ${refId} from ${transformedUsername}`);
+      } else if (kind === "PAINT" && currentStyle.paintId === refId) {
+        updatedStyle.paintId = null;
+        hasChanges = true;
+        console.log(`[CosmeticsStore DIAGNOSTIC] Removed paint ${refId} from ${transformedUsername}`);
+      }
+
+      if (!hasChanges) {
+        console.log(`[CosmeticsStore DIAGNOSTIC] No matching ${kind} with ref_id ${refId} found for ${transformedUsername}`);
+        return state;
+      }
+
+      // If both badge and paint are removed, remove the entire user style entry
+      if (!updatedStyle.badgeId && !updatedStyle.paintId) {
+        const { [transformedUsername]: removed, ...restUserStyles } = state.userStyles;
+        console.log(`[CosmeticsStore DIAGNOSTIC] Removed entire user style for ${transformedUsername} (no remaining cosmetics)`);
+        return {
+          userStyles: restUserStyles,
+        };
+      }
+
+      return {
+        userStyles: {
+          ...state.userStyles,
+          [transformedUsername]: {
+            ...updatedStyle,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    });
+  },
+
   getUserStyle: (username) => {
     if (!username) {
       console.log(`[CosmeticsStore DIAGNOSTIC] getUserStyle called with empty username`);
@@ -73,6 +153,17 @@ const useCosmeticsStore = create((set, get) => ({
     }
 
     const transformedUsername = username.toLowerCase();
+
+    // Track call frequency for debugging
+    if (!window.__getUserStyleCalls) window.__getUserStyleCalls = new Map();
+    const now = Date.now();
+    const lastCall = window.__getUserStyleCalls.get(transformedUsername) || 0;
+    const timeSinceLastCall = now - lastCall;
+    window.__getUserStyleCalls.set(transformedUsername, now);
+
+    if (timeSinceLastCall < 100) { // Less than 100ms since last call
+      console.warn(`[CosmeticsStore WARNING] getUserStyle called for ${transformedUsername} only ${timeSinceLastCall}ms ago - possible render loop!`);
+    }
     const userStyle = get().userStyles[transformedUsername];
     const globalCosmetics = get().globalCosmetics;
 
@@ -82,7 +173,8 @@ const useCosmeticsStore = create((set, get) => ({
       userStylePaintId: userStyle?.paintId,
       totalBadges: globalCosmetics?.badges?.length,
       totalPaints: globalCosmetics?.paints?.length,
-      userStyleObject: userStyle
+      userStyleObject: userStyle,
+      callStack: new Error().stack?.split('\n').slice(1, 6).join('\n') // Show top 5 stack frames
     });
 
     if (!userStyle?.badgeId && !userStyle?.paintId) {

@@ -35,7 +35,7 @@ import {
   getUpdateTitle,
   getClearChatroom,
 } from "../../utils/services/kick/kickAPI";
-import { getUserStvProfile, getChannelEmotes } from "../../utils/services/seventv/stvAPI";
+import { getUserStvProfile, getChannelEmotes, getChannelCosmetics } from "../../utils/services/seventv/stvAPI";
 
 import Store from "electron-store";
 
@@ -498,6 +498,7 @@ if (process.contextIsolated) {
       // 7TV API
       stv: {
         getChannelEmotes,
+        getChannelCosmetics,
       },
 
       // Utility functions

@@ -1,11 +1,9 @@
 import { useCallback } from "react";
 import { convertMinutesToHumanReadable } from "../../utils/ChatUtils";
 import useCosmeticsStore from "../../providers/CosmeticsProvider";
-import { useShallow } from "zustand/react/shallow";
 
 const ModActionMessage = ({ message, chatroomId, allStvEmotes, subscriberBadges, chatroomName, userChatroomInfo }) => {
   const { modAction, modActionDetails } = message;
-  const getUserStyle = useCosmeticsStore(useShallow((state) => state.getUserStyle));
 
   const actionTaker = modActionDetails?.banned_by?.username || modActionDetails?.unbanned_by?.username;
   const moderator = actionTaker !== "moderated" ? actionTaker : "Bot";
@@ -20,7 +18,7 @@ const ModActionMessage = ({ message, chatroomId, allStvEmotes, subscriberBadges,
       const user = await window.app.kick.getUserChatroomInfo(chatroomName, usernameDialog);
       if (!user?.data?.id) return;
 
-      const userStyle = getUserStyle(usernameDialog);
+      const userStyle = useCosmeticsStore.getState().getUserStyle(usernameDialog);
 
       const userDialogInfo = {
         id: user.data.id,

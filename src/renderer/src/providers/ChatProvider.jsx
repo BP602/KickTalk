@@ -1227,6 +1227,24 @@ const useChatStore = create((set, get) => ({
     if (pusher.chat.OPEN) {
       const channel7TVEmotes = await window.app.stv.getChannelEmotes(chatroom.streamerData.user_id);
 
+      // Load initial cosmetics (badges and paints) for the channel
+      try {
+        const channelCosmetics = await window.app.stv.getChannelCosmetics(chatroom.streamerData.user_id);
+        console.log('[7TV Cosmetics] Initial cosmetics loaded:', {
+          badges: channelCosmetics?.badges?.length || 0,
+          paints: channelCosmetics?.paints?.length || 0
+        });
+
+        // Add cosmetics to the store
+        const addCosmetics = useCosmeticsStore?.getState()?.addCosmetics;
+        if (addCosmetics && channelCosmetics && (channelCosmetics.badges?.length > 0 || channelCosmetics.paints?.length > 0)) {
+          addCosmetics(channelCosmetics);
+          console.log('[7TV Cosmetics] Added initial cosmetics to store');
+        }
+      } catch (error) {
+        console.error('[7TV Cosmetics] Failed to load initial cosmetics:', error);
+      }
+
       if (channel7TVEmotes) {
         const seenEmoteNames = new Set();
 
@@ -1512,26 +1530,20 @@ const useChatStore = create((set, get) => ({
       onStvMessage: (event) => {
         try {
           const { chatroomId, type, body } = event.detail;
-          console.log(`[ChatProvider] Received 7TV event from shared WebSocket`, {
-            type,
-            chatroomId,
-            hasBody: !!body,
-            entitlementUser: body?.object?.user?.username,
-            badgeId: body?.object?.user?.style?.badge_id,
-            paintId: body?.object?.user?.style?.paint_id,
-            badgeCount: body?.badges?.length,
-            paintCount: body?.paints?.length
-          });
-
           if (chatroomId) {
-            console.log(`[ChatProvider] Routing event ${type} to specific chatroom: ${chatroomId}`);
             get().handleStvMessage(chatroomId, event.detail);
           } else {
-            console.log(`[ChatProvider] Broadcasting event ${type} to all chatrooms (${chatrooms.length} total)`);
-            // Broadcast to all chatrooms if no specific chatroom
-            chatrooms.forEach(chatroom => {
-              get().handleStvMessage(chatroom.id, event.detail);
-            });
+            // Handle global cosmetic events once instead of broadcasting to all chatrooms
+            if (type === 'cosmetic.create' || type === 'entitlement.create' || type === 'entitlement.delete') {
+              console.log(`[ChatProvider] Processing global ${type} event for ${body?.object?.user?.username || 'unknown'}`);
+              // Handle once with a null chatroomId to indicate global event
+              get().handleStvMessage(null, event.detail);
+            } else {
+              // Broadcast to all chatrooms if no specific chatroom (for non-cosmetic events)
+              chatrooms.forEach(chatroom => {
+                get().handleStvMessage(chatroom.id, event.detail);
+              });
+            }
           }
         } catch (error) {
           console.error("[ChatProvider] Error handling 7TV message:", error);
@@ -1925,7 +1937,6 @@ const useChatStore = create((set, get) => ({
       case "emote_set.update":
         get().handleEmoteSetUpdate(chatroomId, body);
         break;
-      case "cosmetic.create":
       case "cosmetic.create": {
         console.log(
           `[ChatProvider] Applying cosmetic catalog update for ${chatroomId ?? 'all chatrooms'}`,
@@ -1946,7 +1957,6 @@ const useChatStore = create((set, get) => ({
         }
         break;
       }
-        break;
       case "entitlement.create": {
         const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
         const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
@@ -1964,6 +1974,26 @@ const useChatStore = create((set, get) => ({
           addUserStyle(transformedUsername, body);
         } else {
           console.error(`[ChatProvider] CosmeticsStore.addUserStyle method not available!`);
+        }
+        break;
+      }
+      case "entitlement.delete": {
+        const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
+        const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
+        console.log(
+          `[ChatProvider] Processing entitlement deletion for ${transformedUsername || 'unknown user'}`,
+          {
+            refId: body?.object?.ref_id,
+            kind: body?.object?.kind,
+            chatroomId,
+          },
+        );
+        const removeUserStyle = useCosmeticsStore?.getState()?.removeUserStyle;
+        if (removeUserStyle) {
+          console.log(`[ChatProvider] Calling CosmeticsStore.removeUserStyle for ${transformedUsername}`);
+          removeUserStyle(transformedUsername, body);
+        } else {
+          console.error(`[ChatProvider] CosmeticsStore.removeUserStyle method not available!`);
         }
         break;
       }
@@ -2203,10 +2233,18 @@ const useChatStore = create((set, get) => ({
       // Connect to chatroom
       get().connectToChatroom(newChatroom);
 
-      // Connect to 7TV WebSocket
-      // DISABLED: Using shared connection system via connectionManager.initializeConnections
-      console.log(`[ChatProvider] Skipping individual 7TV connection for new chatroom ${newChatroom.id} - using shared connection system`);
-      // get().connectToStvWebSocket(newChatroom);
+      // Connect to 7TV WebSocket via connectionManager
+      if (connectionManager) {
+        console.log(`[ChatProvider] Adding new chatroom ${newChatroom.id} to connectionManager for 7TV subscriptions`);
+        try {
+          await connectionManager.addChatroom(newChatroom);
+          console.log(`[ChatProvider] Successfully added chatroom ${newChatroom.id} to connectionManager`);
+        } catch (error) {
+          console.error(`[ChatProvider] Error adding chatroom ${newChatroom.id} to connectionManager:`, error);
+        }
+      } else {
+        console.warn(`[ChatProvider] ConnectionManager not available for new chatroom ${newChatroom.id}`);
+      }
 
       // Save to local storage
       localStorage.setItem("chatrooms", JSON.stringify([...savedChatrooms, newChatroom]));
@@ -3240,9 +3278,6 @@ const useChatStore = create((set, get) => ({
 
     // Clear emote cache to ensure new emotes are loaded from updated store
     clearChatroomEmoteCache(chatroomId);
-    
-    // Refresh emote data to get the updated emote set
-    get().refresh7TVEmotes(chatroomId);
     
     try {
       const processingDuration = performance.now() - startTime;

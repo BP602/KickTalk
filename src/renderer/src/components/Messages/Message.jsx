@@ -4,7 +4,7 @@ import ModActionMessage from "./ModActionMessage";
 import RegularMessage from "./RegularMessage";
 import EmoteUpdateMessage from "./EmoteUpdateMessage";
 import clsx from "clsx";
-import { useShallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 import useCosmeticsStore from "../../providers/CosmeticsProvider";
 import useChatStore from "../../providers/ChatProvider";
 import ReplyMessage from "./ReplyMessage";
@@ -41,15 +41,17 @@ const Message = ({
   const getDeleteMessage = useChatStore(useShallow((state) => state.getDeleteMessage));
   const [rightClickedEmote, setRightClickedEmote] = useState(null);
 
-  let userStyle;
+  const subscribedUserStyle = useCosmeticsStore(
+    useShallow((state) => {
+      if (!message?.sender || type === "replyThread" || type === "dialog") {
+        return null;
+      }
 
-  if (message?.sender && type !== "replyThread") {
-    if (type === "dialog") {
-      userStyle = dialogUserStyle;
-    } else {
-      userStyle = useCosmeticsStore(useShallow((state) => state.getUserStyle(message?.sender?.username)));
-    }
-  }
+      return state.getUserStyle(message.sender.username);
+    }),
+  );
+
+  const userStyle = type === "dialog" ? dialogUserStyle : subscribedUserStyle;
 
   // CheckIcon if user can moderate
   const canModerate = useMemo(

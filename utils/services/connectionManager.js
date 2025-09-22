@@ -309,12 +309,21 @@ class ConnectionManager {
       });
 
       span.addEvent('7tv_websocket_add_start');
+      console.log(`[ConnectionManager DIAGNOSTIC]: About to call stvWebSocket.addChatroom`, {
+        chatroomId: chatroom.id,
+        userIdForSubscription: chatroom.streamerData.user_id,
+        stvId: stvId,
+        stvEmoteSetId: stvEmoteSetId,
+        hasWebSocket: !!this.stvWebSocket
+      });
       this.stvWebSocket.addChatroom(
         chatroom.id,
-        chatroom.streamerData.id, // Use the Kick channel ID for cosmetic/entitlement subscriptions
+        chatroom.streamerData.user_id, // Use the correct Kick user ID for cosmetic/entitlement subscriptions
         stvId,
-        stvEmoteSetId
+        stvEmoteSetId,
+        chatroom // Pass the full chatroom data for ID variants
       );
+      console.log(`[ConnectionManager DIAGNOSTIC]: stvWebSocket.addChatroom completed for ${chatroom.id}`);
       span.addEvent('7tv_websocket_add_complete');
 
       // Fetch initial messages for this chatroom
@@ -556,6 +565,8 @@ class ConnectionManager {
       const channel7TVEmotes = await window.app.stv.getChannelEmotes(chatroom.streamerData.user_id);
       span.addEvent('api_fetch_complete');
 
+      // Note: Cosmetics (badges/paints) are loaded dynamically via WebSocket events, not API calls
+
       if (channel7TVEmotes) {
         this.channelStvEmoteCache.set(cacheKey, channel7TVEmotes);
         span.addEvent('cache_stored');
@@ -594,6 +605,7 @@ class ConnectionManager {
       chatroom.streamerData?.id,
       stvId,
       stvEmoteSetId,
+      chatroom // Pass the full chatroom data for ID variants
     );
   }
 

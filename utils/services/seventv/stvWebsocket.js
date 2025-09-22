@@ -501,7 +501,8 @@ class StvWebSocket extends EventTarget {
             break;
 
           case "entitlement.create":
-            if (body.kind === 10) {
+            // Process entitlements for both cosmetics (kind 10) and emote sets (kind 5)
+            if (body.kind === 10 || body.kind === 5) {
               this.dispatchEvent(
                 new CustomEvent("message", {
                   detail: { body, type: "entitlement.create" },
