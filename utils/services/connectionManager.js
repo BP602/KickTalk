@@ -120,12 +120,17 @@ class ConnectionManager {
 
     // Set up 7TV event handlers
     if (handlers.onStvMessage) {
+      console.log(`[ConnectionManager] Registering onStvMessage handler`);
       this.stvWebSocket.addEventListener("message", handlers.onStvMessage);
+    } else {
+      console.warn(`[ConnectionManager] No onStvMessage handler provided!`);
     }
     if (handlers.onStvOpen) {
+      console.log(`[ConnectionManager] Registering onStvOpen handler`);
       this.stvWebSocket.addEventListener("open", handlers.onStvOpen);
     }
     if (handlers.onStvConnection) {
+      console.log(`[ConnectionManager] Registering onStvConnection handler`);
       this.stvWebSocket.addEventListener("connection", handlers.onStvConnection);
     }
   }

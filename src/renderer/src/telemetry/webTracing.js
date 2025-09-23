@@ -198,11 +198,28 @@ if (!telemetryEnabled && typeof window !== 'undefined') {
 // Telemetry Level Configuration and Sampling Utilities
 const getTelemetryLevel = () => {
   try {
-    const level = import.meta.env.RENDERER_VITE_TELEMETRY_LEVEL || 'NORMAL';
+    // Check consolidated VITE_ vars first (available to all processes), then fall back to old vars
+    const level = import.meta.env.VITE_TELEMETRY_LEVEL ||
+                  import.meta.env.RENDERER_VITE_TELEMETRY_LEVEL ||
+                  'NORMAL';
     return level.toUpperCase();
   } catch {
     return 'NORMAL';
   }
+};
+
+const getTelemetryDebug = () => {
+  try {
+    // Check consolidated VITE_ vars first (available to all processes), then fall back to old vars
+    return import.meta.env.VITE_TELEMETRY_DEBUG === 'true' ||
+           import.meta.env.RENDERER_VITE_TELEMETRY_DEBUG === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const shouldLogDebug = () => {
+  return getTelemetryDebug() || getTelemetryLevel() === 'VERBOSE';
 };
 
 const TELEMETRY_LEVELS = {
@@ -291,6 +308,8 @@ const checkStartupPhase = () => {
 // Export utilities for use in components
 window.__KT_TELEMETRY_UTILS__ = {
   getTelemetryLevel,
+  getTelemetryDebug,
+  shouldLogDebug,
   shouldEmitTelemetry,
   shouldSampleMessageParser,
   shouldEmitLexicalUpdate,
@@ -654,45 +673,51 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
               } catch {}
             }
             
-            console.log(`[Renderer OTEL][${exportId}] IPCSpanExporter.export() called:`, {
-              exportId,
-              exportCount: this.exportCount,
-              spanCount: spanArray.length,
-              serviceName: this.serviceName,
-              deploymentEnv: this.deploymentEnv,
-              traceIds: traceInfo.traceIds,
-              spanIds: traceInfo.spanIds.slice(0, 3), // First 3 span IDs  
-              spanNames: traceInfo.spanNames,
-              parentSpanIds: traceInfo.parentSpanIds.slice(0, 3)
-            });
+            if (shouldLogDebug()) {
+              console.log(`[Renderer OTEL][${exportId}] IPCSpanExporter.export() called:`, {
+                exportId,
+                exportCount: this.exportCount,
+                spanCount: spanArray.length,
+                serviceName: this.serviceName,
+                deploymentEnv: this.deploymentEnv,
+                traceIds: traceInfo.traceIds,
+                spanIds: traceInfo.spanIds.slice(0, 3), // First 3 span IDs
+                spanNames: traceInfo.spanNames,
+                parentSpanIds: traceInfo.parentSpanIds.slice(0, 3)
+              });
+            }
             
             const req = this._toOtlpJson(spans);
             const reqSize = JSON.stringify(req).length;
             
-            console.log(`[Renderer OTEL][${exportId}] Converted to OTLP JSON:`, {
-              exportId,
-              requestSize: reqSize,
-              resourceSpansCount: req.resourceSpans?.length || 0,
-              traceIds: traceInfo.traceIds,
-              actualTraceIds: traceInfo.traceIds,
-              traceIdLengths: traceInfo.traceIds.map(id => id?.length || 0)
-            });
+            if (shouldLogDebug()) {
+              console.log(`[Renderer OTEL][${exportId}] Converted to OTLP JSON:`, {
+                exportId,
+                requestSize: reqSize,
+                resourceSpansCount: req.resourceSpans?.length || 0,
+                traceIds: traceInfo.traceIds,
+                actualTraceIds: traceInfo.traceIds,
+                traceIdLengths: traceInfo.traceIds.map(id => id?.length || 0)
+              });
+            }
             
             const res = await window.telemetry.exportTracesJson(req);
             const duration = performance.now() - startTime;
             
             const ok = !!res?.ok && (!res.status || (res.status >= 200 && res.status < 300));
             
-            console.log(`[Renderer OTEL][${exportId}] IPC export result:`, {
-              exportId,
-              success: ok,
-              duration: `${Math.round(duration)}ms`,
-              responseStatus: res?.status,
-              responseOk: res?.ok,
-              requestId: res?.requestId,
-              traceIds: traceInfo.traceIds,
-              returnedTraceIds: res?.traceIds
-            });
+            if (shouldLogDebug()) {
+              console.log(`[Renderer OTEL][${exportId}] IPC export result:`, {
+                exportId,
+                success: ok,
+                duration: `${Math.round(duration)}ms`,
+                responseStatus: res?.status,
+                responseOk: res?.ok,
+                requestId: res?.requestId,
+                traceIds: traceInfo.traceIds,
+                returnedTraceIds: res?.traceIds
+              });
+            }
             
             resultCallback({ code: ok ? 0 : 1 });
           } catch (e) {
@@ -883,50 +908,52 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
             const directConversion = rawSec * 1000000000n + rawNs;
             const directDate = new Date(Number(directConversion) / 1e6);
             
-            console.log(`[Renderer OTEL] Span validation debug:`, {
-              traceId,
-              traceIdHexLength: traceId.length,
-              spanId,
-              spanIdHexLength: spanId.length,
-              parentSpanId,
-              parentSpanIdHexLength: parentSpanId.length,
-              // For visibility when debugging, also show base64 versions
-              traceIdBase64: hexToBase64(traceIdHex),
-              spanIdBase64: hexToBase64(spanIdHex),
-              parentSpanIdBase64: parentSpanIdHex ? hexToBase64(parentSpanIdHex) : '',
-              startTimeUnixNano: startNs.toString(),
-              endTimeUnixNano: endNs.toString(),
-              startDate: startDate.toISOString(),
-              endDate: endDate.toISOString(),
-              startYear: startDate.getFullYear(),
-              endYear: endDate.getFullYear(),
-              isStartTimeReasonable: startDate.getFullYear() >= 2020 && startDate.getFullYear() <= 2030,
-              isEndTimeReasonable: endDate.getFullYear() >= 2020 && endDate.getFullYear() <= 2030,
-              duration: (endNs - startNs).toString() + ' nanos',
-              durationMs: Number(endNs - startNs) / 1e6,
-              kind: Number(s.kind) || 0,
-              name: s.name || 'span',
-              nowMs,
-              nowNs: nowNs.toString(),
-              timeDiffFromNow: Number(nowNs - startNs),
-              statusCode: s.status?.code,
-              statusMessage: s.status?.message,
-              statusWillBeIncluded: !!(s.status?.code && s.status.code > 0),
-              statusExists: !!s.status,
-              statusCodeType: typeof s.status?.code,
-              // Raw hrtime debugging
-              rawStartTime: s.startTime,
-              rawEndTime: s.endTime,
-              performanceTimeOrigin: performance?.timeOrigin,
-              performanceNow: performance?.now?.(),
-              // Step-by-step conversion debugging
-              rawSecBigInt: rawSec.toString(),
-              rawNsBigInt: rawNs.toString(),
-              directConversion: directConversion.toString(),
-              directDate: directDate.toISOString(),
-              directYear: directDate.getFullYear(),
-              directVsCalculated: directConversion.toString() === startNs.toString()
-            });
+            if (shouldLogDebug()) {
+              console.log(`[Renderer OTEL] Span validation debug:`, {
+                traceId,
+                traceIdHexLength: traceId.length,
+                spanId,
+                spanIdHexLength: spanId.length,
+                parentSpanId,
+                parentSpanIdHexLength: parentSpanId.length,
+                // For visibility when debugging, also show base64 versions
+                traceIdBase64: hexToBase64(traceIdHex),
+                spanIdBase64: hexToBase64(spanIdHex),
+                parentSpanIdBase64: parentSpanIdHex ? hexToBase64(parentSpanIdHex) : '',
+                startTimeUnixNano: startNs.toString(),
+                endTimeUnixNano: endNs.toString(),
+                startDate: startDate.toISOString(),
+                endDate: endDate.toISOString(),
+                startYear: startDate.getFullYear(),
+                endYear: endDate.getFullYear(),
+                isStartTimeReasonable: startDate.getFullYear() >= 2020 && startDate.getFullYear() <= 2030,
+                isEndTimeReasonable: endDate.getFullYear() >= 2020 && endDate.getFullYear() <= 2030,
+                duration: (endNs - startNs).toString() + ' nanos',
+                durationMs: Number(endNs - startNs) / 1e6,
+                kind: Number(s.kind) || 0,
+                name: s.name || 'span',
+                nowMs,
+                nowNs: nowNs.toString(),
+                timeDiffFromNow: Number(nowNs - startNs),
+                statusCode: s.status?.code,
+                statusMessage: s.status?.message,
+                statusWillBeIncluded: !!(s.status?.code && s.status.code > 0),
+                statusExists: !!s.status,
+                statusCodeType: typeof s.status?.code,
+                // Raw hrtime debugging
+                rawStartTime: s.startTime,
+                rawEndTime: s.endTime,
+                performanceTimeOrigin: performance?.timeOrigin,
+                performanceNow: performance?.now?.(),
+                // Step-by-step conversion debugging
+                rawSecBigInt: rawSec.toString(),
+                rawNsBigInt: rawNs.toString(),
+                directConversion: directConversion.toString(),
+                directDate: directDate.toISOString(),
+                directYear: directDate.getFullYear(),
+                directVsCalculated: directConversion.toString() === startNs.toString()
+              });
+            }
             
             // Warn if timestamps are too far in the future (>5m) or in the past (>24h)
             try {
@@ -969,12 +996,14 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
               };
             }
             
-            console.log(`[Renderer OTEL] Status filtering debug:`, {
-              originalStatusCode: statusCode,
-              originalStatusMessage: s.status?.message,
-              isError,
-              willAddStatus: isError
-            });
+            if (shouldLogDebug()) {
+              console.log(`[Renderer OTEL] Status filtering debug:`, {
+                originalStatusCode: statusCode,
+                originalStatusMessage: s.status?.message,
+                isError,
+                willAddStatus: isError
+              });
+            }
             
             const spanName = (s.name || 'span');
             const spanOut = {
