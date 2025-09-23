@@ -36,6 +36,7 @@ const useCosmeticsStore = create((set, get) => ({
   },
 
   removeUserStyle: (username, body) => {
+    if (!username) return;
     const transformedUsername = username.toLowerCase();
     const refId = body?.object?.ref_id;
     const kind = body?.object?.kind;
