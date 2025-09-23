@@ -615,12 +615,13 @@ class SharedStvWebSocket extends EventTarget {
             break;
 
           case "entitlement.create":
+          case "entitlement.delete":
             if (body.kind === 10) {
               this.dispatchEvent(
                 new CustomEvent("message", {
                   detail: {
                     body,
-                    type: "entitlement.create",
+                    type: type, // Use the actual event type (create or delete)
                     chatroomId,
                   },
                 }),

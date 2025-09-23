@@ -306,7 +306,7 @@ class ConnectionManager {
       span.addEvent('7tv_websocket_add_start');
       this.stvWebSocket.addChatroom(
         chatroom.id,
-        chatroom.streamerData.id, // Use the Kick channel ID for cosmetic/entitlement subscriptions
+        chatroom.streamerData.user_id, // Use the correct Kick user ID for cosmetic/entitlement subscriptions
         stvId,
         stvEmoteSetId
       );
@@ -586,7 +586,7 @@ class ConnectionManager {
 
     this.stvWebSocket.addChatroom(
       chatroom.id,
-      chatroom.streamerData?.id,
+      chatroom.streamerData?.user_id,
       stvId,
       stvEmoteSetId,
     );

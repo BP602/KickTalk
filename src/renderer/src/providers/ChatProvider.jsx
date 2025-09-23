@@ -1908,6 +1908,12 @@ const useChatStore = create((set, get) => ({
         useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
         break;
       }
+      case "entitlement.delete": {
+        const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
+        const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
+        useCosmeticsStore?.getState()?.removeUserStyle(transformedUsername, body);
+        break;
+      }
       default:
         break;
     }

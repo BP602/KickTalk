@@ -35,6 +35,49 @@ const useCosmeticsStore = create((set, get) => ({
     });
   },
 
+  removeUserStyle: (username, body) => {
+    const transformedUsername = username.toLowerCase();
+    const refId = body?.object?.ref_id;
+    const kind = body?.object?.kind;
+
+    if (!refId || !kind) return;
+
+    set((state) => {
+      const currentStyle = state.userStyles[transformedUsername];
+      if (!currentStyle) return state;
+
+      // Remove by kind and ref_id
+      let updatedStyle = { ...currentStyle };
+      let hasChanges = false;
+
+      if (kind === "BADGE" && currentStyle.badgeId === refId) {
+        updatedStyle.badgeId = null;
+        hasChanges = true;
+      } else if (kind === "PAINT" && currentStyle.paintId === refId) {
+        updatedStyle.paintId = null;
+        hasChanges = true;
+      }
+
+      if (!hasChanges) return state;
+
+      // If both badge and paint are removed, remove the entire user style entry
+      if (!updatedStyle.badgeId && !updatedStyle.paintId) {
+        const { [transformedUsername]: removed, ...restUserStyles } = state.userStyles;
+        return { userStyles: restUserStyles };
+      }
+
+      return {
+        userStyles: {
+          ...state.userStyles,
+          [transformedUsername]: {
+            ...updatedStyle,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    });
+  },
+
   getUserStyle: (username) => {
     if (!username) return null;
     const transformedUsername = username.toLowerCase();
