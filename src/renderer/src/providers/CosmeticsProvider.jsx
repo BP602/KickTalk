@@ -6,6 +6,10 @@ const useCosmeticsStore = create((set, get) => ({
     badges: [],
     paints: [],
   },
+  cosmeticsLookup: {
+    badgeMap: new Map(),
+    paintMap: new Map(),
+  },
 
   addUserStyle: async (username, body) => {
     if (!body?.object?.user?.style) return;
@@ -86,8 +90,9 @@ const useCosmeticsStore = create((set, get) => ({
 
     if (!userStyle?.badgeId && !userStyle?.paintId) return null;
 
-    const badge = get().globalCosmetics?.badges?.find((b) => b.id === userStyle.badgeId);
-    const paint = get().globalCosmetics?.paints?.find((p) => p.id === userStyle.paintId);
+    const { badgeMap, paintMap } = get().cosmeticsLookup;
+    const badge = userStyle.badgeId ? badgeMap.get(userStyle.badgeId) : null;
+    const paint = userStyle.paintId ? paintMap.get(userStyle.paintId) : null;
 
     return {
       badge,
@@ -99,9 +104,29 @@ const useCosmeticsStore = create((set, get) => ({
 
   addCosmetics: (body) => {
     set(() => {
+      // Create lookup maps for O(1) access
+      const badgeMap = new Map();
+      const paintMap = new Map();
+
+      if (body.badges) {
+        body.badges.forEach(badge => {
+          badgeMap.set(badge.id, badge);
+        });
+      }
+
+      if (body.paints) {
+        body.paints.forEach(paint => {
+          paintMap.set(paint.id, paint);
+        });
+      }
+
       const newState = {
         globalCosmetics: {
           ...body,
+        },
+        cosmeticsLookup: {
+          badgeMap,
+          paintMap,
         },
       };
 
@@ -115,7 +140,7 @@ const useCosmeticsStore = create((set, get) => ({
     const userStyle = get().userStyles[transformedUsername];
     if (!userStyle?.badgeId) return null;
 
-    return get().globalCosmetics[userStyle.badgeId];
+    return get().cosmeticsLookup.badgeMap.get(userStyle.badgeId);
   },
 
   getUserPaint: (username) => {
@@ -124,7 +149,7 @@ const useCosmeticsStore = create((set, get) => ({
     const userStyle = get().userStyles[transformedUsername];
     if (!userStyle?.paintId) return null;
 
-    return get().globalCosmetics[userStyle.paintId];
+    return get().cosmeticsLookup.paintMap.get(userStyle.paintId);
   },
 }));
 
