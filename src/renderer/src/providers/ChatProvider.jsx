@@ -34,7 +34,6 @@ const safeChatroomIdMatch = (roomId, chatroomId, context = 'unknown') => {
   return match;
 };
 import queueChannelFetch from "@utils/fetchQueue";
-import StvWebSocket from "@utils/services/seventv/stvWebsocket";
 import ConnectionManager from "@utils/services/connectionManager";
 import useCosmeticsStore from "./CosmeticsProvider";
 import { sendUserPresence } from "@utils/services/seventv/stvAPI";
@@ -388,6 +387,9 @@ const getInitialState = () => {
     chatters: {},
     donators: [],
     personalEmoteSets: savedPersonalEmoteSets,
+    recentPersonalUpdates: new Set(), // Track recent personal emote set updates to prevent duplicates
+    recentChannelUpdates: new Set(), // Track recent channel emote set updates to prevent duplicates
+    recentCosmeticEvents: new Map(), // Track recent cosmetic events: key -> timestamp (for dedup)
     isChatroomPaused: {}, // Store for all Chatroom Pauses
     mentions: {}, // Store for all Mentions
     currentChatroomId: null, // Track the currently active chatroom
@@ -538,27 +540,27 @@ const useChatStore = create((set, get) => ({
   sendPresenceUpdate: (stvId, userId) => {
     if (!stvId) {
       console.log("[7tv Presence]: No STV ID provided, skipping presence update");
-      return;
+      return null;
     }
 
     const authTokens = window.app.auth.getToken();
     if (!authTokens?.token || !authTokens?.session) {
       console.log("[7tv Presence]: No auth tokens available, skipping presence update");
-      return;
+      return null;
     }
 
     const currentTime = Date.now();
 
     if (stvPresenceUpdates.has(userId)) {
       const lastUpdateTime = stvPresenceUpdates.get(userId);
-      console.log("[7tv Presence]: Last update time for chatroom:", userId, lastUpdateTime, stvPresenceUpdates);
       if (currentTime - lastUpdateTime < PRESENCE_UPDATE_INTERVAL) {
-        return;
+        return null;
       }
     }
 
     stvPresenceUpdates.set(userId, currentTime);
     sendUserPresence(stvId, userId);
+    return currentTime;
   },
 
   // Cache current user info for optimistic messages
@@ -853,104 +855,11 @@ const useChatStore = create((set, get) => ({
     }));
   },
 
-  connectToStvWebSocket: (chatroom) => {
-    const channelSet = chatroom?.channel7TVEmotes?.find((set) => set.type === "channel");
-    const stvId = channelSet?.user?.id;
-    const stvEmoteSets = channelSet?.setInfo?.id;
-
-    const setupSpan = startSpan('seventv.websocket_setup', {
-      'chatroom.id': chatroom.id,
-      'streamer.name': chatroom.streamerData?.username || '',
-      'seventv.user_id': stvId || '',
-      'seventv.emote_set_id': stvEmoteSets || ''
-    });
-
-    try {
-      // Record WebSocket connection creation
-      window.app?.telemetry?.recordSevenTVWebSocketCreated?.(chatroom.id, stvId, stvEmoteSets);
-    } catch (error) {
-      console.warn('[Telemetry] Failed to record 7TV WebSocket setup:', error);
-    }
-
-    const existingConnection = get().connections[chatroom.id]?.stvSocket;
-    if (existingConnection) {
-      existingConnection.close();
-    }
-
-    try {
-      const stvSocket = new StvWebSocket(chatroom.streamerData.user_id, stvId, stvEmoteSets);
-
-      console.log("Connecting to 7TV WebSocket for chatroom:", chatroom.id);
-
-      set((state) => ({
-        connections: {
-          ...state.connections,
-          [chatroom.id]: {
-            ...state.connections[chatroom.id],
-            stvSocket: stvSocket,
-          },
-        },
-      }));
-
-      stvSocket.connect();
-
-      stvSocket.addEventListener("message", (event) => {
-      const SevenTVEvent = event.detail;
-      const { type, body } = SevenTVEvent;
-
-      switch (type) {
-        case "connection_established":
-          break;
-        case "emote_set.update":
-          get().handleEmoteSetUpdate(chatroom.id, body);
-          break;
-        case "cosmetic.create":
-          useCosmeticsStore?.getState()?.addCosmetics(body);
-          break;
-        case "entitlement.create":
-          const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
-          const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
-
-          useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
-          break;
-
-        default:
-          break;
-      }
-      });
-
-      const storeStvId = localStorage.getItem("stvId");
-
-      stvSocket.addEventListener("open", () => {
-        const s = startSpan('7tv.ws.connect', { 'chat.id': chatroom.id });
-        console.log("7TV WebSocket connected for chatroom:", chatroom.id);
-
-        setTimeout(() => {
-          const authTokens = window.app.auth.getToken();
-          if (storeStvId && authTokens?.token && authTokens?.session) {
-            sendUserPresence(storeStvId, chatroom.streamerData.user_id);
-            stvPresenceUpdates.set(chatroom.streamerData.user_id, Date.now());
-          } else {
-            console.log("[7tv Presence]: No STV ID or auth tokens available for WebSocket presence update");
-          }
-        }, 2000);
-        endSpanOk(s);
-      });
-
-      stvSocket.addEventListener("close", () => {
-        const s = startSpan('7tv.ws.close', { 'chat.id': chatroom.id });
-        console.log("7TV WebSocket disconnected for chatroom:", chatroom.id);
-        stvPresenceUpdates.delete(chatroom.streamerData.user_id);
-        endSpanOk(s);
-      });
-
-      endSpanOk(setupSpan);
-    } catch (error) {
-      console.error("Failed to setup 7TV WebSocket:", error);
-      endSpanError(setupSpan, error);
-      throw error;
-    }
-  },
+  // DEPRECATED: Individual STV WebSocket connections - replaced by shared connection system
+  // connectToStvWebSocket: (chatroom) => {
+  //   // This method is no longer used - shared connections handle 7TV WebSocket functionality
+  //   console.warn("connectToStvWebSocket called but is deprecated - using shared connections instead");
+  // },
 
   connectToChatroom: async (chatroom) => {
     if (!chatroom?.id) return;
@@ -1509,14 +1418,20 @@ const useChatStore = create((set, get) => ({
       // 7TV event handlers
       onStvMessage: (event) => {
         try {
-          const { chatroomId } = event.detail;
+          const { chatroomId, type, body } = event.detail;
           if (chatroomId) {
             get().handleStvMessage(chatroomId, event.detail);
           } else {
-            // Broadcast to all chatrooms if no specific chatroom
-            chatrooms.forEach(chatroom => {
-              get().handleStvMessage(chatroom.id, event.detail);
-            });
+            // Handle global cosmetic events once instead of broadcasting to all chatrooms
+            if (type === 'cosmetic.create' || type === 'entitlement.create' || type === 'entitlement.delete') {
+              // Handle once with a null chatroomId to indicate global event
+              get().handleStvMessage(null, event.detail);
+            } else {
+              // Broadcast to all chatrooms if no specific chatroom (for non-cosmetic events)
+              chatrooms.forEach(chatroom => {
+                get().handleStvMessage(chatroom.id, event.detail);
+              });
+            }
           }
         } catch (error) {
           console.error("[ChatProvider] Error handling 7TV message:", error);
@@ -1624,8 +1539,8 @@ const useChatStore = create((set, get) => ({
         // Connect to chatroom
         get().connectToChatroom(chatroom);
 
-        // Connect to 7TV WebSocket
-        get().connectToStvWebSocket(chatroom);
+        // Connect to 7TV WebSocket - DEPRECATED: Now handled by shared connections
+        // get().connectToStvWebSocket(chatroom);
       }
     });
   },
@@ -1893,6 +1808,36 @@ const useChatStore = create((set, get) => ({
   handleStvMessage: (chatroomId, eventDetail) => {
     const { type, body } = eventDetail;
 
+    // Deduplicate cosmetic events (they spam from WebSocket)
+    if (type === 'cosmetic.create' || type === 'entitlement.create' || type === 'entitlement.delete') {
+      const userId = body?.object?.user?.id || body?.user?.id;
+      const eventId = body?.id;
+      const refId = body?.object?.ref_id; // For entitlements, ref_id is the actual badge/paint/emote_set ID
+
+      // Create dedup key: eventType_userId_refId (use refId instead of eventId for entitlements)
+      const dedupKey = `${type}_${userId}_${refId || eventId}`;
+      const now = Date.now();
+      const recentEvents = get().recentCosmeticEvents || new Map();
+
+      // Check if we've seen this event in the last 30 seconds
+      const lastSeen = recentEvents.get(dedupKey);
+      if (lastSeen && (now - lastSeen) < 30000) {
+        return; // Skip duplicate
+      }
+
+      // Update timestamp for this event
+      recentEvents.set(dedupKey, now);
+
+      // Clean up old entries (older than 60 seconds)
+      for (const [key, timestamp] of recentEvents.entries()) {
+        if (now - timestamp > 60000) {
+          recentEvents.delete(key);
+        }
+      }
+
+      set({ recentCosmeticEvents: recentEvents });
+    }
+
     switch (type) {
       case "connection_established":
         break;
@@ -1903,15 +1848,31 @@ const useChatStore = create((set, get) => ({
         useCosmeticsStore?.getState()?.addCosmetics(body);
         break;
       case "entitlement.create": {
-        const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
-        const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
-        useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
+        const objectKind = body?.object?.kind;
+
+        if (objectKind === "EMOTE_SET") {
+          // Handle personal emote set entitlement grants
+          get().handlePersonalEmoteSetEntitlement(body, "create");
+        } else if (objectKind === "BADGE" || objectKind === "PAINT") {
+          // Handle badge/paint cosmetic entitlements
+          const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
+          const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
+          useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
+        }
         break;
       }
       case "entitlement.delete": {
-        const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
-        const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
-        useCosmeticsStore?.getState()?.removeUserStyle(transformedUsername, body);
+        const objectKind = body?.object?.kind;
+
+        if (objectKind === "EMOTE_SET") {
+          // Handle personal emote set entitlement revocations
+          get().handlePersonalEmoteSetEntitlement(body, "delete");
+        } else if (objectKind === "BADGE" || objectKind === "PAINT") {
+          // Handle badge/paint cosmetic entitlement removals
+          const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
+          const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
+          useCosmeticsStore?.getState()?.removeUserStyle(transformedUsername, body);
+        }
         break;
       }
       default:
@@ -2150,8 +2111,8 @@ const useChatStore = create((set, get) => ({
       // Connect to chatroom
       get().connectToChatroom(newChatroom);
 
-      // Connect to 7TV WebSocket
-      get().connectToStvWebSocket(newChatroom);
+      // Connect to 7TV WebSocket - DEPRECATED: Now handled by shared connections
+      // get().connectToStvWebSocket(newChatroom);
 
       // Save to local storage
       localStorage.setItem("chatrooms", JSON.stringify([...savedChatrooms, newChatroom]));
@@ -2905,9 +2866,9 @@ const useChatStore = create((set, get) => ({
     const updateSpan = startSpan('seventv.emote_set_update', {
       'chatroom.id': chatroomId
     });
-    
+
     const startTime = performance.now();
-    
+
     if (!body) {
       updateSpan?.addEvent?.('empty_body_received');
       endSpanOk(updateSpan);
@@ -2915,15 +2876,51 @@ const useChatStore = create((set, get) => ({
     }
 
     const { pulled = [], pushed = [], updated = [] } = body;
-    
+
     updateSpan?.setAttributes?.({
       'emotes.pulled.count': pulled.length,
       'emotes.pushed.count': pushed.length,
       'emotes.updated.count': updated.length
     });
 
+    const personalEmoteSetsRaw = get().personalEmoteSets;
+    const personalEmoteSets = Array.isArray(personalEmoteSetsRaw) ? personalEmoteSetsRaw : [];
+
+    // Check if this is a personal emote set update
+    const isPersonalSetUpdate = personalEmoteSets?.some((set) => body.id === set.setInfo?.id);
+
+    // Handle personal emote set updates GLOBALLY (not per-chatroom)
+    if (isPersonalSetUpdate) {
+      // Use a static flag to prevent processing the same personal set update multiple times
+      const updateKey = `personal_${body.id}_${Date.now()}`;
+      if (get().recentPersonalUpdates?.has?.(updateKey)) {
+        updateSpan?.addEvent?.('personal_set_already_processed');
+        endSpanOk(updateSpan);
+        return;
+      }
+
+      // Mark this update as processed
+      const recentUpdates = get().recentPersonalUpdates || new Set();
+      recentUpdates.add(updateKey);
+
+      // Clean old update keys (keep only last 100)
+      if (recentUpdates.size > 100) {
+        const updatesArray = Array.from(recentUpdates);
+        updatesArray.slice(0, updatesArray.length - 100).forEach(key => recentUpdates.delete(key));
+      }
+
+      set({ recentPersonalUpdates: recentUpdates });
+
+      // Process personal emote set update once globally
+      get().handlePersonalEmoteSetUpdate(body, updateSpan);
+      return;
+    }
+
+    // Handle channel-specific emote set updates
     const chatroom = get().chatrooms.find((room) => room.id === chatroomId);
     if (!chatroom) {
+      updateSpan?.addEvent?.('chatroom_not_found');
+      endSpanOk(updateSpan);
       return;
     }
 
@@ -2931,21 +2928,67 @@ const useChatStore = create((set, get) => ({
       ? chatroom.channel7TVEmotes.find((set) => set.type === "channel")
       : null;
 
-    const personalEmoteSets = get().personalEmoteSets;
-
-    // CheckIcon if we have either channel emotes OR this is a personal set update
-    const isPersonalSetUpdate = personalEmoteSets?.some((set) => body.id === set.setInfo?.id);
-    
-    if (!channelEmoteSet?.emotes && !isPersonalSetUpdate) {
+    if (!channelEmoteSet?.emotes) {
+      updateSpan?.addEvent?.('no_channel_emotes');
+      endSpanOk(updateSpan);
       return;
     }
 
-    let emotes = channelEmoteSet.emotes || [];
-    const isPersonalSetUpdated = isPersonalSetUpdate;
+    // Check for duplicate channel updates (same body content being processed multiple times)
+    const updateKey = `channel_${body.id}_${chatroomId}_${JSON.stringify({ pulled, pushed, updated })}`;
+    const recentChannelUpdates = get().recentChannelUpdates || new Set();
 
-    // Get the specific personal emote set being updated
-    const personalSetBeingUpdated = personalEmoteSets.find((set) => body.id === set.setInfo?.id);
-    let personalEmotes = isPersonalSetUpdated ? [...(personalSetBeingUpdated?.emotes || [])] : [];
+    if (recentChannelUpdates.has(updateKey)) {
+      updateSpan?.addEvent?.('channel_update_already_processed');
+      console.log(`[7TV Dedup] Skipping duplicate channel update for ${chatroomId}`);
+      endSpanOk(updateSpan);
+      return;
+    }
+
+    // Only apply aggressive deduplication if this emote set actually belongs to our chatrooms
+    const setId = body.id;
+    const allChatrooms = get().chatrooms || [];
+    const setActuallyExists = allChatrooms.some(room =>
+      room.channel7TVEmotes?.some(set => set.setInfo?.id === setId)
+    );
+
+    // Always get recentSimpleUpdates for state management
+    const recentSimpleUpdates = get().recentSimpleChannelUpdates || new Set();
+
+    if (setActuallyExists) {
+      // Check for simpler deduplication based on emote set ID and timestamp (more aggressive)
+      if (recentSimpleUpdates.has(`simple_${setId}`)) {
+        updateSpan?.addEvent?.('channel_update_recently_processed');
+        console.log(`[7TV Dedup] Skipping recently processed channel update for set ${setId}`);
+        endSpanOk(updateSpan);
+        return;
+      }
+
+      // Mark as recently processed (expires in 5 seconds)
+      recentSimpleUpdates.add(`simple_${setId}`);
+      setTimeout(() => {
+        const currentState = get();
+        const updates = currentState.recentSimpleChannelUpdates || new Set();
+        updates.delete(`simple_${setId}`);
+        set({ recentSimpleChannelUpdates: updates });
+      }, 5000);
+    }
+
+    // Mark this update as processed
+    recentChannelUpdates.add(updateKey);
+
+    // Clean old update keys (keep only last 200)
+    if (recentChannelUpdates.size > 200) {
+      const updatesArray = Array.from(recentChannelUpdates);
+      updatesArray.slice(0, updatesArray.length - 200).forEach(key => recentChannelUpdates.delete(key));
+    }
+
+    set({ recentChannelUpdates, recentSimpleChannelUpdates: recentSimpleUpdates });
+
+    // This is a channel-specific emote set update
+    let emotes = Array.isArray(channelEmoteSet?.emotes)
+      ? [...channelEmoteSet.emotes]
+      : [];
 
     // Track changes for update messages in chat
     const addedEmotes = [];
@@ -2967,26 +3010,16 @@ const useChatStore = create((set, get) => ({
 
         if (emoteId) {
           if (!emoteName) {
-            if (isPersonalSetUpdated) {
-              const emote = personalEmotes.find((emote) => emote.id === emoteId);
-              emoteName = emote?.name;
-              emoteOwner = emote?.owner;
-            } else {
-              const emote = emotes.find((emote) => emote.id === emoteId);
-              emoteName = emote?.name;
-              emoteOwner = emote?.owner;
-            }
+            const emote = emotes.find((emote) => emote.id === emoteId);
+            emoteName = emote?.name;
+            emoteOwner = emote?.owner;
           }
 
-          if (emoteName && !isPersonalSetUpdated) {
+          if (emoteName) {
             removedEmotes.push({ id: emoteId, name: emoteName, owner: emoteOwner });
           }
 
-          if (isPersonalSetUpdated) {
-            personalEmotes = personalEmotes.filter((emote) => emote.id !== emoteId);
-          } else {
-            emotes = emotes.filter((emote) => emote.id !== emoteId);
-          }
+          emotes = emotes.filter((emote) => emote.id !== emoteId);
         }
       });
     }
@@ -2996,44 +3029,27 @@ const useChatStore = create((set, get) => ({
         const { value } = pushedItem;
         const emoteName = value.name ? value.name : value.data?.name;
 
-        if (emoteName && !isPersonalSetUpdated) {
+        if (emoteName) {
           addedEmotes.push({ id: value.id, name: emoteName, owner: value.data?.owner });
         }
 
-        if (isPersonalSetUpdated) {
-          const transformedEmote = {
-            id: value.id,
-            actor_id: value.actor_id,
-            flags: value.data?.flags || 0,
-            name: emoteName,
-            alias: value.data?.name !== value.name ? value?.data?.name : null,
-            owner: value.data?.owner,
-            file: value.data?.host.files?.[0] || value.data?.host.files?.[1],
-            added_timestamp: value.timestamp || Date.now(),
-            platform: "7tv",
-            type: "personal",
-          };
+        // Remove any existing emote with the same ID first
+        emotes = emotes.filter((emote) => emote.id !== value.id);
 
-          // Remove any existing emote with the same ID first
-          personalEmotes = personalEmotes.filter((emote) => emote.id !== value.id);
-          // Then add the new/updated emote
-          personalEmotes.push(transformedEmote);
-        } else {
-          // Remove any existing emote with the same ID first
-          emotes = emotes.filter((emote) => emote.id !== value.id);
-          // Then add the new emote
-          emotes.push({
-            id: value.id,
-            actor_id: value.actor_id,
-            flags: value.data?.flags || 0,
-            name: emoteName,
-            alias: value.data?.name !== value.name ? value?.data?.name : null,
-            owner: value.data?.owner,
-            file: value.data?.host.files?.[0] || value.data?.host.files?.[1],
-            added_timestamp: value.timestamp || Date.now(),
-            platform: "7tv",
-          });
-        }
+        const transformedEmote = {
+          id: value.id,
+          actor_id: value.actor_id,
+          flags: value.data?.flags || 0,
+          name: emoteName,
+          alias: value.data?.name !== value.name ? value?.data?.name : null,
+          owner: value.data?.owner,
+          file: value.data?.host.files?.[0] || value.data?.host.files?.[1],
+          added_timestamp: value.timestamp || Date.now(),
+          platform: "7tv",
+          type: "channel",
+        };
+
+        emotes.push(transformedEmote);
       });
     }
 
@@ -3045,7 +3061,7 @@ const useChatStore = create((set, get) => ({
         const oldName = old_value.name || old_value.data?.name;
         const newName = value.name ? value.name : value.data?.name;
 
-        if (oldName && newName && oldName !== newName && !isPersonalSetUpdated) {
+        if (oldName && newName && oldName !== newName) {
           updatedEmotes.push({
             id: old_value.id,
             oldName,
@@ -3055,41 +3071,24 @@ const useChatStore = create((set, get) => ({
           });
         }
 
-        if (isPersonalSetUpdated) {
-          personalEmotes = personalEmotes.filter((e) => e.id !== old_value.id);
+        // Update channel emote
+        emotes = emotes.filter((e) => e.id !== old_value.id);
 
-          const transformedEmote = {
-            id: value.id,
-            actor_id: value.actor_id,
-            flags: value.data?.flags || 0,
-            name: newName,
-            alias: value.data?.name !== value.name ? value?.data?.name : null,
-            owner: value.data?.owner,
-            file: value.data?.host.files?.[0] || value.data?.host.files?.[1],
-            added_timestamp: value.timestamp || Date.now(),
-            platform: "7tv",
-            type: "personal",
-          };
-
-          personalEmotes.push(transformedEmote);
-        } else {
-          emotes = emotes.filter((e) => e.id !== old_value.id);
-
-          emotes.push({
-            id: value.id,
-            actor_id: value.actor_id,
-            flags: value.data?.flags || 0,
-            name: newName,
-            alias: value.data?.name !== value.name ? value?.data?.name : null,
-            owner: value.data?.owner,
-            file: value.data?.host.files?.[0] || value.data?.host.files?.[1],
-            platform: "7tv",
-          });
-        }
+        emotes.push({
+          id: value.id,
+          actor_id: value.actor_id,
+          flags: value.data?.flags || 0,
+          name: newName,
+          alias: value.data?.name !== value.name ? value?.data?.name : null,
+          owner: value.data?.owner,
+          file: value.data?.host.files?.[0] || value.data?.host.files?.[1],
+          added_timestamp: value.timestamp || Date.now(),
+          platform: "7tv",
+          type: "channel",
+        });
       });
     }
 
-    personalEmotes = [...personalEmotes].sort((a, b) => a.name.localeCompare(b.name));
     emotes = [...emotes].sort((a, b) => a.name.localeCompare(b.name));
 
 
@@ -3102,20 +3101,20 @@ const useChatStore = create((set, get) => ({
           addedEmotes.length,
           removedEmotes.length,
           updatedEmotes.length,
-          isPersonalSetUpdated ? 'personal' : 'channel'
+          'channel'
         );
-        
+
         updateSpan?.addEvent?.('emote_changes_detected', {
           'emotes.added': addedEmotes.length,
           'emotes.removed': removedEmotes.length,
           'emotes.updated': updatedEmotes.length,
-          'set.type': isPersonalSetUpdated ? 'personal' : 'channel'
+          'set.type': 'channel'
         });
       } catch (error) {
         console.warn('[Telemetry] Failed to record emote changes:', error);
       }
       
-      const setInfo = isPersonalSetUpdated ? personalSetBeingUpdated?.setInfo : channelEmoteSet?.setInfo;
+      const setInfo = channelEmoteSet?.setInfo;
 
       if (body?.actor) {
         get().addMessage(chatroomId, {
@@ -3123,8 +3122,8 @@ const useChatStore = create((set, get) => ({
           type: "stvEmoteSetUpdate",
           timestamp: new Date().toISOString(),
           data: {
-            setType: isPersonalSetUpdated ? "personal" : "channel",
-            setName: setInfo?.name || (isPersonalSetUpdated ? "Personal" : "Channel"),
+            setType: "channel",
+            setName: setInfo?.name || "Channel",
             typeOfUpdate: addedEmotes.length > 0 ? "added" : removedEmotes.length > 0 ? "removed" : "updated",
             setId: body.id,
             authoredBy: body?.actor || null,
@@ -3136,24 +3135,8 @@ const useChatStore = create((set, get) => ({
       }
     }
 
-    // Update personal emote sets if this was a personal set update
-    if (isPersonalSetUpdated) {
-      const updatedPersonalSets = personalEmoteSets.map((set) => {
-        if (body.id === set.setInfo?.id) {
-          return {
-            ...set,
-            emotes: personalEmotes,
-          };
-        }
-        return set;
-      });
+    // Update channel emotes
 
-      set({ personalEmoteSets: [...updatedPersonalSets] });
-      localStorage.setItem("stvPersonalEmoteSets", JSON.stringify([...updatedPersonalSets]));
-      return; // Don't update channel emotes if this was a personal set update
-    }
-
-    
     let updatedChannel7TVEmotes;
     if (Array.isArray(chatroom.channel7TVEmotes)) {
       updatedChannel7TVEmotes = chatroom.channel7TVEmotes.map((set) => (set.type === "channel" ? { ...set, emotes } : set));
@@ -3186,9 +3169,6 @@ const useChatStore = create((set, get) => ({
     // Clear emote cache to ensure new emotes are loaded from updated store
     clearChatroomEmoteCache(chatroomId);
     
-    // Refresh emote data to get the updated emote set
-    get().refresh7TVEmotes(chatroomId);
-    
     try {
       const processingDuration = performance.now() - startTime;
       // Record emote update metrics via IPC
@@ -3207,6 +3187,204 @@ const useChatStore = create((set, get) => ({
       console.warn('[Telemetry] Failed to record 7TV emote update:', error);
       endSpanError(updateSpan, error);
     }
+  },
+
+  handlePersonalEmoteSetUpdate: (body, updateSpan) => {
+    const startTime = performance.now();
+
+    if (!body) {
+      updateSpan?.addEvent?.('empty_personal_body_received');
+      endSpanOk(updateSpan);
+      return;
+    }
+
+    const { pulled = [], pushed = [], updated = [] } = body;
+
+    updateSpan?.addEvent?.('processing_personal_emote_update', {
+      'emotes.pulled.count': pulled.length,
+      'emotes.pushed.count': pushed.length,
+      'emotes.updated.count': updated.length,
+      'set.id': body.id
+    });
+
+    const personalEmoteSetsRaw = get().personalEmoteSets;
+    const personalEmoteSets = Array.isArray(personalEmoteSetsRaw) ? personalEmoteSetsRaw : [];
+
+    // Get the specific personal emote set being updated
+    const personalSetBeingUpdated = personalEmoteSets.find((set) => body.id === set.setInfo?.id);
+
+    if (!personalSetBeingUpdated) {
+      updateSpan?.addEvent?.('personal_set_not_found', { 'set.id': body.id });
+      endSpanOk(updateSpan);
+      return;
+    }
+
+    let personalEmotes = [...(personalSetBeingUpdated?.emotes || [])];
+
+    // Track changes for telemetry
+    let addedCount = 0;
+    let removedCount = 0;
+    let updatedCount = 0;
+
+    // Process pulled (removed) emotes
+    if (pulled.length > 0) {
+      pulled.forEach((pulledItem) => {
+        let emoteId = null;
+        if (typeof pulledItem === "string") {
+          emoteId = pulledItem;
+        } else if (pulledItem?.old_value?.id) {
+          emoteId = pulledItem.old_value.id;
+        }
+
+        if (emoteId) {
+          const beforeLength = personalEmotes.length;
+          personalEmotes = personalEmotes.filter((emote) => emote.id !== emoteId);
+          if (personalEmotes.length < beforeLength) {
+            removedCount++;
+          }
+        }
+      });
+    }
+
+    // Process pushed (added) emotes
+    if (pushed.length > 0) {
+      pushed.forEach((pushedItem) => {
+        const { value } = pushedItem;
+        if (!value) return;
+
+        const emoteName = value.name || value.data?.name;
+        if (!emoteName) return;
+
+        // Remove any existing emote with the same ID first
+        personalEmotes = personalEmotes.filter((emote) => emote.id !== value.id);
+
+        const transformedEmote = {
+          id: value.id,
+          actor_id: value.actor_id,
+          flags: value.data?.flags || 0,
+          name: emoteName,
+          alias: value.data?.name !== value.name ? value?.data?.name : null,
+          owner: value.data?.owner,
+          file: value.data?.host.files?.[0] || value.data?.host.files?.[1],
+          added_timestamp: value.timestamp || Date.now(),
+          platform: "7tv",
+          type: "personal",
+        };
+
+        personalEmotes.push(transformedEmote);
+        addedCount++;
+      });
+    }
+
+    // Process updated (renamed) emotes
+    if (updated.length > 0) {
+      updated.forEach((emote) => {
+        const { old_value, value } = emote;
+        if (!old_value?.id || !value?.id) return;
+
+        const newName = value.name || value.data?.name;
+        if (!newName) return;
+
+        // Remove old emote and add updated one
+        personalEmotes = personalEmotes.filter((e) => e.id !== old_value.id);
+
+        const transformedEmote = {
+          id: value.id,
+          actor_id: value.actor_id,
+          flags: value.data?.flags || 0,
+          name: newName,
+          alias: value.data?.name !== value.name ? value?.data?.name : null,
+          owner: value.data?.owner,
+          file: value.data?.host.files?.[0] || value.data?.host.files?.[1],
+          added_timestamp: value.timestamp || Date.now(),
+          platform: "7tv",
+          type: "personal",
+        };
+
+        personalEmotes.push(transformedEmote);
+        updatedCount++;
+      });
+    }
+
+    // Sort personal emotes
+    personalEmotes = personalEmotes.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Update personal emote sets globally
+    const updatedPersonalSets = personalEmoteSets.map((set) => {
+      if (body.id === set.setInfo?.id) {
+        return {
+          ...set,
+          emotes: personalEmotes,
+        };
+      }
+      return set;
+    });
+
+    set({ personalEmoteSets: [...updatedPersonalSets] });
+    localStorage.setItem("stvPersonalEmoteSets", JSON.stringify([...updatedPersonalSets]));
+
+    // Record telemetry for personal emote set update
+    try {
+      const processingDuration = performance.now() - startTime;
+
+      // Record the processing as a single update operation
+      window.app?.telemetry?.recordSevenTVEmoteUpdate?.(
+        'personal_global', // Use a special ID for personal emotes
+        pulled.length,
+        pushed.length,
+        updated.length,
+        processingDuration
+      );
+
+      // Record specific change counts
+      if (addedCount > 0 || removedCount > 0 || updatedCount > 0) {
+        window.app?.telemetry?.recordSevenTVEmoteChanges?.(
+          'personal_global',
+          addedCount,
+          removedCount,
+          updatedCount,
+          'personal'
+        );
+      }
+
+      updateSpan?.addEvent?.('personal_emote_update_completed', {
+        'processing.duration_ms': processingDuration,
+        'emotes.added': addedCount,
+        'emotes.removed': removedCount,
+        'emotes.updated': updatedCount
+      });
+      endSpanOk(updateSpan);
+    } catch (error) {
+      console.warn('[Telemetry] Failed to record personal emote update:', error);
+      endSpanError(updateSpan, error);
+    }
+  },
+
+  handlePersonalEmoteSetEntitlement: (body, action) => {
+    // Handle entitlement.create/delete for EMOTE_SET kind
+    // These events notify us when ANY user gains/loses access to a personal emote set
+    // This is important for rendering other users' personal emotes in chat
+
+    const emoteSetId = body?.object?.ref_id;
+    const userId = body?.object?.user?.id;
+    const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
+
+    if (!emoteSetId) {
+      console.warn('[7TV Entitlement] Missing emote set ID in entitlement event', body);
+      return;
+    }
+
+    const currentUserStvId = localStorage.getItem('stvId');
+    const isCurrentUser = userId === currentUserStvId;
+
+    console.log(`[7TV Entitlement] ${action} for ${isCurrentUser ? 'current user' : username || userId}, emote set: ${emoteSetId}`);
+
+    // TODO: Implement full handler (see GitHub issue #48)
+    // For current user's personal emote sets:
+    //   - 'create': fetch emote set and add to personalEmoteSets state
+    //   - 'delete': remove from personalEmoteSets state
+    // For other users' personal emote sets:
+    //   - Need separate tracking system (userEmoteSets map?) to render their emotes in chat
   },
 
   refresh7TVEmotes: async (chatroomId) => {
@@ -4033,13 +4211,36 @@ if (window.location.pathname === "/" || window.location.pathname.endsWith("index
     console.log("[7tv Presence]: Initializing presence update checks");
     presenceUpdatesInterval = setInterval(
       () => {
-        const chatrooms = useChatStore.getState()?.chatrooms;
+        const store = useChatStore.getState();
+        const chatrooms = store?.chatrooms;
         if (chatrooms?.length === 0) return;
 
-        chatrooms.forEach((chatroom) => {
-          console.log("[7tv Presence]: Sending presence check for chatroom:", chatroom.streamerData.user_id);
-          useChatStore.getState().sendPresenceUpdate(storeStvId, chatroom.streamerData.user_id);
-        });
+        // Process updates in small batches to avoid blocking
+        const processBatch = (startIndex = 0) => {
+          const batchSize = 3;
+          const currentTime = new Date().toISOString();
+          const updatedRooms = [];
+
+          for (let i = startIndex; i < Math.min(startIndex + batchSize, chatrooms.length); i++) {
+            const chatroom = chatrooms[i];
+            const sentAt = store.sendPresenceUpdate(storeStvId, chatroom.streamerData.user_id);
+            if (sentAt) {
+              updatedRooms.push(
+                `${chatroom.id}->${chatroom.streamerData.user_id}(${chatroom.streamerData?.user?.username || chatroom.username})@${currentTime}`,
+              );
+            }
+          }
+
+          // Continue with next batch if not finished
+          if (startIndex + batchSize < chatrooms.length) {
+            setTimeout(() => processBatch(startIndex + batchSize), 1);
+          } else if (updatedRooms.length > 0) {
+            // Log only after all batches complete (simplified logging)
+            console.log(`[7tv Presence]: ${currentTime} sent presence updates for ${chatrooms.length} chatrooms`);
+          }
+        };
+
+        setTimeout(() => processBatch(0), 0);
       },
       1 * 60 * 1000,
     );

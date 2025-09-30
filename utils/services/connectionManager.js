@@ -589,7 +589,9 @@ class ConnectionManager {
     const stvId = channelSet?.user?.id || '0';
     const stvEmoteSetId = channelSet?.setInfo?.id || '0';
 
-    this.stvWebSocket.addChatroom(
+    // console.log(`[ConnectionManager] Syncing 7TV chatroom ${chatroom.id} with emote set ID: ${stvEmoteSetId}`);
+
+    this.stvWebSocket.updateChatroom(
       chatroom.id,
       chatroom.streamerData?.user_id,
       stvId,

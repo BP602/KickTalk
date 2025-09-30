@@ -185,12 +185,118 @@ if (telemetryEnabled) {
 }
 }
 
+// Console Error Instrumentation - Capture console.error/warn and send to telemetry
+if (telemetryEnabled && typeof window !== 'undefined') {
+  try {
+    if (!window.__KT_CONSOLE_INSTRUMENTED__) {
+      window.__KT_CONSOLE_INSTRUMENTED__ = true;
+      console.log('[Renderer OTEL]: Installing console error instrumentation');
+
+      // Store original console methods
+      const originalConsoleError = console.error;
+      const originalConsoleWarn = console.warn;
+
+      // Wrap console.error
+      console.error = function(...args) {
+        // Call original console.error first
+        originalConsoleError.apply(console, args);
+
+        // Send to telemetry
+        try {
+          // Create error message from arguments
+          const errorMessage = args.map(arg =>
+            typeof arg === 'string' ? arg :
+            arg instanceof Error ? arg.message :
+            JSON.stringify(arg)
+          ).join(' ');
+
+          // Send to telemetry if available
+          if (typeof window.app?.telemetry?.recordError === 'function') {
+            const error = new Error(errorMessage);
+            error.stack = (new Error()).stack; // Get current stack
+
+            window.app.telemetry.recordError(error, {
+              source: 'console.error',
+              operation: 'console_error_capture',
+              arguments: args.length,
+              timestamp: Date.now()
+            });
+          }
+        } catch (telemetryError) {
+          // Don't break console.error if telemetry fails
+          originalConsoleError('[Console Instrumentation]: Telemetry error:', telemetryError.message);
+        }
+      };
+
+      // Wrap console.warn for high-severity warnings
+      console.warn = function(...args) {
+        // Call original console.warn first
+        originalConsoleWarn.apply(console, args);
+
+        // Send critical warnings to telemetry (7TV, SLO violations, etc.)
+        try {
+          const warnMessage = args.join(' ');
+          const isCriticalWarning = warnMessage.includes('[7TV') ||
+                                  warnMessage.includes('[SLO') ||
+                                  warnMessage.includes('VIOLATION') ||
+                                  warnMessage.includes('CRITICAL');
+
+          if (isCriticalWarning && typeof window.app?.telemetry?.recordError === 'function') {
+            const warning = new Error(`Warning: ${warnMessage}`);
+            warning.stack = (new Error()).stack;
+
+            window.app.telemetry.recordError(warning, {
+              source: 'console.warn',
+              operation: 'console_warn_capture',
+              severity: 'warning',
+              arguments: args.length,
+              timestamp: Date.now()
+            });
+          }
+        } catch (telemetryError) {
+          // Don't break console.warn if telemetry fails
+        }
+      };
+
+      // Store original methods for restoration
+      window.__KT_ORIGINAL_CONSOLE_ERROR__ = originalConsoleError;
+      window.__KT_ORIGINAL_CONSOLE_WARN__ = originalConsoleWarn;
+
+      console.log('[Renderer OTEL]: Console error instrumentation installed successfully');
+
+      // Test console instrumentation after a brief delay to ensure telemetry bridge is ready
+      setTimeout(() => {
+        try {
+          if (typeof window.app?.telemetry?.recordError === 'function') {
+            console.log('[Console Instrumentation]: Testing telemetry integration...');
+            // This should trigger our console.error wrapper
+            console.error('[Test] Console error instrumentation test - this should appear in telemetry');
+          } else {
+            console.log('[Console Instrumentation]: Telemetry bridge not ready yet');
+          }
+        } catch (testError) {
+          console.log('[Console Instrumentation]: Test failed:', testError.message);
+        }
+      }, 2000);
+    } else {
+      console.log('[Console Instrumentation]: Already instrumented');
+    }
+  } catch (err) {
+    console.error('[Console Instrumentation]: Failed to install:', err.message);
+  }
+}
+
 // If telemetry is disabled, ensure any previous wrapper is restored
 if (!telemetryEnabled && typeof window !== 'undefined') {
   try {
     if (window.__KT_ORIGINAL_WEBSOCKET__ && window.WebSocket !== window.__KT_ORIGINAL_WEBSOCKET__) {
       window.WebSocket = window.__KT_ORIGINAL_WEBSOCKET__;
       console.log('[WebSocket Instrumentation]: Telemetry disabled - restored native WebSocket');
+    }
+    if (window.__KT_ORIGINAL_CONSOLE_ERROR__ && console.error !== window.__KT_ORIGINAL_CONSOLE_ERROR__) {
+      console.error = window.__KT_ORIGINAL_CONSOLE_ERROR__;
+      console.warn = window.__KT_ORIGINAL_CONSOLE_WARN__;
+      console.log('[Console Instrumentation]: Telemetry disabled - restored native console methods');
     }
   } catch {}
 }
