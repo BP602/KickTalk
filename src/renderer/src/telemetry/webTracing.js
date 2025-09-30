@@ -263,21 +263,6 @@ if (telemetryEnabled && typeof window !== 'undefined') {
       window.__KT_ORIGINAL_CONSOLE_WARN__ = originalConsoleWarn;
 
       console.log('[Renderer OTEL]: Console error instrumentation installed successfully');
-
-      // Test console instrumentation after a brief delay to ensure telemetry bridge is ready
-      setTimeout(() => {
-        try {
-          if (typeof window.app?.telemetry?.recordError === 'function') {
-            console.log('[Console Instrumentation]: Testing telemetry integration...');
-            // This should trigger our console.error wrapper
-            console.error('[Test] Console error instrumentation test - this should appear in telemetry');
-          } else {
-            console.log('[Console Instrumentation]: Telemetry bridge not ready yet');
-          }
-        } catch (testError) {
-          console.log('[Console Instrumentation]: Test failed:', testError.message);
-        }
-      }, 2000);
     } else {
       console.log('[Console Instrumentation]: Already instrumented');
     }
@@ -1317,15 +1302,17 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
         console.warn('[Renderer OTEL]: Failed to read early WebSocket activity', e?.message || e);
       }
 
-      // Immediately emit a test span to trigger exporter
-      try {
-        const testTracer = trace.getTracer('kicktalk-renderer');
-        const s = testTracer.startSpan('renderer_export_smoke');
-        s.end();
-        if (typeof provider.forceFlush === 'function') {
-          provider.forceFlush().catch(() => {});
-        }
-      } catch {}
+      // DEV-ONLY: Emit a test span to verify exporter pipeline in development
+      if (process.env.NODE_ENV === 'development') {
+        try {
+          const testTracer = trace.getTracer('kicktalk-renderer');
+          const s = testTracer.startSpan('renderer_export_smoke');
+          s.end();
+          if (typeof provider.forceFlush === 'function') {
+            provider.forceFlush().catch(() => {});
+          }
+        } catch {}
+      }
 
       // Expose provider globally for diagnostics/flush and add periodic flush
       try {
