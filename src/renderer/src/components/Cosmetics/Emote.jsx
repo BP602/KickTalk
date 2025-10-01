@@ -3,7 +3,7 @@ import EmoteTooltip from "./EmoteTooltip";
 
 // Progressive Loading Hook for Emotes
 const useProgressiveEmoteLoading = (emote, type) => {
-  const [loadState, setLoadState] = useState('placeholder'); // placeholder, loading, loaded, error
+  const [loadState, setLoadState] = useState('loading'); // loading, loaded, error
   const [showFallback, setShowFallback] = useState(false);
 
   // Define fallback placeholder (prevents layout shift)
@@ -35,17 +35,12 @@ const useProgressiveEmoteLoading = (emote, type) => {
     setShowFallback(true);
   }, []);
 
-  const handleImageLoadStart = useCallback(() => {
-    setLoadState('loading');
-  }, []);
-
   return {
     loadState,
     showFallback,
     placeholder,
     handleImageLoad,
-    handleImageError,
-    handleImageLoadStart
+    handleImageError
   };
 };
 
@@ -61,8 +56,7 @@ const Emote = memo(({ emote, overlaidEmotes = [], scale = 1, type }) => {
     showFallback,
     placeholder,
     handleImageLoad,
-    handleImageError,
-    handleImageLoadStart
+    handleImageError
   } = useProgressiveEmoteLoading(emote, type);
 
   const emoteSrcSet = useCallback(
@@ -142,9 +136,7 @@ const Emote = memo(({ emote, overlaidEmotes = [], scale = 1, type }) => {
             decoding="async"
             onLoad={handleImageLoad}
             onError={handleImageError}
-            onLoadStart={handleImageLoadStart}
             style={{
-              position: loadState === 'loaded' ? 'static' : 'absolute',
               opacity: loadState === 'loaded' ? 1 : 0,
               transition: 'opacity 0.2s ease-in-out'
             }}

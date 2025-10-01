@@ -20,7 +20,7 @@
             "port": 9222,
             "request": "attach",
             "type": "chrome",
-            "webRoot": "${workspaceFolder}/src/renderer",
+            "webRoot": "${workspaceFolder}/src/renderer/src",
             "timeout": 60000,
             "presentation": {
                 "hidden": true

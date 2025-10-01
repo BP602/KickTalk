@@ -1806,22 +1806,36 @@ const useChatStore = create((set, get) => ({
   },
 
   handleStvMessage: (chatroomId, eventDetail) => {
-    const { type, body } = eventDetail;
+    const { type, body, isPersonalEmoteSet } = eventDetail;
 
     // Deduplicate cosmetic events (they spam from WebSocket)
     if (type === 'cosmetic.create' || type === 'entitlement.create' || type === 'entitlement.delete') {
-      const userId = body?.object?.user?.id || body?.user?.id;
-      const eventId = body?.id;
-      const refId = body?.object?.ref_id; // For entitlements, ref_id is the actual badge/paint/emote_set ID
+      let dedupKey;
 
-      // Create dedup key: eventType_userId_refId (use refId instead of eventId for entitlements)
-      const dedupKey = `${type}_${userId}_${refId || eventId}`;
+      if (type === 'cosmetic.create') {
+        // cosmetic.create has raw 7TV structure: { object: { kind: "BADGE"|"PAINT", data: { id, ref_id, ... } } }
+        const cosmeticData = body?.object?.data;
+        const cosmeticKind = body?.object?.kind;
+        const rawId = cosmeticData?.id;
+        const refId = cosmeticData?.ref_id;
+        const sentinelId = "00000000000000000000000000";
+        const dedupeId = rawId && rawId !== sentinelId ? rawId : (refId || rawId || body?.id || 'unknown');
+        dedupKey = `${type}_${cosmeticKind}_${dedupeId}`;
+      } else {
+        // entitlement.create/delete have structure: { object: { user: { id }, ref_id, kind } }
+        const userId = body?.object?.user?.id || body?.user?.id;
+        const refId = body?.object?.ref_id; // ref_id is the actual badge/paint/emote_set ID
+        const eventId = body?.id;
+        dedupKey = `${type}_${userId}_${refId || eventId}`;
+      }
+
       const now = Date.now();
       const recentEvents = get().recentCosmeticEvents || new Map();
 
       // Check if we've seen this event in the last 30 seconds
       const lastSeen = recentEvents.get(dedupKey);
       if (lastSeen && (now - lastSeen) < 30000) {
+        console.log("dupe skip", dedupKey)
         return; // Skip duplicate
       }
 
@@ -1842,10 +1856,13 @@ const useChatStore = create((set, get) => ({
       case "connection_established":
         break;
       case "emote_set.update":
-        get().handleEmoteSetUpdate(chatroomId, body);
+        get().handleEmoteSetUpdate(chatroomId, body, isPersonalEmoteSet);
         break;
       case "cosmetic.create":
-        useCosmeticsStore?.getState()?.addCosmetics(body);
+        useCosmeticsStore?.getState()?.addCosmetic(body);
+        break;
+      case "cosmetic.delete":
+        useCosmeticsStore?.getState()?.removeCosmetic(body);
         break;
       case "entitlement.create": {
         const objectKind = body?.object?.kind;
@@ -1858,6 +1875,15 @@ const useChatStore = create((set, get) => ({
           const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
           const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
           useCosmeticsStore?.getState()?.addUserStyle(transformedUsername, body);
+        } else {
+          // Log unhandled objectKind to telemetry
+          const span = startSpan('seventv.unhandled_entitlement_create');
+          span?.setAttributes?.({
+            'entitlement.object_kind': objectKind || 'unknown',
+            'entitlement.user_id': body?.object?.user?.id || 'unknown',
+            'entitlement.ref_id': body?.object?.ref_id || 'unknown'
+          });
+          span?.end?.();
         }
         break;
       }
@@ -1872,6 +1898,15 @@ const useChatStore = create((set, get) => ({
           const username = body?.object?.user?.connections?.find((c) => c.platform === "KICK")?.username;
           const transformedUsername = username?.replaceAll("-", "_").toLowerCase();
           useCosmeticsStore?.getState()?.removeUserStyle(transformedUsername, body);
+        } else {
+          // Log unhandled objectKind to telemetry
+          const span = startSpan('seventv.unhandled_entitlement_delete');
+          span?.setAttributes?.({
+            'entitlement.object_kind': objectKind || 'unknown',
+            'entitlement.user_id': body?.object?.user?.id || 'unknown',
+            'entitlement.ref_id': body?.object?.ref_id || 'unknown'
+          });
+          span?.end?.();
         }
         break;
       }
@@ -2862,7 +2897,7 @@ const useChatStore = create((set, get) => ({
     }));
   },
 
-  handleEmoteSetUpdate: (chatroomId, body) => {
+  handleEmoteSetUpdate: (chatroomId, body, isPersonalEmoteSet) => {
     const updateSpan = startSpan('seventv.emote_set_update', {
       'chatroom.id': chatroomId
     });
@@ -2883,11 +2918,8 @@ const useChatStore = create((set, get) => ({
       'emotes.updated.count': updated.length
     });
 
-    const personalEmoteSetsRaw = get().personalEmoteSets;
-    const personalEmoteSets = Array.isArray(personalEmoteSetsRaw) ? personalEmoteSetsRaw : [];
-
-    // Check if this is a personal emote set update
-    const isPersonalSetUpdate = personalEmoteSets?.some((set) => body.id === set.setInfo?.id);
+    // Use the isPersonalEmoteSet flag from the WebSocket layer
+    const isPersonalSetUpdate = isPersonalEmoteSet ?? false;
 
     // Handle personal emote set updates GLOBALLY (not per-chatroom)
     if (isPersonalSetUpdate) {

@@ -1,137 +1,8 @@
 // This shared websocket class optimizes 7TV connections by using a single WebSocket for all chatrooms
 // Original websocket class originally made by https://github.com/Fiszh and edited by ftk789 and Drkness
 
-const cosmetics = {
-  paints: [],
-  badges: [],
-};
-
 // Constants for ID validation
 const INVALID_7TV_NULL_ID = "00000000000000000000000000"; // Known 7TV null ID pattern
-
-const updateCosmetics = async (body) => {
-  if (!body?.object) {
-    return;
-  }
-
-  const { object } = body;
-
-  if (object?.kind === "BADGE") {
-    if (!object?.user) {
-      const data = object.data;
-
-      const foundBadge = cosmetics.badges.find(
-        (badge) => badge && badge.id === (data && data.id === "00000000000000000000000000" ? data.ref_id : data.id),
-      );
-
-      if (foundBadge) {
-        return;
-      }
-
-      cosmetics.badges.push({
-        id: data.id === "00000000000000000000000000" ? data.ref_id || "default_id" : data.id,
-        title: data.tooltip,
-        url: `https:${data.host.url}/${data.host.files[data.host.files.length - 1].name}`,
-      });
-    }
-  } else if (object?.kind === "PAINT") {
-    if (!object.user) {
-      const data = object.data;
-
-      const foundPaint = cosmetics.paints.find(
-        (paint) => paint && paint.id === (data && data.id === "00000000000000000000000000" ? data.ref_id : data.id),
-      );
-
-      if (foundPaint) {
-        return;
-      }
-
-      const randomColor = "#00f742";
-
-      let push = {};
-
-      if (data.stops.length) {
-        const normalizedColors = data.stops.map((stop) => ({
-          at: stop.at * 100,
-          color: stop.color,
-        }));
-
-        const gradient = normalizedColors.map((stop) => `${argbToRgba(stop.color)} ${stop.at}%`).join(", ");
-
-        if (data.repeat) {
-          data.function = `repeating-${data.function}`;
-        }
-
-        data.function = data.function.toLowerCase().replace("_", "-");
-
-        let isDeg_or_Shape = `${data.angle}deg`;
-
-        if (data.function !== "linear-gradient" && data.function !== "repeating-linear-gradient") {
-          isDeg_or_Shape = data.shape;
-        }
-
-        push = {
-          id: data.id === "00000000000000000000000000" ? data.ref_id || "default_id" : data.id,
-          name: data.name,
-          style: data.function,
-          shape: data.shape,
-          backgroundImage:
-            `${data.function || "linear-gradient"}(${isDeg_or_Shape}, ${gradient})` ||
-            `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
-          shadows: null,
-          KIND: "non-animated",
-          url: data.image_url,
-        };
-      } else {
-        push = {
-          id: data.id === "00000000000000000000000000" ? data.ref_id || "default_id" : data.id,
-          name: data.name,
-          style: data.function,
-          shape: data.shape,
-          backgroundImage:
-            `url('${[data.image_url]}')` ||
-            `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
-          shadows: null,
-          KIND: "animated",
-          url: data.image_url,
-        };
-      }
-
-      // SHADOWS
-      let shadow = null;
-
-      if (data.shadows.length) {
-        const shadows = data.shadows;
-
-        shadow = await shadows
-          .map((shadow) => {
-            let rgbaColor = argbToRgba(shadow.color);
-
-            rgbaColor = rgbaColor.replace(/rgba\((\d+), (\d+), (\d+), (\d+(\.\d+)?)\)/, `rgba($1, $2, $3)`);
-
-            return `drop-shadow(${rgbaColor} ${shadow.x_offset}px ${shadow.y_offset}px ${shadow.radius}px)`;
-          })
-          .join(" ");
-
-        push["shadows"] = shadow;
-      }
-
-      cosmetics.paints.push(push);
-    }
-  } else if (
-    object?.name === "Personal Emotes" ||
-    object?.name === "Personal Emotes Set" ||
-    object?.user ||
-    object?.id === "00000000000000000000000000" ||
-    (object?.flags && (object.flags === 11 || object.flags === 4))
-  ) {
-    if (object?.id === "00000000000000000000000000" && object?.ref_id) {
-      object.id = object.ref_id;
-    }
-  } else {
-    console.log("[Shared7TV] Didn't process cosmetics:", body);
-  }
-};
 
 // OpenTelemetry instrumentation
 let tracer;
@@ -665,44 +536,26 @@ class SharedStvWebSocket extends EventTarget {
             break;
 
           case "emote_set.update":
-            // Handle personal emote sets that should be broadcast to all chatrooms
-            if (chatroomId === 'BROADCAST_TO_ALL') {
-              // Broadcast to all connected chatrooms
-              for (const [roomId] of this.chatrooms) {
-                this.dispatchEvent(
-                  new CustomEvent("message", {
-                    detail: {
-                      body,
-                      type: "emote_set.update",
-                      chatroomId: roomId,
-                      isPersonalEmoteSet: true,
-                    },
-                  }),
-                );
-              }
-            } else if (chatroomId) {
-              // Normal channel-specific emote set update
-              this.dispatchEvent(
-                new CustomEvent("message", {
-                  detail: {
-                    body,
-                    type: "emote_set.update",
-                    chatroomId,
-                    isPersonalEmoteSet: false,
-                  },
-                }),
-              );
-            }
-            break;
-
-          case "cosmetic.create":
-            updateCosmetics(body);
-
+            // Dispatch once - Zustand global state handles propagation to all rooms
             this.dispatchEvent(
               new CustomEvent("message", {
                 detail: {
-                  body: cosmetics,
-                  type: "cosmetic.create",
+                  body,
+                  type: "emote_set.update",
+                  chatroomId,
+                  isPersonalEmoteSet: chatroomId === null, // null = personal, specific ID = channel
+                },
+              }),
+            );
+            break;
+
+          case "cosmetic.create":
+          case "cosmetic.delete":
+            this.dispatchEvent(
+              new CustomEvent("message", {
+                detail: {
+                  body,
+                  type: type,
                   chatroomId,
                 },
               }),
@@ -723,6 +576,18 @@ class SharedStvWebSocket extends EventTarget {
               }),
             );
             break;
+
+          default: {
+            // Log unhandled event types to telemetry
+            const unhandledSpan = tracer.startSpan('seventv.unhandled_event_type');
+            unhandledSpan.setAttributes({
+              'event.type': type,
+              'event.body_preview': body?.id || body?.object_id || 'no-id',
+              'chatroom.id': chatroomId || 'null'
+            });
+            unhandledSpan.end();
+            break;
+          }
         }
       } catch (error) {
         console.log("[Shared7TV] Error parsing message:", error);
@@ -756,12 +621,13 @@ class SharedStvWebSocket extends EventTarget {
       }
 
       // Check if this is a personal emote set (kind: 3 = PERSONAL)
+      // Note: 7TV uses integer discriminants over WebSocket despite Rust enum having no explicit values
       if (emoteSetKind === 3) {
         if (process.env.NODE_ENV === 'development') {
           console.log("[Shared7TV][Debug] Personal emote set update detected", { incomingSetId, kind: emoteSetKind });
         }
-        // Personal emote sets should be broadcast to all chatrooms since they affect the user globally
-        return 'BROADCAST_TO_ALL';
+        // Personal emote sets: return null (global), Zustand will propagate to all subscribers
+        return null;
       }
 
       // Reduced debug logging for performance
@@ -835,16 +701,5 @@ class SharedStvWebSocket extends EventTarget {
     return this.chatrooms.size;
   }
 }
-
-const argbToRgba = (color) => {
-  if (color < 0) {
-    color = color >>> 0;
-  }
-
-  const red = (color >> 24) & 0xff;
-  const green = (color >> 16) & 0xff;
-  const blue = (color >> 8) & 0xff;
-  return `rgba(${red}, ${green}, ${blue}, 1)`;
-};
 
 export default SharedStvWebSocket;
