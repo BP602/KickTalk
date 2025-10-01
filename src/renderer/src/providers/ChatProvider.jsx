@@ -2923,8 +2923,11 @@ const useChatStore = create((set, get) => ({
 
     // Handle personal emote set updates GLOBALLY (not per-chatroom)
     if (isPersonalSetUpdate) {
-      // Use a static flag to prevent processing the same personal set update multiple times
-      const updateKey = `personal_${body.id}_${Date.now()}`;
+      const { pulled = [], pushed = [], updated = [] } = body || {};
+      const updateSignature = JSON.stringify({ pulled, pushed, updated });
+
+      // Use a stable signature to prevent processing the same personal set update multiple times
+      const updateKey = `personal_${body?.id || 'unknown'}_${updateSignature}`;
       if (get().recentPersonalUpdates?.has?.(updateKey)) {
         updateSpan?.addEvent?.('personal_set_already_processed');
         endSpanOk(updateSpan);
