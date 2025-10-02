@@ -1440,14 +1440,15 @@ const useChatStore = create((set, get) => ({
             } else {
               // Broadcast to all chatrooms if no specific chatroom (for non-cosmetic events)
               // Track which event types arrive without chatroomId for monitoring
+              const chatrooms = get().chatrooms;
               const span = window.app?.telemetry?.startSpan?.('seventv.broadcast_event_without_chatroomid');
               span?.setAttributes?.({
                 'event.type': type,
-                'chatroom.count': chatrooms.size,
+                'chatroom.count': chatrooms?.length || 0,
                 'event.body_preview': body?.id || body?.object_id || 'no-id'
               });
 
-              chatrooms.forEach(chatroom => {
+              chatrooms?.forEach?.(chatroom => {
                 get().handleStvMessage(chatroom.id, event.detail);
               });
 
