@@ -107,7 +107,12 @@ const ReplyThread = () => {
 
         <div className="replyThreadInput">
           {originalMessage?.original_message?.id && (
-            <ChatInput chatroomId={dialogData?.chatroomId} isReplyThread={true} replyMessage={originalMessage} />
+            <ChatInput
+              chatroomId={dialogData?.chatroomId}
+              isReplyThread={true}
+              replyMessage={originalMessage}
+              settings={dialogData?.settings}
+            />
           )}
         </div>
       </div>

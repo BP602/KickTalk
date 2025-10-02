@@ -1436,24 +1436,26 @@ const ChatInput = memo(
         <div className="chatInputInfoBar">
           {showTelemetryPrompt && (
             <div className="chatTelemetryPrompt" role="alert">
-              <div className="chatTelemetryPromptText">
-                <strong>Help improve KickTalk</strong>
-                <span>Enable analytics so we can understand bugs and improve KickTalk.</span>
-              </div>
-              <div className="chatTelemetryPromptActions">
-                <button
-                  type="button"
-                  className="chatTelemetryPromptEnable"
-                  onClick={handleEnableTelemetry}>
-                  Enable Analytics
-                </button>
-                <button
-                  type="button"
-                  className="chatTelemetryPromptDismiss"
-                  onClick={handleDismissTelemetryPrompt}
-                  aria-label="Dismiss analytics prompt">
-                  Dismiss
-                </button>
+              <button
+                type="button"
+                className="chatTelemetryPromptDismiss"
+                onClick={handleDismissTelemetryPrompt}
+                aria-label="Dismiss analytics prompt">
+                <XIcon size={14} weight="bold" aria-hidden="true" />
+              </button>
+              <div className="chatTelemetryPromptContent">
+                <div className="chatTelemetryPromptText">
+                  <strong>Help improve KickTalk</strong>
+                  <span>Share anonymous usage analytics so we can spot bugs sooner and polish the chat experience.</span>
+                </div>
+                <div className="chatTelemetryPromptActions">
+                  <button
+                    type="button"
+                    className="chatTelemetryPromptEnable"
+                    onClick={handleEnableTelemetry}>
+                    Share Analytics
+                  </button>
+                </div>
               </div>
             </div>
           )}

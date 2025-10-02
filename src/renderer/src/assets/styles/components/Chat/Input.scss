@@ -43,9 +43,10 @@
   z-index: 1;
 
   > .chatTelemetryPrompt {
+    position: relative;
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
+    flex-direction: column;
+    align-items: stretch;
     gap: 12px;
     width: calc(100% - 16px);
     margin: 0 8px 8px;
@@ -56,57 +57,82 @@
     color: var(--text-primary);
     animation: slideAndFadeIn 0.2s ease-in-out forwards;
 
-    > .chatTelemetryPromptText {
+    > .chatTelemetryPromptDismiss {
+      position: absolute;
+      top: 8px;
+      right: 8px;
       display: flex;
-      flex-direction: column;
-      gap: 2px;
-      font-size: 13px;
-      line-height: 1.4;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      background: transparent;
+      border-color: transparent;
+      color: var(--text-secondary);
 
-      > strong {
-        font-size: 14px;
+      &:hover {
+        background: var(--bg-hover);
         color: var(--text-primary);
+        border-color: var(--border-hover);
       }
 
-      > span {
-        color: var(--text-secondary);
+      &:focus-visible {
+        outline: 2px solid var(--border-focus);
+        outline-offset: 2px;
       }
     }
 
-    > .chatTelemetryPromptActions {
+    > .chatTelemetryPromptContent {
       display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
 
-      > button {
-        cursor: pointer;
-        border-radius: 4px;
-        padding: 4px 10px;
-        font-size: 12px;
-        transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, color 0.2s ease-in-out;
-        border: 1px solid transparent;
-      }
+      > .chatTelemetryPromptText {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 13px;
+        line-height: 1.4;
 
-      > .chatTelemetryPromptEnable {
-        background: var(--btn-primary-bg);
-        color: var(--btn-primary-text);
-        border-color: var(--btn-primary-bg);
+        > strong {
+          font-size: 14px;
+          color: var(--text-primary);
+        }
 
-        &:hover {
-          background: var(--btn-primary-hover);
-          border-color: var(--btn-primary-hover);
+        > span {
+          color: var(--text-secondary);
         }
       }
 
-      > .chatTelemetryPromptDismiss {
-        background: var(--btn-secondary-bg);
-        border-color: var(--btn-secondary-border);
-        color: var(--text-tertiary);
+      > .chatTelemetryPromptActions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 0;
+        flex-shrink: 0;
 
-        &:hover {
-          color: var(--text-primary);
-          border-color: var(--btn-primary-hover);
+        > button {
+          cursor: pointer;
+          border-radius: 4px;
+          padding: 4px 10px;
+          font-size: 12px;
+          white-space: nowrap;
+          transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, color 0.2s ease-in-out;
+          border: 1px solid transparent;
+        }
+
+        > .chatTelemetryPromptEnable {
+          align-self: flex-start;
+          background: var(--btn-primary-bg);
+          color: var(--btn-primary-text);
+          border-color: var(--btn-primary-bg);
+
+          &:hover {
+            background: var(--btn-primary-hover);
+            border-color: var(--btn-primary-hover);
+          }
         }
       }
     }
