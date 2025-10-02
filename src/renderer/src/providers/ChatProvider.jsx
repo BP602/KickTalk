@@ -33,6 +33,17 @@ const safeChatroomIdMatch = (roomId, chatroomId, context = 'unknown') => {
 
   return match;
 };
+
+// Simple deterministic hash function for creating dedupe keys from payloads
+const hashCode = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(36); // base36 for shorter string
+};
 import queueChannelFetch from "@utils/fetchQueue";
 import ConnectionManager from "@utils/services/connectionManager";
 import useCosmeticsStore from "./CosmeticsProvider";
@@ -1819,7 +1830,28 @@ const useChatStore = create((set, get) => ({
         const rawId = cosmeticData?.id;
         const refId = cosmeticData?.ref_id;
         const sentinelId = "00000000000000000000000000";
-        const dedupeId = rawId && rawId !== sentinelId ? rawId : (refId || rawId || body?.id || 'unknown');
+
+        // Extract unique ID, falling back to payload hash to prevent aggregated cosmetic collisions
+        let dedupeId;
+        if (rawId && rawId !== sentinelId) {
+          dedupeId = rawId;
+        } else if (refId) {
+          dedupeId = refId;
+        } else if (body?.id) {
+          dedupeId = body.id;
+        } else {
+          // No ID available - hash the payload to create unique key (prevents aggregated payload collisions)
+          const payloadSource = cosmeticData ?? body?.object ?? body ?? {};
+          let payloadString = '{}';
+          try {
+            payloadString = JSON.stringify(payloadSource) ?? '{}';
+          } catch {
+            // fall through with default '{}'
+          }
+          const payloadHash = hashCode(payloadString);
+          dedupeId = `h${payloadHash}`; // prefix with 'h' for 'hash'
+        }
+
         dedupKey = `${type}_${cosmeticKind}_${dedupeId}`;
       } else {
         // entitlement.create/delete have structure: { object: { user: { id }, ref_id, kind } }
@@ -1838,6 +1870,9 @@ const useChatStore = create((set, get) => ({
         console.log("dupe skip", dedupKey)
         return; // Skip duplicate
       }
+
+      // Log non-duplicate events for debugging
+      console.log("✅ processing", dedupKey, type);
 
       // Update timestamp for this event
       recentEvents.set(dedupKey, now);
