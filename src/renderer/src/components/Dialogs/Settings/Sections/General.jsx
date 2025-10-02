@@ -7,7 +7,7 @@ import { InfoIcon, CaretDownIcon, FolderOpen } from "@phosphor-icons/react";
 import ColorPicker from "../../../Shared/ColorPicker";
 import NotificationFilePicker from "../../../Shared/NotificationFilePicker";
 import clsx from "clsx";
-import { DEFAULT_CHAT_HISTORY_LENGTH } from "@utils/constants";
+import { DEFAULT_CHAT_HISTORY_LENGTH, DEFAULT_SCROLL_SEEK_VELOCITY } from "@utils/constants";
 
 const GeneralSection = ({ settingsData, onChange }) => {
   return (
@@ -314,6 +314,9 @@ const GeneralSection = ({ settingsData, onChange }) => {
 };
 
 const ChatroomSection = ({ settingsData, onChange }) => {
+  const scrollSeekVelocity =
+    settingsData?.chatrooms?.scrollSeekVelocityThreshold ?? DEFAULT_SCROLL_SEEK_VELOCITY;
+
   return (
     <div className="settingsContentSection">
       <div className="settingsSectionHeader">
@@ -385,6 +388,61 @@ const ChatroomSection = ({ settingsData, onChange }) => {
               onValueChange={(value) => {
                 if (!value.length) return;
                 onChange("chatrooms", { ...settingsData?.chatrooms, batchingInterval: value[0] });
+              }}
+            />
+          </div>
+        </div>
+        <div className="settingsItem">
+          <div
+            className={clsx("settingSwitchItem", {
+              active: scrollSeekVelocity !== DEFAULT_SCROLL_SEEK_VELOCITY,
+            })}>
+            <div className="settingsItemTitleWithInfo">
+              <span className="settingsItemTitle">
+                Scroll Placeholder Sensitivity
+                <span
+                  style={{
+                    marginLeft: 8,
+                    fontSize: 12,
+                    opacity: 0.7,
+                  }}>
+                  {scrollSeekVelocity === 0 ? "Off" : `${scrollSeekVelocity}`}
+                </span>
+              </span>
+              <Tooltip delayDuration={100}>
+                <TooltipTrigger asChild>
+                  <button className="settingsInfoIcon">
+                    <InfoIcon size={14} weight="fill" aria-label="InfoIcon" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>
+                    Adjust how quickly chat switches to lightweight placeholders while scrolling. Set to 0 to
+                    disable placeholders entirely.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <Slider
+              className="settingsSlider"
+              defaultValue={[scrollSeekVelocity]}
+              max={2000}
+              min={0}
+              step={50}
+              showTooltip={true}
+              onValueChange={(value) => {
+                if (!value.length) return;
+
+                const nextValue = Number(value[0]);
+                if (!Number.isFinite(nextValue)) return;
+
+                const clampedValue = Math.max(0, Math.min(Math.round(nextValue), 2000));
+
+                onChange("chatrooms", {
+                  ...settingsData?.chatrooms,
+                  scrollSeekVelocityThreshold: clampedValue,
+                });
               }}
             />
           </div>
