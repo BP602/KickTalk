@@ -1439,9 +1439,19 @@ const useChatStore = create((set, get) => ({
               get().handleStvMessage(null, event.detail);
             } else {
               // Broadcast to all chatrooms if no specific chatroom (for non-cosmetic events)
+              // Track which event types arrive without chatroomId for monitoring
+              const span = window.app?.telemetry?.startSpan?.('seventv.broadcast_event_without_chatroomid');
+              span?.setAttributes?.({
+                'event.type': type,
+                'chatroom.count': chatrooms.size,
+                'event.body_preview': body?.id || body?.object_id || 'no-id'
+              });
+
               chatrooms.forEach(chatroom => {
                 get().handleStvMessage(chatroom.id, event.detail);
               });
+
+              span?.end?.();
             }
           }
         } catch (error) {
