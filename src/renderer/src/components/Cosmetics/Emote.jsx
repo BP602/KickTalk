@@ -1,11 +1,63 @@
 import { memo, useCallback, useState, useMemo } from "react";
 import EmoteTooltip from "./EmoteTooltip";
 
+// Progressive Loading Hook for Emotes
+const useProgressiveEmoteLoading = (emote, type) => {
+  const [loadState, setLoadState] = useState('loading'); // loading, loaded, error
+  const [showFallback, setShowFallback] = useState(false);
+
+  // Define fallback placeholder (prevents layout shift)
+  const placeholder = useMemo(() => {
+    const placeholderWidth = type === "stv" ? (emote.width || 28) : 32;
+    const placeholderHeight = type === "stv" ? (emote.height || 28) : 32;
+
+    return {
+      width: placeholderWidth,
+      height: placeholderHeight,
+      backgroundColor: '#2a2a2a',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: '4px',
+      color: '#666',
+      fontSize: '10px',
+      fontFamily: 'monospace'
+    };
+  }, [emote, type]);
+
+  const handleImageLoad = useCallback(() => {
+    setLoadState('loaded');
+    setShowFallback(false);
+  }, []);
+
+  const handleImageError = useCallback(() => {
+    setLoadState('error');
+    setShowFallback(true);
+  }, []);
+
+  return {
+    loadState,
+    showFallback,
+    placeholder,
+    handleImageLoad,
+    handleImageError
+  };
+};
+
 const Emote = memo(({ emote, overlaidEmotes = [], scale = 1, type }) => {
   const { id, name, width, height } = emote;
 
   const [showEmoteInfo, setShowEmoteInfo] = useState(false);
   const [mousePos, setMousePos] = useState({ x: null, y: null });
+
+  // Use progressive loading hook
+  const {
+    loadState,
+    showFallback,
+    placeholder,
+    handleImageLoad,
+    handleImageError
+  } = useProgressiveEmoteLoading(emote, type);
 
   const emoteSrcSet = useCallback(
     (emote) => {
@@ -58,18 +110,36 @@ const Emote = memo(({ emote, overlaidEmotes = [], scale = 1, type }) => {
           height: type === "stv" ? height : "32px",
         }}>
         <div
-          className="chatroomEmote"
+          className={`chatroomEmote emote-progressive ${loadState}`}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onMouseMove={handleMouseMove}>
+          {showFallback || loadState === 'error' ? (
+            // Fallback placeholder to prevent layout shift
+            <div
+              className={`emote-placeholder error`}
+              style={placeholder}
+              title={`${name} (failed to load)`}
+            >
+              {name.slice(0, 2)}
+            </div>
+          ) : null}
+
+          {/* Always render image but control visibility with CSS */}
           <img
-            className={type === "stv" ? "stvEmote emote" : "kickEmote emote"}
+            className={`${type === "stv" ? "stvEmote" : "kickEmote"} emote ${loadState}`}
             src={emoteImageSrc}
             srcSet={type === "stv" ? emoteSrcSet(emote) : null}
             alt={name}
             loading="lazy"
             fetchpriority="low"
             decoding="async"
+            onLoad={handleImageLoad}
+            onError={handleImageError}
+            style={{
+              opacity: loadState === 'loaded' ? 1 : 0,
+              transition: 'opacity 0.2s ease-in-out'
+            }}
           />
         </div>
 

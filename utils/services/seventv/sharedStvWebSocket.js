@@ -1,137 +1,8 @@
 // This shared websocket class optimizes 7TV connections by using a single WebSocket for all chatrooms
 // Original websocket class originally made by https://github.com/Fiszh and edited by ftk789 and Drkness
 
-const cosmetics = {
-  paints: [],
-  badges: [],
-};
-
 // Constants for ID validation
 const INVALID_7TV_NULL_ID = "00000000000000000000000000"; // Known 7TV null ID pattern
-
-const updateCosmetics = async (body) => {
-  if (!body?.object) {
-    return;
-  }
-
-  const { object } = body;
-
-  if (object?.kind === "BADGE") {
-    if (!object?.user) {
-      const data = object.data;
-
-      const foundBadge = cosmetics.badges.find(
-        (badge) => badge && badge.id === (data && data.id === "00000000000000000000000000" ? data.ref_id : data.id),
-      );
-
-      if (foundBadge) {
-        return;
-      }
-
-      cosmetics.badges.push({
-        id: data.id === "00000000000000000000000000" ? data.ref_id || "default_id" : data.id,
-        title: data.tooltip,
-        url: `https:${data.host.url}/${data.host.files[data.host.files.length - 1].name}`,
-      });
-    }
-  } else if (object?.kind === "PAINT") {
-    if (!object.user) {
-      const data = object.data;
-
-      const foundPaint = cosmetics.paints.find(
-        (paint) => paint && paint.id === (data && data.id === "00000000000000000000000000" ? data.ref_id : data.id),
-      );
-
-      if (foundPaint) {
-        return;
-      }
-
-      const randomColor = "#00f742";
-
-      let push = {};
-
-      if (data.stops.length) {
-        const normalizedColors = data.stops.map((stop) => ({
-          at: stop.at * 100,
-          color: stop.color,
-        }));
-
-        const gradient = normalizedColors.map((stop) => `${argbToRgba(stop.color)} ${stop.at}%`).join(", ");
-
-        if (data.repeat) {
-          data.function = `repeating-${data.function}`;
-        }
-
-        data.function = data.function.toLowerCase().replace("_", "-");
-
-        let isDeg_or_Shape = `${data.angle}deg`;
-
-        if (data.function !== "linear-gradient" && data.function !== "repeating-linear-gradient") {
-          isDeg_or_Shape = data.shape;
-        }
-
-        push = {
-          id: data.id === "00000000000000000000000000" ? data.ref_id || "default_id" : data.id,
-          name: data.name,
-          style: data.function,
-          shape: data.shape,
-          backgroundImage:
-            `${data.function || "linear-gradient"}(${isDeg_or_Shape}, ${gradient})` ||
-            `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
-          shadows: null,
-          KIND: "non-animated",
-          url: data.image_url,
-        };
-      } else {
-        push = {
-          id: data.id === "00000000000000000000000000" ? data.ref_id || "default_id" : data.id,
-          name: data.name,
-          style: data.function,
-          shape: data.shape,
-          backgroundImage:
-            `url('${[data.image_url]}')` ||
-            `${data.style || "linear-gradient"}(${data.shape || ""} 0deg, ${randomColor}, ${randomColor})`,
-          shadows: null,
-          KIND: "animated",
-          url: data.image_url,
-        };
-      }
-
-      // SHADOWS
-      let shadow = null;
-
-      if (data.shadows.length) {
-        const shadows = data.shadows;
-
-        shadow = await shadows
-          .map((shadow) => {
-            let rgbaColor = argbToRgba(shadow.color);
-
-            rgbaColor = rgbaColor.replace(/rgba\((\d+), (\d+), (\d+), (\d+(\.\d+)?)\)/, `rgba($1, $2, $3)`);
-
-            return `drop-shadow(${rgbaColor} ${shadow.x_offset}px ${shadow.y_offset}px ${shadow.radius}px)`;
-          })
-          .join(" ");
-
-        push["shadows"] = shadow;
-      }
-
-      cosmetics.paints.push(push);
-    }
-  } else if (
-    object?.name === "Personal Emotes" ||
-    object?.name === "Personal Emotes Set" ||
-    object?.user ||
-    object?.id === "00000000000000000000000000" ||
-    (object?.flags && (object.flags === 11 || object.flags === 4))
-  ) {
-    if (object?.id === "00000000000000000000000000" && object?.ref_id) {
-      object.id = object.ref_id;
-    }
-  } else {
-    console.log("[Shared7TV] Didn't process cosmetics:", body);
-  }
-};
 
 // OpenTelemetry instrumentation
 let tracer;
@@ -190,6 +61,65 @@ class SharedStvWebSocket extends EventTarget {
     // If no more chatrooms, close the connection
     if (this.chatrooms.size === 0) {
       this.close();
+    }
+  }
+
+  updateChatroom(chatroomId, channelKickID, stvId = "0", stvEmoteSetId = "0") {
+    const existingData = this.chatrooms.get(chatroomId);
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Shared7TV]: updateChatroom called for ${chatroomId} with emote set ID: ${stvEmoteSetId}`);
+    }
+
+    if (!existingData) {
+      // If chatroom doesn't exist, just add it
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Shared7TV]: No existing data found, adding new chatroom ${chatroomId}`);
+      }
+      this.addChatroom(chatroomId, channelKickID, stvId, stvEmoteSetId);
+      return;
+    }
+
+    // Check if emote set ID has changed
+    const oldStvEmoteSetId = existingData.stvEmoteSetId;
+    const hasEmoteSetChanged = oldStvEmoteSetId !== stvEmoteSetId;
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Shared7TV]: Chatroom ${chatroomId} emote set ID change: ${oldStvEmoteSetId} → ${stvEmoteSetId} (changed: ${hasEmoteSetChanged})`);
+    }
+
+    // Update chatroom data
+    this.chatrooms.set(chatroomId, {
+      channelKickID: String(channelKickID),
+      stvId,
+      stvEmoteSetId,
+    });
+
+    if (this.connectionState === 'connected' && hasEmoteSetChanged) {
+      // Unsubscribe from old emote set events if we had a valid one
+      if (oldStvEmoteSetId && oldStvEmoteSetId !== "0" && oldStvEmoteSetId !== INVALID_7TV_NULL_ID) {
+        const oldEventKey = `emote_set.*:${oldStvEmoteSetId}`;
+        if (this.subscribedEvents.has(oldEventKey)) {
+          console.log(`[Shared7TV]: Unsubscribing from old emote set events for chatroom ${chatroomId}: ${oldStvEmoteSetId}`);
+          // Send unsubscribe message
+          const unsubscribeMessage = {
+            op: 36, // UNSUBSCRIBE
+            t: Date.now(),
+            d: {
+              type: "emote_set.*",
+              condition: { object_id: oldStvEmoteSetId },
+            },
+          };
+          if (this.chat && this.chat.readyState === WebSocket.OPEN) {
+            this.chat.send(JSON.stringify(unsubscribeMessage));
+          }
+          this.subscribedEvents.delete(oldEventKey);
+        }
+      }
+
+      // Subscribe to new emote set events
+      console.log(`[Shared7TV]: Subscribing to new emote set events for chatroom ${chatroomId}`);
+      this.subscribeToChatroomEvents(chatroomId);
     }
   }
 
@@ -340,7 +270,9 @@ class SharedStvWebSocket extends EventTarget {
       await this.delay(1000);
 
       // Subscribe to events for all chatrooms
+      console.log(`[Shared7TV]: Starting subscription to events for ${this.chatrooms.size} chatrooms`);
       await this.subscribeToAllEvents();
+      console.log(`[Shared7TV]: Completed subscription setup. Subscribed events: ${this.subscribedEvents.size}`);
 
       // Setup message handler
       this.setupMessageHandler();
@@ -568,12 +500,27 @@ class SharedStvWebSocket extends EventTarget {
       try {
         const msg = JSON.parse(event.data);
 
+        // Debug: Log raw WebSocket messages (controlled by VITE_DEBUG_7TV_WS flag)
+        if (import.meta.env.VITE_DEBUG_7TV_WS === 'true') {
+          console.log("[Shared7TV][Debug] Raw WebSocket message:", { op: msg?.op, type: msg?.d?.type, hasBody: !!msg?.d?.body });
+        }
+
         if (!msg?.d?.body) return;
 
         const { body, type } = msg.d;
 
+        // Debug: Log all incoming events (controlled by VITE_DEBUG_7TV_WS flag)
+        if (import.meta.env.VITE_DEBUG_7TV_WS === 'true') {
+          console.log("[Shared7TV][Debug] Received event:", { type, bodyPreview: body?.id || body?.object_id || 'no-id' });
+        }
+
         // Find which chatroom this event belongs to
-        const chatroomId = this.findChatroomForEvent(body, type);
+        const chatroomId = this.findChatroomForEvent(type, body);
+
+        // Debug: Log the routing result (controlled by VITE_DEBUG_7TV_WS flag)
+        if (import.meta.env.VITE_DEBUG_7TV_WS === 'true') {
+          console.log("[Shared7TV][Debug] Event routing result:", { type, chatroomId });
+        }
 
         switch (type) {
           case "user.update":
@@ -589,25 +536,26 @@ class SharedStvWebSocket extends EventTarget {
             break;
 
           case "emote_set.update":
+            // Dispatch once - Zustand global state handles propagation to all rooms
             this.dispatchEvent(
               new CustomEvent("message", {
                 detail: {
                   body,
                   type: "emote_set.update",
                   chatroomId,
+                  isPersonalEmoteSet: chatroomId === null, // null = personal, specific ID = channel
                 },
               }),
             );
             break;
 
           case "cosmetic.create":
-            updateCosmetics(body);
-
+          case "cosmetic.delete":
             this.dispatchEvent(
               new CustomEvent("message", {
                 detail: {
-                  body: cosmetics,
-                  type: "cosmetic.create",
+                  body,
+                  type: type,
                   chatroomId,
                 },
               }),
@@ -616,18 +564,30 @@ class SharedStvWebSocket extends EventTarget {
 
           case "entitlement.create":
           case "entitlement.delete":
-            if (body.kind === 10) {
-              this.dispatchEvent(
-                new CustomEvent("message", {
-                  detail: {
-                    body,
-                    type: type, // Use the actual event type (create or delete)
-                    chatroomId,
-                  },
-                }),
-              );
-            }
+            // Dispatch all entitlement events (kind: 5 = EMOTE_SET, kind: 10 = general entitlements, etc.)
+            // ChatProvider will filter by body.object.kind (BADGE, PAINT, EMOTE_SET)
+            this.dispatchEvent(
+              new CustomEvent("message", {
+                detail: {
+                  body,
+                  type: type, // Use the actual event type (create or delete)
+                  chatroomId,
+                },
+              }),
+            );
             break;
+
+          default: {
+            // Log unhandled event types to telemetry
+            const unhandledSpan = tracer.startSpan('seventv.unhandled_event_type');
+            unhandledSpan.setAttributes({
+              'event.type': type,
+              'event.body_preview': body?.id || body?.object_id || 'no-id',
+              'chatroom.id': chatroomId || 'null'
+            });
+            unhandledSpan.end();
+            break;
+          }
         }
       } catch (error) {
         console.log("[Shared7TV] Error parsing message:", error);
@@ -635,21 +595,62 @@ class SharedStvWebSocket extends EventTarget {
     };
   }
 
-  findChatroomForEvent(body, type) {
+  findChatroomForEvent(type, body) {
     // Try to identify which chatroom this event belongs to
     // This is a best-effort approach since 7TV events don't always include channel context
-    
+
+    // Validate type parameter
+    if (typeof type !== 'string' || !type) {
+      console.warn("[Shared7TV] findChatroomForEvent called with invalid type:", { type, body });
+      return null;
+    }
+
     // For user events, broadcast to all chatrooms
     if (type.startsWith("user.")) {
       return null; // null means broadcast to all chatrooms
     }
 
     // For emote_set events, find chatroom by emote set ID
-    if (type.startsWith("emote_set.") && body?.id) {
+    if (type.startsWith("emote_set.")) {
+      const incomingSetId = body?.id || body?.object_id || body?.emote_set_id || null;
+      const emoteSetKind = body?.kind;
+
+      if (!incomingSetId) {
+        console.log("[Shared7TV][Debug] emote_set event missing expected set identifier", { type, body });
+        return null;
+      }
+
+      // Check if this is a personal emote set (kind: 3 = PERSONAL)
+      // Note: 7TV uses integer discriminants over WebSocket despite Rust enum having no explicit values
+      if (emoteSetKind === 3) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log("[Shared7TV][Debug] Personal emote set update detected", { incomingSetId, kind: emoteSetKind });
+        }
+        // Personal emote sets: return null (global), Zustand will propagate to all subscribers
+        return null;
+      }
+
+      // Reduced debug logging for performance
+      if (process.env.NODE_ENV === 'development') {
+        console.log("[Shared7TV][Debug] Matching emote_set event", { incomingSetId, chatroomCount: this.chatrooms.size, kind: emoteSetKind });
+        console.log("[Shared7TV][Debug] Full emote_set event payload:", { type, body });
+      }
+
       for (const [chatroomId, data] of this.chatrooms) {
-        if (data.stvEmoteSetId === body.id) {
+        if (data.stvEmoteSetId === incomingSetId) {
+          console.log("[Shared7TV][Debug] Matched emote_set event to chatroom", { chatroomId, incomingSetId });
           return chatroomId;
         }
+      }
+
+      // Only log unmatched events in development to reduce noise
+      if (process.env.NODE_ENV === 'development') {
+        console.log("[Shared7TV][Debug] No chatroom match for emote_set event", { incomingSetId, kind: emoteSetKind });
+        // Debug: Show all stored emote set IDs
+        const storedEmoteSetIds = Array.from(this.chatrooms.entries()).map(([chatroomId, data]) =>
+          ({ chatroomId, stvEmoteSetId: data.stvEmoteSetId })
+        );
+        console.log("[Shared7TV][Debug] Current chatroom emote set IDs:", storedEmoteSetIds);
       }
     }
 
@@ -700,16 +701,5 @@ class SharedStvWebSocket extends EventTarget {
     return this.chatrooms.size;
   }
 }
-
-const argbToRgba = (color) => {
-  if (color < 0) {
-    color = color >>> 0;
-  }
-
-  const red = (color >> 24) & 0xff;
-  const green = (color >> 16) & 0xff;
-  const blue = (color >> 8) & 0xff;
-  return `rgba(${red}, ${green}, ${blue}, 1)`;
-};
 
 export default SharedStvWebSocket;

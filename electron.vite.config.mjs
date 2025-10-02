@@ -72,6 +72,7 @@ export default defineConfig({
   },
   renderer: {
     build: {
+      sourcemap: true,
       rollupOptions: {
         input: {
           index: resolve("src/renderer/index.html"),

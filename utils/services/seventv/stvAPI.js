@@ -116,14 +116,13 @@ const sendUserPresence = async (stvId, userId) => {
         },
       },
     );
-
     if (response.status !== 200) {
-      throw new Error(`[7TV Emotes] Error while sending user presence: ${response.status}`);
+      throw new Error(`[7TV Presence] Error while sending user presence: ${response.status}`);
     }
 
     return response.data;
   } catch (error) {
-    console.error("[7TV Emotes] Error while sending user presence:", error.message);
+    console.error("[7TV Presence] Error while sending user presence:", error.message);
   }
 };
 
