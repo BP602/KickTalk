@@ -113,3 +113,6 @@ sgconfig.yml
 
 #Event collection scripts
 scripts/event-collection/kick-events-*.jsonl
+
+#Codex/coder
+.code
