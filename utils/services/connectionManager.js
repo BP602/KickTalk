@@ -28,6 +28,8 @@ class ConnectionManager {
     this.emoteCache = new Map(); // Cache for global/common emotes
     this.globalStvEmotesCache = null; // Cache for global 7TV emotes
     this.channelStvEmoteCache = new Map(); // Cache for channel-specific 7TV emotes
+    this.deferredChatrooms = []; // Store chatrooms for lazy loading
+    this.loadedChatrooms = new Set(); // Track which chatrooms are fully loaded
 
     // Callbacks to avoid circular imports
     this.storeCallbacks = null;
@@ -327,6 +329,9 @@ class ConnectionManager {
       await this.fetchInitialChatroomInfo(chatroom);
       span.addEvent('chatroom_info_fetch_complete');
 
+      // Mark chatroom as loaded so lazy loader skips it
+      this.loadedChatrooms.add(chatroom.id);
+
       console.log(`[ConnectionManager] Added chatroom ${chatroom.id} (${chatroom.streamerData?.user?.username})`);
       span.addEvent('chatroom_added_successfully');
       span.setStatus({ code: 1 }); // SUCCESS
@@ -334,6 +339,10 @@ class ConnectionManager {
       console.error(`[ConnectionManager] Error adding chatroom ${chatroom.id}:`, error);
       span.recordException(error);
       span.setStatus({ code: 2, message: error.message }); // ERROR
+
+      if (this.loadedChatrooms.has(chatroom.id)) {
+        this.loadedChatrooms.delete(chatroom.id);
+      }
     } finally {
       span.end();
     }
@@ -358,6 +367,17 @@ class ConnectionManager {
     span.addEvent('batch_emote_fetch_started');
 
     try {
+      const pendingChatrooms = chatrooms.filter((chatroom) => {
+        const cacheKey = `${chatroom.streamerData?.slug}`;
+        return !this.emoteCache.has(cacheKey);
+      });
+
+      if (pendingChatrooms.length === 0) {
+        span.addEvent('batch_skipped_all_cached');
+        span.setStatus({ code: 1 });
+        return;
+      }
+
       // Fetch global 7TV emotes first (cached)
       span.addEvent('global_7tv_emotes_fetch_start');
       await this.fetchGlobalStvEmotes();
@@ -365,7 +385,7 @@ class ConnectionManager {
 
       // Batch fetch channel-specific emotes
       span.addEvent('channel_emotes_batch_preparation_start');
-      const emoteFetchPromises = chatrooms.map(chatroom =>
+      const emoteFetchPromises = pendingChatrooms.map(chatroom =>
         this.fetchChatroomEmotes(chatroom)
       );
 
@@ -438,7 +458,7 @@ class ConnectionManager {
     });
 
     if (this.globalStvEmotesCache) {
-      console.log("[ConnectionManager] Using cached global 7TV emotes");
+      console.log("[ConnectionManager] ✅ Using cached global 7TV emotes (cache hit)");
       span.addEvent('cache_hit');
       span.setStatus({ code: 1 }); // SUCCESS
       span.end();
@@ -446,19 +466,64 @@ class ConnectionManager {
     }
 
     try {
-      // Fetch global 7TV emotes (implementation would depend on your existing API)
-      // This is a placeholder - you'd implement the actual API call
-      console.log("[ConnectionManager] Fetching global 7TV emotes...");
+      console.log("[ConnectionManager] 🚀 Fetching global 7TV emotes for first time...");
       span.addEvent('api_fetch_start');
-      
-      // const globalEmotes = await window.app.seventv.getGlobalEmotes();
-      // this.globalStvEmotesCache = globalEmotes;
-      
-      console.log("[ConnectionManager] Global 7TV emotes cached");
-      span.addEvent('cache_stored');
+
+      // Use axios directly since we don't have the window.app.seventv API
+      const axios = (await import('axios')).default;
+      const globalResponse = await axios.get(`https://7tv.io/v3/emote-sets/global`);
+
+      if (globalResponse.status !== 200) {
+        throw new Error(`Error fetching Global 7TV Emotes. Status: ${globalResponse.status}`);
+      }
+
+      const emoteGlobalData = globalResponse?.data;
+
+      if (emoteGlobalData) {
+        // Format the global emotes in the expected structure
+        const formattedGlobalEmotes = [
+          {
+            setInfo: {
+              id: emoteGlobalData.id,
+              name: emoteGlobalData.name,
+              emote_count: emoteGlobalData.emote_count,
+              capacity: emoteGlobalData.capacity,
+            },
+            emotes: emoteGlobalData.emotes.map((emote) => {
+              return {
+                id: emote.id,
+                actor_id: emote.actor_id,
+                flags: emote.flags,
+                name: emote.name,
+                alias: emote.data.name !== emote.name ? emote.data.name : null,
+                owner: emote.data.owner,
+                file: emote.data.host.files?.[0] || emote.data.host.files?.[1],
+                added_timestamp: emote.timestamp,
+                platform: "7tv",
+                type: "global",
+              };
+            }),
+            type: "global",
+          },
+        ];
+
+        // Cache the result
+        this.globalStvEmotesCache = formattedGlobalEmotes;
+
+        console.log(`[ConnectionManager] ✅ Global 7TV emotes cached successfully (${emoteGlobalData.emotes.length} emotes)`);
+        span.addEvent('cache_stored');
+        span.setAttributes({
+          'emote.count': emoteGlobalData.emotes.length,
+          'emote.set_id': emoteGlobalData.id,
+          'emote.set_name': emoteGlobalData.name
+        });
+      }
+
       span.setStatus({ code: 1 }); // SUCCESS
+      return this.globalStvEmotesCache;
+
     } catch (error) {
-      console.error("[ConnectionManager] Error fetching global 7TV emotes:", error);
+      console.error("[ConnectionManager] ❌ Error fetching global 7TV emotes:", error);
       span.recordException(error);
       span.setStatus({ code: 2, message: error.message }); // ERROR
     } finally {
@@ -553,7 +618,12 @@ class ConnectionManager {
 
     try {
       span.addEvent('api_fetch_start');
-      const channel7TVEmotes = await window.app.stv.getChannelEmotes(chatroom.streamerData.user_id);
+
+      // Ensure global emotes are cached before fetching channel emotes
+      const cachedGlobalEmotes = await this.fetchGlobalStvEmotes();
+      span.addEvent('global_emotes_ensured');
+
+      const channel7TVEmotes = await window.app.stv.getChannelEmotes(chatroom.streamerData.user_id, cachedGlobalEmotes);
       span.addEvent('api_fetch_complete');
 
       if (channel7TVEmotes) {
@@ -698,6 +768,157 @@ class ConnectionManager {
     }
   }
 
+  // Set deferred chatrooms for lazy loading
+  setDeferredChatrooms(chatrooms) {
+    this.deferredChatrooms = chatrooms || [];
+    console.log(`[ConnectionManager] Set ${this.deferredChatrooms.length} chatrooms for deferred loading`);
+  }
+
+  // Auto-load deferred chatrooms in background (for mentions/notifications)
+  async initializeDeferredChatroomsInBackground() {
+    const span = tracer.startSpan('connection_manager.initialize_deferred_chatrooms', {
+      attributes: {
+        'chatroom.count': this.deferredChatrooms.length,
+        'background_load': true
+      }
+    });
+
+    try {
+      if (this.deferredChatrooms.length === 0) {
+        console.log('[ConnectionManager] No deferred chatrooms to load');
+        span.addEvent('no_deferred_chatrooms');
+        span.setStatus({ code: 1 });
+        span.end();
+        return;
+      }
+
+      console.log(`[ConnectionManager] 🔄 Starting background load of ${this.deferredChatrooms.length} deferred chatrooms...`);
+      span.addEvent('background_load_started');
+
+      // Process in batches to avoid overwhelming resources
+      const batchSize = 2;
+      const staggerDelayMs = 300;
+
+      for (let i = 0; i < this.deferredChatrooms.length; i += batchSize) {
+        const batch = this.deferredChatrooms.slice(i, i + batchSize);
+        const batchNum = Math.floor(i / batchSize) + 1;
+        const totalBatches = Math.ceil(this.deferredChatrooms.length / batchSize);
+
+        console.log(`[ConnectionManager] Loading batch ${batchNum}/${totalBatches} (${batch.length} chatrooms)...`);
+
+        // Load batch in parallel
+        const batchPromises = batch.map(chatroom =>
+          this.initializeChatroomLazily(chatroom.id).catch(error => {
+            console.warn(`[ConnectionManager] Failed to load chatroom ${chatroom.username}:`, error);
+          })
+        );
+
+        await Promise.allSettled(batchPromises);
+
+        // Stagger batches
+        if (i + batchSize < this.deferredChatrooms.length) {
+          await new Promise(resolve => setTimeout(resolve, staggerDelayMs));
+        }
+      }
+
+      const loadedCount = this.loadedChatrooms.size;
+      console.log(`[ConnectionManager] ✅ Background load complete! ${loadedCount} chatrooms now connected`);
+      span.setAttribute('chatrooms.loaded', loadedCount);
+      span.addEvent('background_load_complete');
+      span.setStatus({ code: 1 });
+    } catch (error) {
+      console.error('[ConnectionManager] Error during background chatroom loading:', error);
+      span.recordException(error);
+      span.setStatus({ code: 2, message: error.message });
+    } finally {
+      span.end();
+    }
+  }
+
+  // Lazily initialize a single chatroom when first accessed
+  async initializeChatroomLazily(chatroomId) {
+    const span = tracer.startSpan('connection_manager.lazy_initialize_chatroom', {
+      attributes: {
+        'chatroom.id': chatroomId,
+        'lazy_load': true
+      }
+    });
+
+    try {
+      // Check if already loaded
+      if (this.loadedChatrooms.has(chatroomId)) {
+        console.log(`[ConnectionManager] Chatroom ${chatroomId} already loaded`);
+        span.addEvent('chatroom_already_loaded');
+        span.end();
+        return;
+      }
+
+      // Find the chatroom in deferred list
+      const chatroom = this.deferredChatrooms.find(room => room.id === chatroomId);
+      if (!chatroom) {
+        console.log(`[ConnectionManager] Chatroom ${chatroomId} not in deferred list (already managed)`);
+        this.loadedChatrooms.add(chatroomId);
+        span.addEvent('chatroom_not_in_deferred_list_already_managed');
+        span.setStatus({ code: 1 });
+        span.end();
+        return;
+      }
+
+      console.log(`[ConnectionManager] Lazy-loading chatroom: ${chatroom.username} (${chatroomId})`);
+      span.addEvent('lazy_initialization_started');
+
+      // Add to shared connections
+      this.kickPusher.addChatroom(
+        chatroom.id,
+        chatroom.streamerData.id,
+        chatroom,
+      );
+
+      // Only add to 7TV if we have valid IDs
+      const stvId = chatroom.streamerData?.user?.stv_id || "0";
+      const stvEmoteSetId = chatroom?.channel7TVEmotes?.[1]?.setInfo?.id || "0";
+      this.stvWebSocket.addChatroom(chatroom.id, chatroom.streamerData.user_id, stvId, stvEmoteSetId);
+
+      // Fetch initial data
+      await this.fetchInitialMessages(chatroom);
+      await this.fetchInitialChatroomInfo(chatroom);
+
+      // Fetch emotes in background (non-blocking)
+      this.fetchChatroomEmotes(chatroom).catch(error => {
+        console.warn(`[ConnectionManager] Background emote fetch failed for ${chatroom.username}:`, error);
+      });
+
+      // Mark as loaded
+      this.loadedChatrooms.add(chatroomId);
+
+      console.log(`[ConnectionManager] ✅ Lazy-loaded chatroom ${chatroom.username} successfully`);
+      span.addEvent('lazy_initialization_completed');
+      span.setStatus({ code: 1 }); // SUCCESS
+
+    } catch (error) {
+      console.error(`[ConnectionManager] Error during lazy chatroom initialization for ${chatroomId}:`, error);
+      span.recordException(error);
+      span.setStatus({ code: 2, message: error.message }); // ERROR
+      throw error;
+    } finally {
+      span.end();
+    }
+  }
+
+  // Check if chatroom is loaded
+  isChatroomLoaded(chatroomId) {
+    return this.loadedChatrooms.has(chatroomId);
+  }
+
+  // Get status of lazy loading
+  getLazyLoadingStatus() {
+    return {
+      totalDeferredChatrooms: this.deferredChatrooms.length,
+      loadedChatrooms: this.loadedChatrooms.size,
+      pendingChatrooms: this.deferredChatrooms.length - this.loadedChatrooms.size
+    };
+  }
+
   // Cleanup method
   cleanup() {
     console.log("[ConnectionManager] Cleaning up connections...");
@@ -705,6 +926,9 @@ class ConnectionManager {
     this.stvWebSocket.close();
     this.emoteCache.clear();
     this.globalStvEmotesCache = null;
+    this.channelStvEmoteCache.clear();
+    this.deferredChatrooms = [];
+    this.loadedChatrooms.clear();
     this.initializationInProgress = false;
   }
 }
