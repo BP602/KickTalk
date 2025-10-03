@@ -106,6 +106,9 @@ const addSupportDedup = (key) => {
   }
 };
 
+// Deduper for cosmetic events lives outside state so spam doesn't trigger React renders
+const cosmeticEventDeduper = new Map();
+
 // Create unified subscription deduplication key for cross-event-type deduplication
 // Normalize by username (preferred) so channel + celebration + subscription payloads align.
 // We intentionally omit time buckets; SUPPORT_DEDUPE_TTL_MS bounds how long we keep entries.
@@ -400,7 +403,6 @@ const getInitialState = () => {
     personalEmoteSets: savedPersonalEmoteSets,
     recentPersonalUpdates: new Set(), // Track recent personal emote set updates to prevent duplicates
     recentChannelUpdates: new Set(), // Track recent channel emote set updates to prevent duplicates
-    recentCosmeticEvents: new Map(), // Track recent cosmetic events: key -> timestamp (for dedup)
     isChatroomPaused: {}, // Store for all Chatroom Pauses
     mentions: {}, // Store for all Mentions
     currentChatroomId: null, // Track the currently active chatroom
@@ -1873,12 +1875,13 @@ const useChatStore = create((set, get) => ({
       }
 
       const now = Date.now();
-      const recentEvents = get().recentCosmeticEvents || new Map();
 
-      // Check if we've seen this event in the last 30 seconds
-      const lastSeen = recentEvents.get(dedupKey);
-      if (lastSeen && (now - lastSeen) < 30000) {
-        console.log("dupe skip", dedupKey)
+      // Check if we've already processed this exact event (dedupe for entire session)
+      const lastSeen = cosmeticEventDeduper.get(dedupKey);
+      if (lastSeen) {
+        // Intentional: keep cosmetic dedupe entries for the full retention window to
+        // ignore endpoint spam, accepting the temporary blackout when users quickly
+        // toggle the same cosmetic for performance.
         return; // Skip duplicate
       }
 
@@ -1886,16 +1889,14 @@ const useChatStore = create((set, get) => ({
       console.log("✅ processing", dedupKey, type);
 
       // Update timestamp for this event
-      recentEvents.set(dedupKey, now);
+      cosmeticEventDeduper.set(dedupKey, now);
 
-      // Clean up old entries (older than 60 seconds)
-      for (const [key, timestamp] of recentEvents.entries()) {
-        if (now - timestamp > 60000) {
-          recentEvents.delete(key);
+      // Clean up old entries (older than 30 minutes) to prevent unbounded memory growth
+      for (const [key, timestamp] of cosmeticEventDeduper.entries()) {
+        if (now - timestamp > 1800000) {
+          cosmeticEventDeduper.delete(key);
         }
       }
-
-      set({ recentCosmeticEvents: recentEvents });
     }
 
     switch (type) {
