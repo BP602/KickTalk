@@ -106,6 +106,8 @@ Linux verification uses a fresh guest profile, not the maintainer's login: clean
 
 Native zoom shortcuts/reset remain a maintainer check: GNOME denied keyboard focus to the automated Wayland window, and synthetic shortcuts did not change zoom. No new JavaScript exception, deprecation or permission error was observed; seven emote requests were aborted during reload. A guest reload clears saved rooms through the existing missing-token path. Fresh guest messages had red highlight backgrounds on both Electron 37.4.0 and 44.7.0 (`rgb(128, 0, 0)`), so that appearance predates this upgrade. No live message was sent, retried or moderated. Windows/macOS packaging, authentication and updates are outside this smoke. Full evidence and acceptance are on the Electron upgrade card in the project linked from [AGENTS.md](AGENTS.md#project-planning-and-maintenance); this is not release clearance.
 
+The Electron 44 GPU process logged a Wayland/Vulkan incompatibility diagnostic while the desktop UI continued to render. No graphics workaround or warning suppression was added. Review this workstation's rendering during native acceptance; the diagnostic was not present in the short Electron 37 comparison.
+
 ### Development
 
 ```bash
