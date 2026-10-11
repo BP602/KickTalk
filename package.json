@@ -115,7 +115,7 @@
     "@opentelemetry/semantic-conventions": "^1.36.0",
     "@vitejs/plugin-react": "^4.3.4",
     "cross-env": "^7.0.3",
-    "electron": "^37.4.0",
+    "electron": "44.7.0",
     "electron-builder": "^26.0.12",
     "electron-vite": "^4.0.0",
     "eslint": "^9.33.0",
