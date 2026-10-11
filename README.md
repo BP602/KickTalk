@@ -76,7 +76,7 @@ That snapshot includes changes already integrated into the checkpoint; do not ap
 $ npm ci
 ```
 
-Use `npm ci` for contributor setup and CI. It installs `package-lock.json` without rewriting it and runs the project install/rebuild scripts; do not use `--ignore-scripts`, `--legacy-peer-deps`, or `--force` for the normal install. Commit manifest and lockfile changes together when deliberately updating dependencies. Electron 42 and later download the executable on first invocation rather than during `postinstall`; the first launch needs network access unless the binary is cached.
+Use `npm ci` for contributor setup and CI. It installs `package-lock.json` without rewriting it and runs the project install/rebuild scripts; do not use `--ignore-scripts`, `--legacy-peer-deps`, or `--force` for the normal install. Commit manifest and lockfile changes together when deliberately updating dependencies. The project `postinstall` runs Electron's official `install-electron` command before rebuilding app dependencies. This supplies the executable and `path.txt` required by electron-vite 4 without a manual first invocation. Installation needs network access unless the binary is cached.
 
 Electron 44 tooling requires Node.js >=22.12.0. The Linux checks use Node 24.21.0 and npm 11.19.0. The old `.npmrc` contained only pnpm hoisting settings; these were removed because npm does not support them.
 
@@ -96,7 +96,7 @@ Only Electron and its required installer/type dependency graph change. React, Vi
 | 39 | No `--host-rules`, desktop audio capture or offscreen shared-texture rendering. Local app windows deny `window.open` and open external links in the browser; remote login pages can now create resizable popups. No app popup customization needs migration. |
 | 40 | Renderer copies use `navigator.clipboard`, not Electron clipboard. No macOS dSYM download workflow. |
 | 41 | No PDF WebContents detection, cookie-change cause handlers or Linux `showHiddenFiles`. Authentication still reads cookies with `cookies.get()`. |
-| 42 | Binary download moves to first invocation, exercised by the runtime check. Cookie clearing supplies only `storages`, not removed `quotas`. No offscreen scaling or named-image `hslShift` usage. macOS notifications require signing; macOS behavior remains untested. |
+| 42 | Electron's package no longer downloads its binary in `postinstall`. The app explicitly runs official `install-electron` before its existing rebuild step: without this, electron-vite 4 reads a missing `path.txt` and fails with `Electron uninstall` after clean `npm ci`. Cookie clearing supplies only `storages`, not removed `quotas`. No offscreen scaling or named-image `hslShift` usage. macOS notifications require signing; macOS behavior remains untested. |
 | 43 | Rounded corners are already explicit. Custom titlebar CSS is not Window Controls Overlay. No bitmap conversion, extension CSS injection or removed `showHiddenFiles`. The audio-file chooser has no `defaultPath`, so its initial directory now follows Downloads/home. |
 | 44 | No Node-enabled subframe workers, DevTools extensions, client-certificate handler, Electron `net.request`, ANGLE library replacement, Unity API, Electron clipboard or login-item attributes. Renderer Node integration remains disabled. macOS now requires 13+. Windows x86 and Linux ARMv7 binaries are unavailable; configured Windows builds are x64, and macOS builds x64/arm64. |
 
