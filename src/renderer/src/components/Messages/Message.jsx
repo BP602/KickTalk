@@ -1,14 +1,16 @@
 import "@assets/styles/components/Chat/Message.scss";
-import { useCallback, useRef, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
+import { useShallow } from "zustand/shallow";
+import { createMentionRegex } from "@utils/regex";
+
+import useChatStore from "../../providers/ChatProvider";
+import useCosmeticsStore from "../../providers/CosmeticsProvider";
+
 import ModActionMessage from "./ModActionMessage";
 import RegularMessage from "./RegularMessage";
 import EmoteUpdateMessage from "./EmoteUpdateMessage";
-import clsx from "clsx";
-import { useShallow } from "zustand/shallow";
-import useCosmeticsStore from "../../providers/CosmeticsProvider";
-import useChatStore from "../../providers/ChatProvider";
 import ReplyMessage from "./ReplyMessage";
-import { createMentionRegex } from "@utils/regex";
 import SupportEventMessage from "./SupportEventMessage";
 
 import {
@@ -22,47 +24,53 @@ import {
   ContextMenuTrigger,
 } from "../Shared/ContextMenu";
 
-const Message = ({
+const MessageComponent = ({
   message,
   userChatroomInfo,
   chatroomId,
   subscriberBadges,
   allStvEmotes,
-  existingKickTalkBadges,
+  kickTalkBadges,
+  donatorBadges,
   settings,
   dialogUserStyle,
   type,
   username,
   userId,
   chatroomName,
-  donators,
 }) => {
   const messageRef = useRef(null);
   const getDeleteMessage = useChatStore(useShallow((state) => state.getDeleteMessage));
+  const getUserStyle = useCosmeticsStore(useShallow((state) => state.getUserStyle));
   const [rightClickedEmote, setRightClickedEmote] = useState(null);
 
-  let userStyle;
-
-  if (message?.sender && type !== "replyThread") {
-    if (type === "dialog") {
-      userStyle = dialogUserStyle;
-    } else {
-      userStyle = useCosmeticsStore(useShallow((state) => state.getUserStyle(message?.sender?.username)));
+  const userStyle = useMemo(() => {
+    if (!message?.sender || type === "replyThread") {
+      return undefined;
     }
-  }
 
-  // CheckIcon if user can moderate
+    if (type === "dialog") {
+      return dialogUserStyle;
+    }
+
+    if (!getUserStyle) {
+      return undefined;
+    }
+
+    return getUserStyle(message?.sender?.username);
+  }, [dialogUserStyle, getUserStyle, message?.sender, type]);
+
   const canModerate = useMemo(
     () => userChatroomInfo?.is_broadcaster || userChatroomInfo?.is_moderator || userChatroomInfo?.is_super_admin,
     [userChatroomInfo],
   );
 
   const handleOpenUserDialog = useCallback(
-    async (e, username) => {
+    async (e, lookupUsername) => {
       e.preventDefault();
 
-      if (username) {
-        const user = await window.app.kick.getUserChatroomInfo(chatroomName, username);
+      if (lookupUsername) {
+        const user = await window.app.kick.getUserChatroomInfo(chatroomName, lookupUsername);
 
         if (!user?.data?.id) return;
 
@@ -94,7 +102,7 @@ const Message = ({
         });
       }
     },
-    [message?.sender, userChatroomInfo, chatroomId, userStyle, subscriberBadges, allStvEmotes, username],
+    [allStvEmotes, chatroomId, chatroomName, message?.sender, subscriberBadges, userChatroomInfo, userStyle, username],
   );
 
   const rgbaObjectToString = (rgba) => {
@@ -118,75 +126,73 @@ const Message = ({
   }, [message?.metadata]);
 
   const eventType = message?.type === "metadata" ? parsedMetadata?.type : message?.type;
-  const isSupportEvent = [
-    "subscription",
-    "donation",
-    "reward",
-    "stream_live",
-    "stream_end",
-    "moderation",
-    "host",
-    "raid",
-    "goal_progress",
-    "kick_gift",
-  ].includes(eventType);
+  const isSupportEvent = useMemo(
+    () =>
+      [
+        "subscription",
+        "donation",
+        "reward",
+        "stream_live",
+        "stream_end",
+        "moderation",
+        "host",
+        "raid",
+        "goal_progress",
+        "kick_gift",
+      ].includes(eventType),
+    [eventType],
+  );
 
-  // Remove useCallback for these since message changes constantly
-  const handleCopyMessage = () => {
+  const handleCopyMessage = useCallback(() => {
     if (message?.content) {
       navigator.clipboard.writeText(message.content);
     }
-  };
+  }, [message?.content]);
 
-  const handleReply = () => {
+  const handleReply = useCallback(() => {
     window.app.reply.open(message);
-  };
+  }, [message]);
 
-  const handlePinMessage = () => {
+  const handlePinMessage = useCallback(() => {
     const data = {
       chatroom_id: message.chatroom_id,
       content: message.content,
       id: message.id,
       sender: message.sender,
-      chatroomName: chatroomName,
+      chatroomName,
     };
     window.app.kick.getPinMessage(data);
-  };
+  }, [chatroomName, message]);
 
-  const handleDeleteMessage = () => {
+  const handleDeleteMessage = useCallback(() => {
     getDeleteMessage(chatroomId, message.id);
-  };
+  }, [chatroomId, getDeleteMessage, message.id]);
 
-  const handleViewProfile = () => {
+  const handleViewProfile = useCallback(() => {
     if (message?.sender?.username) {
       const profileSlug = message.sender.slug || message.sender.username;
       window.open(`https://kick.com/${profileSlug}`, "_blank");
     }
-  };
+  }, [message?.sender]);
 
-
-  const handleOpenEmoteLink = () => {
+  const handleOpenEmoteLink = useCallback(() => {
     if (rightClickedEmote) {
-      let emoteUrl = "";
-      if (rightClickedEmote.type === "stv") {
-        emoteUrl = `https://7tv.app/emotes/${rightClickedEmote.id}`;
-      } else {
-        emoteUrl = `https://files.kick.com/emotes/${rightClickedEmote.id}/fullsize`;
-      }
+      const emoteUrl =
+        rightClickedEmote.type === "stv"
+          ? `https://7tv.app/emotes/${rightClickedEmote.id}`
+          : `https://files.kick.com/emotes/${rightClickedEmote.id}/fullsize`;
 
       window.open(emoteUrl, "_blank");
     }
-  };
+  }, [rightClickedEmote]);
 
   const handleOpen7TVEmoteLink = useCallback(
     (resolution) => {
       if (rightClickedEmote && rightClickedEmote.type === "stv") {
-        let emoteUrl = "";
-        if (resolution === "page") {
-          emoteUrl = `https://7tv.app/emotes/${rightClickedEmote.id}`;
-        } else {
-          emoteUrl = `https://cdn.7tv.app/emote/${rightClickedEmote.id}/${resolution}.webp`;
-        }
+        const emoteUrl =
+          resolution === "page"
+            ? `https://7tv.app/emotes/${rightClickedEmote.id}`
+            : `https://cdn.7tv.app/emote/${rightClickedEmote.id}/${resolution}.webp`;
 
         window.open(emoteUrl, "_blank");
       }
@@ -194,10 +200,10 @@ const Message = ({
     [rightClickedEmote],
   );
 
-  // Handle context menu on the message to detect emote right-clicks
   const handleMessageContextMenu = useCallback((e) => {
     setRightClickedEmote(null);
     let emoteImg = null;
+
     if (e.target.tagName === "IMG" && e.target.className.includes("emote")) {
       emoteImg = e.target;
     } else if (e.target.className.includes("chatroomEmote")) {
@@ -208,56 +214,25 @@ const Message = ({
       const alt = emoteImg.getAttribute("alt");
       const src = emoteImg.getAttribute("src");
 
-      let emoteData = null;
       if (src.includes("7tv.app")) {
         const match = src.match(/\/emote\/([^/]+)\//);
         if (match) {
-          emoteData = {
-            id: match[1],
-            name: alt,
-            type: "stv",
-          };
+          setRightClickedEmote({ id: match[1], name: alt, type: "stv" });
         }
       } else if (src.includes("kick.com/emotes")) {
         const match = src.match(/\/emotes\/([^/]+)/);
         if (match) {
-          emoteData = {
-            id: match[1],
-            name: alt,
-            type: "kick",
-          };
+          setRightClickedEmote({ id: match[1], name: alt, type: "kick" });
         }
-      }
-
-      if (emoteData) {
-        setRightClickedEmote(emoteData);
       }
     }
   }, []);
 
-  // Get existing KickTalk badges (Founder, Beta Tester, etc.)
-  const kickTalkBadges =
-    existingKickTalkBadges?.find((badge) => badge.username.toLowerCase() === message?.sender?.username?.toLowerCase())?.badges ||
-    [];
-
-  // CheckIcon if user is a donator
-  const donatorBadges = useMemo(() => {
-    if (!message?.sender?.username) return [];
-
-    const donator = donators?.find((d) => d.message?.toLowerCase() === message?.sender?.username?.toLowerCase());
-    if (donator) {
-      return [
-        {
-          type: "Donator",
-          title: "KickTalk Donator",
-        },
-      ];
-    }
-    return [];
-  }, [message?.sender?.username, donators]);
-
   const showContextMenu =
-    !message?.deleted && message?.type !== "system" && message?.type !== "stvEmoteSetUpdate" && message?.type !== "mod_action";
+    !message?.deleted &&
+    message?.type !== "system" &&
+    message?.type !== "stvEmoteSetUpdate" &&
+    message?.type !== "mod_action";
 
   const handleOpenReplyThread = useCallback(
     async (chatStoreMessageThread) => {
@@ -284,33 +259,26 @@ const Message = ({
         settings,
       });
     },
-    [chatroomId, message, userChatroomInfo, chatroomName, allStvEmotes, subscriberBadges, settings, username],
+    [allStvEmotes, chatroomId, chatroomName, message, settings, subscriberBadges, userChatroomInfo, username],
   );
 
-  // [Highlights]: Memoized mention regex for current user
   const mentionRegex = useMemo(() => createMentionRegex(username), [username]);
 
-  // [Highlights]: Handles highlighting message phrases
   const shouldHighlightMessage = useMemo(() => {
-    // Only skip in dialog view; background toggle controls whether we apply highlight style
     if (type === "dialog") {
       return false;
     }
 
-    // Don't highlight your own messages (including replies)
     if (message?.sender?.slug === username) {
       return false;
     }
 
-    // CheckIcon for self-mention in replies
     if (settings?.notifications?.background) {
       if (message?.metadata?.original_sender?.id == userId && message?.sender?.id != userId) {
         return true;
       }
     }
 
-    // CheckIcon for direct @mention of current user (case-insensitive),
-    // treating '-' and '_' as interchangeable and enforcing boundaries
     if (settings?.notifications?.background && mentionRegex) {
       const content = message?.content?.toLowerCase() || "";
       if (mentionRegex.test(content)) {
@@ -318,23 +286,24 @@ const Message = ({
       }
     }
 
-    // CheckIcon for highlight phrases (only if configured and background highlighting enabled)
     if (settings?.notifications?.background && settings?.notifications?.phrases?.length) {
       return settings.notifications.phrases.some((phrase) =>
         message?.content?.toLowerCase().includes(phrase.toLowerCase()),
       );
     }
+
     return false;
   }, [
+    mentionRegex,
+    message?.content,
+    message?.metadata?.original_sender?.id,
+    message?.sender?.id,
+    message?.sender?.slug,
     settings?.notifications?.background,
     settings?.notifications?.phrases,
-    message?.content,
-    message?.sender?.slug,
-    message?.sender?.id,
-    message?.metadata?.original_sender?.id,
     type,
-    username,
     userId,
+    username,
   ]);
 
   const messageContent = (
@@ -415,7 +384,9 @@ const Message = ({
         />
       )}
 
-      {isSupportEvent && <SupportEventMessage message={{ ...message, metadata: parsedMetadata }} handleOpenUserDialog={handleOpenUserDialog} />}
+      {isSupportEvent && (
+        <SupportEventMessage message={{ ...message, metadata: parsedMetadata }} handleOpenUserDialog={handleOpenUserDialog} />
+      )}
     </div>
   );
 
@@ -497,4 +468,22 @@ const Message = ({
   return messageContent;
 };
 
-export default Message;
+const areEqual = (prevProps, nextProps) => {
+  if (prevProps.message !== nextProps.message) return false;
+  if (prevProps.chatroomId !== nextProps.chatroomId) return false;
+  if (prevProps.chatroomName !== nextProps.chatroomName) return false;
+  if (prevProps.subscriberBadges !== nextProps.subscriberBadges) return false;
+  if (prevProps.allStvEmotes !== nextProps.allStvEmotes) return false;
+  if (prevProps.kickTalkBadges !== nextProps.kickTalkBadges) return false;
+  if (prevProps.donatorBadges !== nextProps.donatorBadges) return false;
+  if (prevProps.settings !== nextProps.settings) return false;
+  if (prevProps.userChatroomInfo !== nextProps.userChatroomInfo) return false;
+  if (prevProps.username !== nextProps.username) return false;
+  if (prevProps.userId !== nextProps.userId) return false;
+  if (prevProps.type !== nextProps.type) return false;
+  if (prevProps.dialogUserStyle !== nextProps.dialogUserStyle) return false;
+
+  return true;
+};
+
+export default memo(MessageComponent, areEqual);

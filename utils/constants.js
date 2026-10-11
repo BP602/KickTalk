@@ -7,6 +7,7 @@ export const kickClipRegex = /^https?:\/\/(www\.)?kick\.com\/.*\/clips\/.*/i;
 
 // Chat settings
 export const DEFAULT_CHAT_HISTORY_LENGTH = 400;
+export const DEFAULT_SCROLL_SEEK_VELOCITY = 700;
 
 const kickTalkCDN = "https://cdn.kicktalk.app";
 

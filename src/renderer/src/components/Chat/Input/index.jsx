@@ -39,6 +39,7 @@ import { MessageParser } from "../../../utils/MessageParser";
 import { isModeEnabled, chatModeMatches } from "../../../utils/ChatUtils";
 import { recordChatModeFeatureUsage } from "../../../telemetry/chatModeTelemetry";
 import { useAccessibleKickEmotes } from "./useAccessibleKickEmotes";
+import { useSettings } from "../../../providers/SettingsProvider";
 
 const onError = (error) => {
   console.error(error);
@@ -116,6 +117,71 @@ const isEmoteOnlyContent = (editor) => {
 };
 
 const messageHistory = new Map();
+
+const TELEMETRY_PROMPT_DISMISSED_KEY = "kicktalk.telemetryPromptDismissed";
+const TELEMETRY_PROMPT_DISMISSAL_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+
+const persistTelemetryPromptDismissal = () => {
+  if (typeof window === "undefined") return null;
+
+  const record = { dismissedAt: new Date().toISOString() };
+
+  try {
+    window.localStorage.setItem(
+      TELEMETRY_PROMPT_DISMISSED_KEY,
+      JSON.stringify(record),
+    );
+  } catch (error) {
+    console.warn("[ChatInput]: Failed to persist telemetry prompt dismissal", error);
+    return null;
+  }
+
+  return record;
+};
+
+const readTelemetryPromptDismissal = () => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const storedValue = window.localStorage.getItem(TELEMETRY_PROMPT_DISMISSED_KEY);
+    if (!storedValue) return null;
+
+    if (storedValue === "true") {
+      // migrate legacy boolean flag to structured record
+      return persistTelemetryPromptDismissal();
+    }
+
+    try {
+      const parsed = JSON.parse(storedValue);
+      if (parsed?.dismissedAt) {
+        const dismissedAt = new Date(parsed.dismissedAt);
+        if (!Number.isNaN(dismissedAt.getTime())) {
+          return { dismissedAt: dismissedAt.toISOString() };
+        }
+      }
+    } catch {
+      // fall through to attempt parsing a plain ISO string
+    }
+
+    const asDate = new Date(storedValue);
+    if (!Number.isNaN(asDate.getTime())) {
+      const record = { dismissedAt: asDate.toISOString() };
+      try {
+        window.localStorage.setItem(
+          TELEMETRY_PROMPT_DISMISSED_KEY,
+          JSON.stringify(record),
+        );
+      } catch (error) {
+        console.warn("[ChatInput]: Failed to migrate telemetry prompt dismissal", error);
+      }
+      return record;
+    }
+  } catch (error) {
+    console.warn("[ChatInput]: Failed to read telemetry prompt dismissal state", error);
+  }
+
+  return null;
+};
 
 const EmoteSuggestions = memo(
   ({ suggestions, onSelect, selectedIndex, userChatroomInfo }) => {
@@ -1160,6 +1226,7 @@ const ReplyHandler = ({ chatroomId, getReplyData, clearReplyData, allStvEmotes, 
 
 const ChatInput = memo(
   ({ chatroomId, isReplyThread = false, replyMessage = {}, settings }) => {
+    const { updateSettings: updateAppSettings } = useSettings();
     const sendMessage = useChatStore((state) => state.sendMessage);
     const sendReply = useChatStore((state) => state.sendReply);
     const clearDraftMessage = useChatStore((state) => state.clearDraftMessage);
@@ -1182,6 +1249,57 @@ const ChatInput = memo(
     const getReplyData = useCallback(() => replyDataRef.current, []);
 
     const allStvEmotes = useAllStvEmotes(chatroomId);
+
+    const [showTelemetryPrompt, setShowTelemetryPrompt] = useState(false);
+
+    useEffect(() => {
+      if (!settings) {
+        setShowTelemetryPrompt(false);
+        return;
+      }
+
+      if (settings?.telemetry?.enabled) {
+        setShowTelemetryPrompt(false);
+        return;
+      }
+
+      const dismissalRecord = readTelemetryPromptDismissal();
+      if (!dismissalRecord?.dismissedAt) {
+        setShowTelemetryPrompt(true);
+        return;
+      }
+
+      const dismissedAt = new Date(dismissalRecord.dismissedAt);
+      if (Number.isNaN(dismissedAt.getTime())) {
+        setShowTelemetryPrompt(true);
+        return;
+      }
+
+      const now = Date.now();
+      const age = now - dismissedAt.getTime();
+      setShowTelemetryPrompt(age >= TELEMETRY_PROMPT_DISMISSAL_TTL_MS);
+    }, [settings, settings?.telemetry?.enabled]);
+
+    const handleEnableTelemetry = useCallback(async () => {
+      try {
+        await updateAppSettings?.("telemetry", {
+          ...settings?.telemetry,
+          enabled: true,
+        });
+      } catch (error) {
+        console.warn("[ChatInput]: Failed to enable telemetry from prompt", error);
+      }
+
+      persistTelemetryPromptDismissal();
+
+      setShowTelemetryPrompt(false);
+    }, [settings?.telemetry, updateAppSettings]);
+
+    const handleDismissTelemetryPrompt = useCallback(() => {
+      persistTelemetryPromptDismissal();
+
+      setShowTelemetryPrompt(false);
+    }, []);
 
     // Reset selected index when changing chatrooms
     useEffect(() => {
@@ -1316,6 +1434,31 @@ const ChatInput = memo(
     return (
       <div className="chatInputWrapper">
         <div className="chatInputInfoBar">
+          {showTelemetryPrompt && (
+            <div className="chatTelemetryPrompt" role="alert">
+              <button
+                type="button"
+                className="chatTelemetryPromptDismiss"
+                onClick={handleDismissTelemetryPrompt}
+                aria-label="Dismiss analytics prompt">
+                <XIcon size={14} weight="bold" aria-hidden="true" />
+              </button>
+              <div className="chatTelemetryPromptContent">
+                <div className="chatTelemetryPromptText">
+                  <strong>Help improve KickTalk</strong>
+                  <span>Share anonymous usage analytics so we can spot bugs sooner and polish the chat experience.</span>
+                </div>
+                <div className="chatTelemetryPromptActions">
+                  <button
+                    type="button"
+                    className="chatTelemetryPromptEnable"
+                    onClick={handleEnableTelemetry}>
+                    Share Analytics
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {settings?.chatrooms?.showInfoBar && (
             <InfoBar chatroomInfo={chatroom?.chatroomInfo} initialChatroomInfo={chatroom?.initialChatroomInfo} />
           )}
@@ -1378,7 +1521,8 @@ const ChatInput = memo(
   (prev, next) =>
     prev.chatroomId === next.chatroomId &&
     prev.replyMessage === next.replyMessage &&
-    prev.settings?.chatrooms?.showInfoBar === next.settings?.chatrooms?.showInfoBar,
+    prev.settings?.chatrooms?.showInfoBar === next.settings?.chatrooms?.showInfoBar &&
+    prev.settings?.telemetry?.enabled === next.settings?.telemetry?.enabled,
 );
 
 export default ChatInput;
