@@ -116,3 +116,7 @@ scripts/event-collection/kick-events-*.jsonl
 
 #Codex/coder
 .code
+
+# Local agent and code index state
+.omp/
+.codegraph/
