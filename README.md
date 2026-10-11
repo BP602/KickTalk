@@ -17,7 +17,7 @@ The selected zoom is saved and restored after startup and page reloads.
 
 `restart/baseline` is a candidate development line assembled separately from the preserved original checkouts. The checkout-role map is in `docs/Restart-board.excalidraw`; selected work and verification evidence live in the project linked from [AGENTS.md](AGENTS.md#project-planning-and-maintenance).
 
-The assembly build used an isolated copy of the existing installed dependencies without changing `package.json` or `package-lock.json`. Installed-versus-lockfile drift is still unresolved. Complete the dependency reproducibility and normal-use validation cards before promoting this candidate or treating a clean install as verified.
+The dependency baseline now locks the previously working Axios 1.12.2 and Vite 6.3.6 versions rather than downgrading to the stale lock entries. Axios requires form-data >=4.0.4, so its transitive dependency is reconciled to the already installed 4.0.4; other dependency versions are retained. The unused `use-sync-external-store` optional peer is removed: the app uses Zustand's standard React entry point, not `zustand/traditional`.
 
 ## Recommended IDE Setup
 
@@ -28,8 +28,14 @@ The assembly build used an isolated copy of the existing installed dependencies 
 ### Install
 
 ```bash
-$ npm install
+$ npm ci
 ```
+
+Use `npm ci` for contributor setup and CI. It installs `package-lock.json` without rewriting it and runs the Electron install/rebuild scripts; do not use `--ignore-scripts`, `--legacy-peer-deps`, or `--force` for the normal install. Commit manifest and lockfile changes together when deliberately updating dependencies.
+
+The current toolchain requires Node.js >=22.12.0 (or >=20.19.0 on the Node 20 line). The Linux reproducibility check uses Node 24.21.0 and npm 11.19.0. The old `.npmrc` contained only pnpm hoisting settings; these were removed because npm does not support them.
+
+Clean installation does not establish daily-use reliability or resolve all security advisories. Complete the normal-use validation card before promoting this candidate.
 
 ### Development
 
