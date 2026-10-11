@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+`AGENTS.md` is the sole maintained repository instruction file. Edit it directly; do not add duplicate instruction files or synchronization workflows.
+
 ## Project planning and maintenance
 
 - Task board: [KickTalk restart](https://github.com/users/BP602/projects/1/views/1), owned by `BP602`, project `1`. Use it as the source of truth for selected work, priorities, dependencies, and completion evidence.
