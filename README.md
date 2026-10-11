@@ -35,6 +35,8 @@ Use `npm ci` for contributor setup and CI. It installs `package-lock.json` witho
 
 The current toolchain requires Node.js >=22.12.0 (or >=20.19.0 on the Node 20 line). The Linux reproducibility check uses Node 24.21.0 and npm 11.19.0. The old `.npmrc` contained only pnpm hoisting settings; these were removed because npm does not support them.
 
+Verified on Linux from a fresh local clone with `npm ci`: lockfile unchanged, all 831 installed package versions matching the lock, and no invalid/extraneous dependencies or peer-conflict warnings. The production build and Electron main window/Settings smoke passed with an isolated profile. Lint completed with 0 errors and 326 existing warnings. Audit counts and unsuppressed install warnings are recorded on the dependency reproducibility project card; Windows/macOS packaging and live chat were not exercised.
+
 Clean installation does not establish daily-use reliability or resolve all security advisories. Complete the normal-use validation card before promoting this candidate.
 
 ### Development
