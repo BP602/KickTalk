@@ -37,6 +37,13 @@ GIT_IDENTITY_ACCOUNT=bp602 gh project field-list 1 --owner BP602 --format json
 - A board card is not permission to pop/drop stashes, hard-reset, prune refs, force-push, delete branches, or mass-apply an old cherry-pick script. Require explicit authorization for destructive recovery actions.
 - Keep unrelated old work archived for selective review. Do not import the entire testing branch or begin a framework migration as part of establishing the restart baseline.
 
+### Daily development
+
+- `~/Code/KickTalk` on local `main` is the canonical daily checkout. `~/Code/KickTalk-restart` is retained for integration and recovery, not daily work; removing it requires explicit approval.
+- Start selected work on a small, short-lived `fix/*`, `feat/*`, or appropriate Conventional Commit topic branch from local `main`. Keep the existing lockfile-respecting install and acceptance-evidence workflow.
+- The checkpoint, archive locations, and exact recovery snapshot are documented in [README.md](README.md#restart-baseline). Recover historical edits in a separate worktree; do not reapply the pre-promotion snapshot onto daily `main`.
+- Promotion is a local development checkpoint. It does not authorize a push, release, branch deletion, or stash cleanup, and it does not resolve the recorded failed-send or dependency risks.
+
 ## Electron‑Vite Patterns
 
 - App stack: electron‑vite + React. Prefer electron‑vite conventions over raw Electron.
