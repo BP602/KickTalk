@@ -76,13 +76,35 @@ That snapshot includes changes already integrated into the checkpoint; do not ap
 $ npm ci
 ```
 
-Use `npm ci` for contributor setup and CI. It installs `package-lock.json` without rewriting it and runs the Electron install/rebuild scripts; do not use `--ignore-scripts`, `--legacy-peer-deps`, or `--force` for the normal install. Commit manifest and lockfile changes together when deliberately updating dependencies.
+Use `npm ci` for contributor setup and CI. It installs `package-lock.json` without rewriting it and runs the project install/rebuild scripts; do not use `--ignore-scripts`, `--legacy-peer-deps`, or `--force` for the normal install. Commit manifest and lockfile changes together when deliberately updating dependencies. Electron 42 and later download the executable on first invocation rather than during `postinstall`; the first launch needs network access unless the binary is cached.
 
-The current toolchain requires Node.js >=22.12.0 (or >=20.19.0 on the Node 20 line). The Linux reproducibility check uses Node 24.21.0 and npm 11.19.0. The old `.npmrc` contained only pnpm hoisting settings; these were removed because npm does not support them.
+Electron 44 tooling requires Node.js >=22.12.0. The Linux checks use Node 24.21.0 and npm 11.19.0. The old `.npmrc` contained only pnpm hoisting settings; these were removed because npm does not support them.
 
-Verified on Linux from a fresh local clone with `npm ci`: lockfile unchanged, all 831 installed package versions matching the lock, and no invalid/extraneous dependencies or peer-conflict warnings. The production build and Electron main window/Settings smoke passed with an isolated profile. Lint completed with 0 errors and 326 existing warnings. Audit counts and unsuppressed install warnings are recorded on the dependency reproducibility project card; Windows/macOS packaging and live chat were not exercised.
+The original Electron 37 baseline was verified from a fresh local clone with `npm ci`: lockfile unchanged, all 831 installed package versions matching the lock, and no invalid/extraneous dependencies or peer-conflict warnings. Its production build and Electron main window/Settings smoke passed with an isolated profile. Lint completed with 0 errors and 326 existing warnings. Audit counts and unsuppressed install warnings are recorded on the dependency reproducibility project card; Windows/macOS packaging and live chat were not exercised by that install check.
 
 Use the locked tree for subsequent upgrades. Clean installation and the scoped normal-use validation do not resolve security advisories or establish release readiness.
+
+### Electron runtime upgrade
+
+The `build/electron-44` topic pins Electron to `44.7.0`, the latest stable checked on 2026-10-11. The [official schedule](https://releases.electronjs.org/schedule) gives Electron 44 an end-of-life date of 2027-03-02. [44.7.0 release metadata](https://releases.electronjs.org/release/v44.7.0) lists Chromium `152.0.7977.130`, Node `24.21.0` and V8 `15.2.124.28`. Recheck support before merging; the promoted checkpoint still uses Electron 37.
+
+Only Electron and its required installer/type dependency graph change. React, Vite, electron-vite, builder and updater remain on their locked versions. No application-code migration was needed for the [documented breaking changes from 38 through 44](https://www.electronjs.org/docs/latest/breaking-changes):
+
+| Major | Compatibility review |
+| --- | --- |
+| 38 | Native Wayland selection replaces `ELECTRON_OZONE_PLATFORM_HINT`; no source usage. `ORIGINAL_XDG_CURRENT_DESKTOP`, `plugin-crashed`, routing-ID APIs and protocol `session:null` behavior are unused. The app sets workspace visibility but never queries `isVisibleOnAllWorkspaces()`. macOS 11 support ends. |
+| 39 | No `--host-rules`, desktop audio capture or offscreen shared-texture rendering. Local app windows deny `window.open` and open external links in the browser; remote login pages can now create resizable popups. No app popup customization needs migration. |
+| 40 | Renderer copies use `navigator.clipboard`, not Electron clipboard. No macOS dSYM download workflow. |
+| 41 | No PDF WebContents detection, cookie-change cause handlers or Linux `showHiddenFiles`. Authentication still reads cookies with `cookies.get()`. |
+| 42 | Binary download moves to first invocation, exercised by the runtime check. Cookie clearing supplies only `storages`, not removed `quotas`. No offscreen scaling or named-image `hslShift` usage. macOS notifications require signing; macOS behavior remains untested. |
+| 43 | Rounded corners are already explicit. Custom titlebar CSS is not Window Controls Overlay. No bitmap conversion, extension CSS injection or removed `showHiddenFiles`. The audio-file chooser has no `defaultPath`, so its initial directory now follows Downloads/home. |
+| 44 | No Node-enabled subframe workers, DevTools extensions, client-certificate handler, Electron `net.request`, ANGLE library replacement, Unity API, Electron clipboard or login-item attributes. Renderer Node integration remains disabled. macOS now requires 13+. Windows x86 and Linux ARMv7 binaries are unavailable; configured Windows builds are x64, and macOS builds x64/arm64. |
+
+`src/main/index.js` retains `contextIsolation:true`, `nodeIntegration:false` and the existing unsandboxed preload (`sandbox:false`). Preload dependencies were not refactored. Session cookie reads/clearing need no migration; the app has no protocol handlers, webRequest hooks or permission handlers affected by this review. Internal tab drag/drop uses DOM adapters, not native file paths.
+
+Linux verification uses a fresh guest profile, not the maintainer's login: clean `npm ci`, first binary invocation, production build, main window, Settings IPC, public channel HTTP lookup, a fresh Kick WebSocket message matched to the rendered chat, tab creation/reordering, drag-to-split and physical pane resizing. Saved zoom `0.8` survived reload and process restart; observed device-pixel ratio was `0.800000011920929`. Main and Settings renderers exposed no `require` or `process`; main-process inspection confirmed isolation on and Node integration off. Lint: 0 errors, 326 existing warnings.
+
+Native zoom shortcuts/reset remain a maintainer check: GNOME denied keyboard focus to the automated Wayland window, and synthetic shortcuts did not change zoom. No new JavaScript exception, deprecation or permission error was observed; seven emote requests were aborted during reload. A guest reload clears saved rooms through the existing missing-token path. Fresh guest messages had red highlight backgrounds on both Electron 37.4.0 and 44.7.0 (`rgb(128, 0, 0)`), so that appearance predates this upgrade. No live message was sent, retried or moderated. Windows/macOS packaging, authentication and updates are outside this smoke. Full evidence and acceptance are on the Electron upgrade card in the project linked from [AGENTS.md](AGENTS.md#project-planning-and-maintenance); this is not release clearance.
 
 ### Development
 
