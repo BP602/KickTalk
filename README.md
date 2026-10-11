@@ -15,11 +15,11 @@ The selected zoom is saved and restored after startup and page reloads.
 
 ## Restart baseline
 
-`~/Code/KickTalk` on local `main` is the canonical daily checkout. The approved application revision is `2681e28`; the signed `restart-checkpoint-2026-10-11` tag identifies the promoted checkpoint, including the operating guide and checkout map. Promotion is local; it does not publish a release or push `main`.
+`~/Code/KickTalk` on local `main` is the canonical daily checkout. The original approved application revision is `2681e28`; the signed `restart-checkpoint-2026-10-11` tag identifies the promoted checkpoint, including the operating guide and checkout map. Accepted topic upgrades are merged locally after their recorded checks. This does not publish a release or push `main`.
 
 `~/Code/KickTalk-restart` is a retained integration worktree on `restart/baseline`, not a second daily checkout. The other checkouts remain historical recovery sources. Folder roles are in `docs/Restart-board.excalidraw`; selected work and verification evidence live in the project linked from [AGENTS.md](AGENTS.md#project-planning-and-maintenance).
 
-The scoped Linux validation covered startup, saved zoom across restart, saved channels, channel switching, fresh Kick messages, badges/emotes, the 7TV picker, and simulated socket reconnect with live rendering afterward. The user reported "works well" after the normal-send/reply prompt. OS suspend/resume, outage message replay and Windows/macOS packaging were not tested. The earlier isolated failed send, a broken channel thumbnail, repeated connection notices and telemetry diagnostics remain unresolved. Unsupported Electron and audit advisories must be addressed before a release.
+The scoped Linux validation covered startup, saved zoom across restart, saved channels, channel switching, fresh Kick messages, badges/emotes, the 7TV picker, and simulated socket reconnect with live rendering afterward. The user reported "works well" after the normal-send/reply prompt. OS suspend/resume, outage message replay and Windows/macOS packaging were not tested. The earlier isolated failed send, a broken channel thumbnail, repeated connection notices and telemetry diagnostics remain unresolved. Electron is now on the supported line documented below; audit advisories and packaging/update validation remain release blockers.
 
 ### Daily work
 
@@ -86,7 +86,7 @@ Use the locked tree for subsequent upgrades. Clean installation and the scoped n
 
 ### Electron runtime upgrade
 
-The `build/electron-44` topic pins Electron to `44.7.0`, the latest stable checked on 2026-10-11. The [official schedule](https://releases.electronjs.org/schedule) gives Electron 44 an end-of-life date of 2027-03-02. [44.7.0 release metadata](https://releases.electronjs.org/release/v44.7.0) lists Chromium `152.0.7977.130`, Node `24.21.0` and V8 `15.2.124.28`. Recheck support before merging; the promoted checkpoint still uses Electron 37.
+Electron is pinned to `44.7.0`, the latest stable checked on 2026-10-11. The [official schedule](https://releases.electronjs.org/schedule) gives Electron 44 an end-of-life date of 2027-03-02; support was rechecked on the local integration day. [44.7.0 release metadata](https://releases.electronjs.org/release/v44.7.0) lists Chromium `152.0.7977.130`, Node `24.21.0` and V8 `15.2.124.28`. The older restart checkpoint retains Electron 37 for comparison and recovery.
 
 Only Electron and its required installer/type dependency graph change. React, Vite, electron-vite, builder and updater remain on their locked versions. No application-code migration was needed for the [documented breaking changes from 38 through 44](https://www.electronjs.org/docs/latest/breaking-changes):
 
@@ -104,9 +104,9 @@ Only Electron and its required installer/type dependency graph change. React, Vi
 
 Linux verification uses a fresh guest profile, not the maintainer's login: clean `npm ci`, first binary invocation, production build, main window, Settings IPC, public channel HTTP lookup, a fresh Kick WebSocket message matched to the rendered chat, tab creation/reordering, drag-to-split and physical pane resizing. Saved zoom `0.8` survived reload and process restart; observed device-pixel ratio was `0.800000011920929`. Main and Settings renderers exposed no `require` or `process`; main-process inspection confirmed isolation on and Node integration off. Lint: 0 errors, 326 existing warnings.
 
-Native zoom shortcuts/reset remain a maintainer check: GNOME denied keyboard focus to the automated Wayland window, and synthetic shortcuts did not change zoom. No new JavaScript exception, deprecation or permission error was observed; seven emote requests were aborted during reload. A guest reload clears saved rooms through the existing missing-token path. Fresh guest messages had red highlight backgrounds on both Electron 37.4.0 and 44.7.0 (`rgb(128, 0, 0)`), so that appearance predates this upgrade. No live message was sent, retried or moderated. Windows/macOS packaging, authentication and updates are outside this smoke. Full evidence and acceptance are on the Electron upgrade card in the project linked from [AGENTS.md](AGENTS.md#project-planning-and-maintenance); this is not release clearance.
+The maintainer reported "works" after the native desktop and zoom-shortcut/reset acceptance prompt on 2026-10-11. This is user-reported acceptance, not an automated keyboard result: GNOME denied keyboard focus to the automated Wayland window, and synthetic shortcuts did not change zoom. No new JavaScript exception, deprecation or permission error was observed; seven emote requests were aborted during reload. A guest reload clears saved rooms through the existing missing-token path. Fresh guest messages had red highlight backgrounds on both Electron 37.4.0 and 44.7.0 (`rgb(128, 0, 0)`), so that appearance predates this upgrade. No automated live message was sent, retried or moderated. Windows/macOS packaging, authentication and updates are outside this smoke. Full evidence and acceptance are on the Electron upgrade card in the project linked from [AGENTS.md](AGENTS.md#project-planning-and-maintenance); this is not release clearance.
 
-The Electron 44 GPU process logged a Wayland/Vulkan incompatibility diagnostic while the desktop UI continued to render. No graphics workaround or warning suppression was added. Review this workstation's rendering during native acceptance; the diagnostic was not present in the short Electron 37 comparison.
+The Electron 44 GPU process logged a Wayland/Vulkan incompatibility diagnostic while the desktop UI continued to render. No graphics workaround or warning suppression was added. The diagnostic was not present in the short Electron 37 comparison; maintainer acceptance does not establish that the diagnostic is fixed.
 
 ### Development
 
