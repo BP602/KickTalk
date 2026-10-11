@@ -27,7 +27,7 @@
     "dev": "cross-env NODE_ENV=development electron-vite dev",
     "dev-hr": "cross-env NODE_ENV=development electron-vite dev --watch",
     "build": "cross-env NODE_ENV=production electron-vite build",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "install-electron && electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:win:portable": "npm run build && electron-builder --win portable",
