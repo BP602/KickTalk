@@ -13,6 +13,12 @@ With the main app window focused, use `Ctrl+-` to reduce text and spacing, `Ctrl
 
 The selected zoom is saved and restored after startup and page reloads.
 
+## Restart baseline
+
+`restart/baseline` is a candidate development line assembled separately from the preserved original checkouts. The checkout-role map is in `docs/Restart-board.excalidraw`; selected work and verification evidence live in the project linked from [AGENTS.md](AGENTS.md#project-planning-and-maintenance).
+
+The assembly build used an isolated copy of the existing installed dependencies without changing `package.json` or `package-lock.json`. Installed-versus-lockfile drift is still unresolved. Complete the dependency reproducibility and normal-use validation cards before promoting this candidate or treating a clean install as verified.
+
 ## Recommended IDE Setup
 
 - [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
