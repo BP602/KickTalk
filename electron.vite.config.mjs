@@ -1,5 +1,5 @@
 import { resolve } from "path";
-import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { defineConfig } from "electron-vite";
 import react from "@vitejs/plugin-react";
 import { copyFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
@@ -46,8 +46,8 @@ const copyTelemetryPlugin = () => ({
 
 export default defineConfig({
   main: {
-    plugins: [
-      externalizeDepsPlugin({ 
+    build: {
+      externalizeDeps: {
         exclude: [
           "electron-store", 
           "electron-util",
@@ -55,20 +55,22 @@ export default defineConfig({
           "electron-log",
           "dotenv"
         ] 
-      }),
-      copyTelemetryPlugin()
-    ],
+      }
+    },
+    plugins: [copyTelemetryPlugin()],
   },
   preload: {
-    plugins: [externalizeDepsPlugin({ 
-      exclude: [
-        "electron-store", 
-        "electron-util",
-        "electron-updater",
-        "electron-log",
-        "dotenv"
-      ] 
-    })],
+    build: {
+      externalizeDeps: {
+        exclude: [
+          "electron-store", 
+          "electron-util",
+          "electron-updater",
+          "electron-log",
+          "dotenv"
+        ] 
+      }
+    },
   },
   renderer: {
     build: {
