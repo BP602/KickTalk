@@ -108,6 +108,21 @@ The maintainer reported "works" after the native desktop and zoom-shortcut/reset
 
 The Electron 44 GPU process logged a Wayland/Vulkan incompatibility diagnostic while the desktop UI continued to render. No graphics workaround or warning suppression was added. The diagnostic was not present in the short Electron 37 comparison; maintainer acceptance does not establish that the diagnostic is fixed.
 
+### Compatible runtime security upgrades
+
+The `fix/runtime-security-upgrades` batch updates Axios `1.12.2` → `1.20.0`, ws `8.18.3` → `8.22.0`, Lodash `4.17.21` → `4.18.1`, and react-router-dom/resolved react-router `7.5.2` → `7.18.4`. Targets were checked against live npm metadata and upstream releases on 2026-10-12; existing major lines and manifest range conventions are retained. No application API migration was required.
+
+- [Axios 1.20.0](https://github.com/axios/axios/releases/tag/v1.20.0) includes proxy/redirect and prototype-pollution hardening. Required transitives include form-data `4.0.6`, follow-redirects `1.16.1`, proxy-from-env `2.1.0`, and a nested https-proxy-agent `5.0.1`.
+- [ws 8.22.0](https://github.com/websockets/ws/releases/tag/8.22.0) includes the earlier memory-disclosure and fragment/chunk exhaustion fixes. Its actual consumer is the Node event collector; renderer chat uses native browser WebSocket.
+- [Lodash 4.18.1](https://github.com/lodash/lodash/releases/tag/4.18.1) retains the 4.18.0 unset/omit and template security fixes. The app uses debounce/isEqual; those consumers required no migration.
+- [React Router 7.18.4](https://github.com/remix-run/react-router/blob/react-router%407.18.4/CHANGELOG.md) includes navigation/SSR security fixes and remains compatible with React `18.3.1`. There are no application router imports or router-backed views; actual navigation uses chat state and separate Electron dialog windows. No direct react-router dependency was added.
+
+Verification: clean `npm ci` left the lockfile unchanged; all 817 installed package entries matched it, and `npm ls --all` reported no invalid/extraneous dependencies. Production build passed; lint reported 0 errors and 326 existing warnings. Temporary fixtures exercised all exported Kick/7TV Axios consumers over real loopback HTTP (including local-only send/reply/moderation and error/rate-limit branches), the actual event collector over real loopback ws, and actual React debounce/emote-cache hooks. Fixtures did not access real credentials or send requests to live services.
+
+The production Electron Linux smoke used an isolated guest profile: public channel lookup, Kick/7TV emote loading and picker rendering, fresh inbound Kick message IDs matched to rendered messages, and transitions through all Settings sections. Main/Settings renderer console errors and JavaScript exceptions were absent. The previously recorded Wayland/Vulkan diagnostic and guest-session authorization warnings remain; no graphics workaround or warning suppression was added. Nothing was sent, retried or moderated in live chat. Authentication, Windows/macOS packaging and updates were not tested. The maintainer accepted the recorded read-only smoke with "proceed" on 2026-10-12; this is approval of the evidence, not a new manual platform/authentication check.
+
+`npm audit` package findings fell from 74 to 66: 2 low, 27 moderate, 35 high and 2 critical remain. Axios, ws, Lodash, react-router/dom, form-data and follow-redirects no longer appear in the report; the removed external turbo-stream dependency also disappears. Remaining OpenTelemetry/runtime-transitive, build-tooling and packaging advisories are outside this batch, not resolved or proof of an application exploit. Full evidence is on the [runtime-security upgrade card](https://github.com/users/BP602/projects/1?pane=issue&itemId=268391142); this is not release readiness.
+
 ### Development
 
 ```bash
