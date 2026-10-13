@@ -8,12 +8,30 @@ dotenv.config();
 try {
   // Note: when using electron-vite, MAIN_VITE_* are build-time embedded via import.meta.env
   const env = process.env;
-  const mapFromImportMeta = (src, dest) => {
-    if (import.meta.env[src] && !env[dest]) env[dest] = import.meta.env[src];
+  const mapFromImportMeta = (src, dest, runtimeBase) => {
+    if (env[dest] === undefined && runtimeBase === undefined && import.meta.env[src] !== undefined) {
+      env[dest] = import.meta.env[src];
+    }
   };
-
+  // A runtime unified override also supersedes compiled per-signal defaults.
+  const runtimeEndpoint = env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const runtimeHeaders = env.OTEL_EXPORTER_OTLP_HEADERS;
+  for (const signal of ['TRACES', 'METRICS']) {
+    mapFromImportMeta(`MAIN_VITE_OTEL_EXPORTER_OTLP_${signal}_ENDPOINT`, `OTEL_EXPORTER_OTLP_${signal}_ENDPOINT`, runtimeEndpoint);
+    mapFromImportMeta(`MAIN_VITE_OTEL_EXPORTER_OTLP_${signal}_HEADERS`, `OTEL_EXPORTER_OTLP_${signal}_HEADERS`, runtimeHeaders);
+  }
   mapFromImportMeta("MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT");
   mapFromImportMeta("MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_HEADERS");
+  // SDK HTTP exporters merge unified and signal headers, even when a signal
+  // override is explicitly empty. Materialize the effective headers per signal
+  // so loopback exports cannot inherit compiled Cloud credentials.
+  if (env.OTEL_EXPORTER_OTLP_HEADERS !== undefined) {
+    for (const signal of ['TRACES', 'METRICS', 'LOGS']) {
+      const key = `OTEL_EXPORTER_OTLP_${signal}_HEADERS`;
+      if (env[key] === undefined) env[key] = env.OTEL_EXPORTER_OTLP_HEADERS;
+    }
+    env.OTEL_EXPORTER_OTLP_HEADERS = '';
+  }
   mapFromImportMeta("MAIN_VITE_OTEL_DIAG_LOG_LEVEL", "OTEL_DIAG_LOG_LEVEL");
   mapFromImportMeta("MAIN_VITE_OTEL_DEPLOYMENT_ENV", "OTEL_DEPLOYMENT_ENV");
   // Optional: allow MAIN_VITE_OTEL_SERVICE_NAME to override service.name
@@ -28,8 +46,53 @@ try {
   }
 } catch {}
 
-// Start NodeSDK (driven by OTEL_* envs)
-require('../telemetry/tracing.js');
+const { app, shell, BrowserWindow, ipcMain, screen, session, Tray, Menu, dialog } = require("electron");
+const appVersion = app.getVersion();
+// Resource detection happens during SDK startup, not after it.
+const resourceAttributes = (process.env.OTEL_RESOURCE_ATTRIBUTES || '')
+  .split(',').map((value) => value.trim()).filter(Boolean)
+  .filter((value) => !value.startsWith('service.version='));
+resourceAttributes.push(`service.version=${appVersion}`);
+if (!resourceAttributes.some((value) => value.startsWith('service.name='))) {
+  resourceAttributes.push(`service.name=${process.env.OTEL_SERVICE_NAME || 'kicktalk'}`);
+}
+process.env.OTEL_RESOURCE_ATTRIBUTES = resourceAttributes.join(',');
+
+// Use the same normalized runtime configuration for the SDK and renderer relay.
+const getOtelRelayConfig = () => {
+  const base = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const endpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ??
+    (base ? `${base.replace(/\/$/, '')}/v1/traces` : '');
+  if (!endpoint) throw new Error('missing_endpoint');
+  const url = new URL(endpoint);
+  const loopback = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(loopback && url.protocol === 'http:')) {
+    throw new Error('insecure_or_unsupported_endpoint');
+  }
+  const headersRaw = process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS ??
+    process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  const headers = {};
+  for (const entry of (headersRaw || '').split(',')) {
+    const index = entry.indexOf('=');
+    if (index <= 0) continue;
+    const key = entry.slice(0, index).trim();
+    const value = decodeURIComponent(entry.slice(index + 1).trim());
+    if (key && value) headers[key] = value;
+  }
+  const hasAuth = Object.keys(headers).some((key) => key.toLowerCase() === 'authorization');
+  if (headersRaw === undefined || (!loopback && !hasAuth)) {
+    throw new Error('missing_auth_headers');
+  }
+  return { url, headers };
+};
+
+// Validate the effective destination before starting any exporter.
+try {
+  getOtelRelayConfig();
+  require('../telemetry/tracing.js');
+} catch (error) {
+  console.warn('[Telemetry] Invalid OTLP configuration, skipping initialization:', error.message);
+}
 
 // Create a quick manual span to verify traces flow at startup
 try {
@@ -51,7 +114,6 @@ try {
   console.warn('[Telemetry]: Failed to create startup span:', e?.message || e);
 }
 
-const { app, shell, BrowserWindow, ipcMain, screen, session, Tray, Menu, dialog } = require("electron");
 import { join, basename } from "path";
 import { electronApp, optimizer } from "@electron-toolkit/utils";
 import { update } from "./utils/update";
@@ -102,36 +164,13 @@ try {
   console.warn('[Telemetry]: Telemetry module skipped:', error.message);
 }
 
-// Telemetry IPC relay: renderer sends OTLP JSON to main via IPC; main forwards over HTTPS.
+// Telemetry IPC relay: renderer sends OTLP JSON to main; HTTPS or loopback-only HTTP.
 // Bypasses renderer CORS and keeps network in a more trusted boundary; main validates/sanitizes payloads and blocks direct renderer outbound requests.
 const isDev = process.env.NODE_ENV === "development";
 const iconPath = process.platform === "win32"
   ? join(__dirname, "../../resources/icons/win/KickTalk_v1.ico")
   : join(__dirname, "../../resources/icons/KickTalk_v1.png");
 
-// Ensure service.version is set from Electron app version or package.json
-try {
-  const { app: electronAppRef } = require('electron');
-  const version = electronAppRef?.getVersion?.() || require('../../package.json')?.version;
-  if (version) {
-    // Append or set service.version on OTEL_RESOURCE_ATTRIBUTES without clobbering existing attrs
-    const existing = process.env.OTEL_RESOURCE_ATTRIBUTES || '';
-    const attrs = existing
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .filter((kv) => !/^service\.version=/.test(kv)); // remove any existing service.version
-    attrs.push(`service.version=${version}`);
-    process.env.OTEL_RESOURCE_ATTRIBUTES = attrs.join(',');
-    // Also set service.name if provided via MAIN_VITE or env
-    const svcName = import.meta.env.MAIN_VITE_OTEL_SERVICE_NAME || process.env.OTEL_SERVICE_NAME || 'kicktalk';
-    if (!attrs.some((kv) => kv.startsWith('service.name='))) {
-      process.env.OTEL_RESOURCE_ATTRIBUTES = `service.name=${svcName},${process.env.OTEL_RESOURCE_ATTRIBUTES}`;
-    }
-  }
-} catch (e) {
-  console.warn('[Telemetry]: Failed to set service.version from package/app version:', e?.message || e);
-}
 
 // Telemetry debug configuration for main process
 const getTelemetryDebug = () => {
@@ -669,34 +708,15 @@ ipcMain.handle("otel:get-config", async () => {
   try {
     console.log('[OTEL Config] Renderer requesting telemetry config');
     
-    // Check if we have OTLP configuration for IPC relay
-    // Use import.meta.env for MAIN_VITE_* variables (build-time embedded)
-    // Use process.env for standard OTEL_* variables (runtime)
-    const endpoint = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
-                    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
-                    (import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
-
-    const headers = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
-                   import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS ||
-                   process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
-                   process.env.OTEL_EXPORTER_OTLP_HEADERS;
-
-    const deploymentEnv = import.meta.env.MAIN_VITE_OTEL_DEPLOYMENT_ENV ||
-                         process.env.OTEL_DEPLOYMENT_ENV ||
-                         process.env.NODE_ENV ||
-                         "development";
-
-    if (!endpoint || !headers) {
-      console.warn('[OTEL Config] Missing endpoint or headers, renderer telemetry disabled');
-      return { ok: false, reason: "missing_endpoint_or_headers" };
-    }
-
-    console.log('[OTEL Config] Returning IPC relay config to renderer');
-    // Return IPC relay config (no direct endpoint - use IPC)
-    return { 
-      ok: true, 
-      useIpcRelay: true, // Signal to use IPC instead of direct HTTP
-      deploymentEnv 
+    getOtelRelayConfig();
+    const deploymentEnv = process.env.OTEL_DEPLOYMENT_ENV ||
+      process.env.NODE_ENV || "development";
+    // Never expose destination credentials to the renderer.
+    return {
+      ok: true,
+      useIpcRelay: true,
+      deploymentEnv,
+      appVersion
     };
   } catch (e) {
     console.error('[OTEL Config] Error:', e.message);
@@ -718,40 +738,14 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
       console.log(`[OTEL IPC Relay][${requestId}] Payload size: ${JSON.stringify(exportJson || {}).length} chars`);
     }
     
-    const base = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "";
-    const endpoint = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
-                    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
-                    (base ? `${base.replace(/\/$/, "")}/v1/traces` : "");
-
-    const headersRaw = import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
-                      import.meta.env.MAIN_VITE_OTEL_EXPORTER_OTLP_HEADERS ||
-                      process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS ||
-                      process.env.OTEL_EXPORTER_OTLP_HEADERS || "";
-
-    if (!endpoint || !headersRaw) {
-      console.warn(`[OTEL IPC Relay][${requestId}] Missing endpoint/headers`);
-      return { ok: false, reason: "missing_endpoint_or_headers", requestId };
-    }
-
-    // Parse headers
-    const headers = {};
-    headersRaw.split(",").forEach((kv) => {
-      const idx = kv.indexOf("=");
-      if (idx > 0) {
-        const k = kv.slice(0, idx).trim();
-        const v = kv.slice(idx + 1).trim();
-        if (k && v) headers[k] = v;
-      }
-    });
-
-    const https = require("https");
-    const url = new URL(endpoint);
+    const { url, headers } = getOtelRelayConfig();
+    const transport = require(url.protocol === 'http:' ? 'http' : 'https');
     const body = Buffer.from(JSON.stringify(exportJson), "utf8");
 
     const options = {
       method: "POST",
-      hostname: url.hostname,
-      port: url.port || 443,
+      hostname: url.hostname.replace(/^\[|\]$/g, ''),
+      port: url.port || (url.protocol === 'http:' ? 80 : 443),
       path: url.pathname + (url.search || ""),
       headers: {
         "Content-Type": "application/json",
@@ -766,7 +760,7 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
     }
 
     const result = await new Promise((resolve, reject) => {
-      const req = https.request(options, (res) => {
+      const req = transport.request(options, (res) => {
         const chunks = [];
         res.on("data", (chunk) => chunks.push(chunk));
         res.on("end", () => {

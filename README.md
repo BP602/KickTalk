@@ -141,6 +141,50 @@ Temporary production fixture builds through the actual config verified main/prel
 $ npm run dev or npm run dev-hr (hot reload)
 ```
 
+### Telemetry diagnostics
+
+Enable telemetry in app Settings. Grafana Cloud remains the default destination from private `.env` settings; the main process holds exporter and Tempo query credentials. Renderer spans travel through the preload IPC bridge. Standard runtime `OTEL_*` endpoint/header overrides take precedence over compiled `MAIN_VITE_*` defaults.
+
+Build current sources before checking the usual production profile:
+
+```bash
+npm run build
+npm run start -- --skipBuild -- --ozone-platform=wayland --remote-debugging-port=9222 --inspect=9230
+# In another terminal, while the app is open:
+node scripts/otel-smoke.mjs --main
+```
+
+The smoke command creates a parent and a 250 ms child through each process's actual SDK, then reads both traces from Tempo. It checks duration, parent linkage, client span kind, error status, timed/exception events, instrumentation scope and app version. Its controlled error spans are intentional. Cloud readback needs the private `MAIN_VITE_GRAFANA_TEMPO_QUERY_URL`, `_USER` and `_TOKEN` values described in `.env.example`. Without `--main`, only the renderer is checked. Close the app after diagnosis; debug ports permit code execution and should not be left open during normal use.
+
+For local diagnosis, the optional LGTM container receives traces and metrics without forwarding them to Cloud. Production still exports directly to Cloud; a collector is not required there.
+
+```bash
+# Tested grafana/otel-lgtm v0.36.0 image, pinned by digest:
+podman run -d --name kicktalk-lgtm \
+  -p 127.0.0.1:3000:3000 -p 127.0.0.1:4317:4317 -p 127.0.0.1:4318:4318 \
+  -v kicktalk-lgtm-data:/data \
+  docker.io/grafana/otel-lgtm@sha256:57c04cbd8e7022f32bb84c4ac005d79baf8b08e2c5be44facf11f5f1f9944ba2
+# If the container already exists, use: podman start kicktalk-lgtm
+```
+
+After `podman logs kicktalk-lgtm` reports readiness, launch the same production profile with process-local overrides. Do not replace the Cloud credentials in `.env`:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+OTEL_EXPORTER_OTLP_HEADERS= OTEL_METRICS_EXPORTER=otlp \
+OTEL_METRIC_EXPORT_INTERVAL=10000 OTEL_METRIC_EXPORT_TIMEOUT=5000 \
+npm run start -- --skipBuild -- --ozone-platform=wayland --remote-debugging-port=9222 --inspect=9230
+# In another terminal:
+node scripts/otel-smoke.mjs --local --main
+podman exec kicktalk-lgtm curl -fsS 'http://127.0.0.1:9090/api/v1/query?query=kicktalk_up_ratio'
+```
+
+Open <http://127.0.0.1:3000>, select Explore → Tempo and paste a printed trace ID, or use TraceQL `{ resource.service.namespace = "kicktalk" }`. The Prometheus datasource receives OTLP metrics; unit `1` gauges such as `kicktalk_up` become `kicktalk_up_ratio`. Keep all ports loopback-only: this development stack permits anonymous access. `podman stop kicktalk-lgtm` stops it without deleting the data volume.
+
+Verification on 2026-10-13: Cloud main/renderer roundtrips preserved 251.3/250.3 ms child durations and events; local main/renderer roundtrips preserved 250.6/250.2 ms. Both carried version `2.0.2`, correct error/kind/parent/scope metadata, and one parent/child pair. Local Grafana rendered the trace waterfall and Prometheus returned `kicktalk_up_ratio=1`. Build passed; lint had 0 errors and 323 warnings.
+
+This fixes the earlier pre-end renderer export that collapsed durations to 1 ms and dropped events. It does not repair Kick's dead Pusher transport, change WebSocket metric semantics, add log export, or upgrade OpenTelemetry packages. Cloud metrics remain disabled by the current private config; local OTLP metrics were exercised. Authentication, sending and cross-platform packaging were not tested.
+
 ### Build
 
 ```bash

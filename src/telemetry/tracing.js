@@ -54,7 +54,6 @@ if (telemetryEnabled) {
     DiagConsoleLogger,
     DiagLogLevel,
     OTLPTraceExporter,
-    OTLPMetricExporter,
     AlwaysOnSampler,
     View,
     ExplicitBucketHistogramAggregation,
@@ -64,7 +63,6 @@ if (telemetryEnabled) {
     ({ NodeSDK } = safeRequire('@opentelemetry/sdk-node'));
     ({ diag, DiagConsoleLogger, DiagLogLevel } = safeRequire('@opentelemetry/api'));
     ({ OTLPTraceExporter } = safeRequire('@opentelemetry/exporter-trace-otlp-http'));
-    ({ OTLPMetricExporter } = safeRequire('@opentelemetry/exporter-metrics-otlp-http'));
     ({ AlwaysOnSampler } = safeRequire('@opentelemetry/sdk-trace-base'));
     ({ HttpInstrumentation } = safeRequire('@opentelemetry/instrumentation-http'));
     // Views are optional; load defensively to avoid runtime mismatches across package versions
@@ -85,6 +83,28 @@ if (telemetryEnabled) {
    if (process.env.OTEL_DIAG_LOG_LEVEL) {
      const level = DiagLogLevel[process.env.OTEL_DIAG_LOG_LEVEL.toUpperCase()] ?? DiagLogLevel.INFO;
      diag.setLogger(new DiagConsoleLogger(), level);
+   }
+
+   // NodeSDK's environment-driven metric readers honor none/otlp, protocol and
+   // OTEL_METRIC_EXPORT_INTERVAL. Validate OTLP metrics just like the trace relay.
+   if ((process.env.OTEL_METRICS_EXPORTER || '').split(',').map((value) => value.trim()).includes('otlp')) {
+     const base = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+     const endpoint = process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT ??
+       (base ? `${base.replace(/\/$/, '')}/v1/metrics` : '');
+     if (!endpoint) throw new Error('missing_metrics_endpoint');
+     const url = new URL(endpoint);
+     const loopback = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname);
+     if (url.protocol !== 'https:' && !(loopback && url.protocol === 'http:')) {
+       throw new Error('insecure_or_unsupported_metrics_endpoint');
+     }
+     const headers = process.env.OTEL_EXPORTER_OTLP_METRICS_HEADERS ??
+       process.env.OTEL_EXPORTER_OTLP_HEADERS;
+     const hasAuth = (headers || '').split(',').some((entry) => {
+       const index = entry.indexOf('=');
+       return index > 0 && entry.slice(0, index).trim().toLowerCase() === 'authorization' &&
+         entry.slice(index + 1).trim().length > 0;
+     });
+     if (headers === undefined || (!loopback && !hasAuth)) throw new Error('missing_metrics_auth_headers');
    }
 
 
@@ -130,6 +150,11 @@ if (telemetryEnabled) {
   }
 
   // Using manual HTTP instrumentation (auto-instrumentations removed for packaged builds)
+  const collectorHosts = new Set([
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+    process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+  ].filter(Boolean).map((endpoint) => new URL(endpoint).hostname.replace(/^\[|\]$/g, '')));
   const instrumentations = [
     new HttpInstrumentation({
       ignoreOutgoingRequestHook: (request) => {
@@ -138,6 +163,8 @@ if (telemetryEnabled) {
           // Ignore OTLP exporter requests to prevent instrumentation loops
           if (host.includes('otlp-gateway')) return true;
           if (host.includes('grafana.net')) return true;
+          const hostname = request?.hostname || request?.host || host;
+          if (collectorHosts.has(hostname) || collectorHosts.has(hostname.replace(/:\d+$/, ''))) return true;
         } catch {}
         return false;
       }
@@ -147,7 +174,7 @@ if (telemetryEnabled) {
 
     const sdk = new NodeSDK({
       traceExporter: new OTLPTraceExporter(),
-      metricExporter: new OTLPMetricExporter(),
+      // The installed NodeSDK configures supported metric readers from OTEL_*.
       ...(histogramViews ? { views: histogramViews } : {}),
       instrumentations,
       traceSampler: new AlwaysOnSampler()
