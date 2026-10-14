@@ -20,7 +20,7 @@ KickTalk follows Electron's multi-process architecture with enhanced telemetry a
 - **Frontend**: React 18 with functional components and hooks
 - **State Management**: Zustand for chat state, React Context for settings
 - **Styling**: SCSS with component-scoped stylesheets
-- **Real-time Communication**: WebSocket (Pusher protocol) for Kick.com integration
+- **Real-time Communication**: Main-owned Centrifugo WebSocket client for Kick.com integration
 - **Observability**: OpenTelemetry with Grafana Cloud integration
 - **Build System**: Vite for fast development and optimized builds
 
@@ -99,10 +99,10 @@ Comprehensive observability system with multiple specialized modules:
 
 #### WebSocket Services
 
-- **Shared Kick Pusher** (`utils/services/kick/sharedKickPusher.js`): Primary WebSocket service handling multiple chatrooms through a single connection
-- **Individual Kick Pusher** (`utils/services/kick/kickPusher.js`): Legacy per-chatroom connections
-- **7TV WebSocket** (`utils/services/seventv/sharedStvWebSocket.js`): Real-time emote and cosmetic updates
-- **Connection Manager** (`utils/services/connectionManager.js`): Orchestrates all WebSocket connections
+- **Kick Realtime Controller** (`src/main/services/kickRealtime.cjs`): One shared client, main-only connection/private JWTs, subscription ownership and bounded reconnects
+- **Renderer Kick Adapter** (`utils/services/kick/kickRealtimeClient.js`): Purpose-built IPC events and per-room state, without credentials or socket access
+- **7TV WebSocket** (`utils/services/seventv/sharedStvWebSocket.js`): Independent real-time emote and cosmetic updates
+- **Connection Manager** (`utils/services/connectionManager.js`): Coordinates room hydration and the two independent transports; no legacy Kick fallback
 
 #### API Integration
 
@@ -122,8 +122,8 @@ Secure communication bridge between main and renderer processes with:
 
 ### Chat Message Flow
 
-1. **WebSocket Receipt**: Pusher receives message from Kick servers
-2. **Event Processing**: Message parsed and validated in connection service
+1. **WebSocket Receipt**: Main's Centrifuge client receives a Kick publication
+2. **Event Processing**: Main maps subscription owners and deduplicates publication identities; preload relays the event name and JSON data
 3. **State Update**: ChatProvider updates Zustand store
 4. **UI Render**: React components re-render with new message data
 5. **Persistence**: Message logged to main process storage
@@ -196,6 +196,7 @@ Monitored performance thresholds:
 src/
 ├── main/                    # Main process (Node.js)
 │   ├── index.js            # Application entry point and IPC handlers
+│   ├── services/           # Kick realtime controller and main-only session provider
 │   └── utils/              # Main process utilities
 ├── preload/                # IPC bridge layer
 │   └── index.js            # Secure API exposure to renderer
@@ -214,7 +215,7 @@ src/
 
 utils/                      # Shared utilities and services
 ├── services/               # External service integrations
-│   ├── kick/              # Kick.com API and WebSocket
+│   ├── kick/              # Kick REST API and renderer realtime IPC adapter
 │   ├── seventv/           # 7TV integration
 │   └── connectionManager.js # Connection orchestration
 └── helpers/               # Utility functions

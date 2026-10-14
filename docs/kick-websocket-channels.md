@@ -1,109 +1,73 @@
-# Kick WebSocket Channel Guide
+# Kick realtime channel guide
 
-This document summarizes which Pusher channel subscriptions deliver which Kick events, how the IDs relate, and example subscribe frames. It reflects what we observe in production and what the app subscribes to for reliability.
+KickTalk uses one main-process Centrifuge client for all Kick rooms. The renderer receives validated room-state and publication events through a purpose-built preload bridge; it never receives connection JWTs, subscription JWTs or raw socket access. 7TV uses its independent renderer connection.
 
-## IDs and what they mean
+## Discovery and credentials
 
-- `streamerId`: Channel (profile) ID of the streamer (e.g., from `GET /api/v2/channels/<slug> -> data.id`).
-- `chatroomId`: Chatroom ID used for chat messages (`data.chatroom.id`).
-- `livestreamId`: Current livestream session ID when a stream is live (`data.livestream.id`).
+The verified web API base is `https://web.kick.com/api`.
 
-These IDs are different; subscribing with the wrong one yields no events.
+1. `POST /v1/realtime/connection` with `{client:{id:<UUID>,type:"web"},capabilities:{accepted_providers:[{provider:"centrifugo"}]}}`. Select the returned Centrifugo connection URL rather than hard-coding a region. The observed gateway is `wss://realtime.us-west-2.platform.kick.com/connection/websocket`.
+2. `POST /v1/realtime/auth/connection` with `{client_id:<same UUID>}` returns `data.token`. The main process supplies existing account credentials when authenticated; guests receive a guest connection grant.
+3. Private channels use the SDK subscription `getToken` callback: `POST /v1/realtime/auth/channel` with `{channel:<full channel name>}` returns `data.token`. HTTP 401/403/404 terminates that private subscription. Tokens and auth headers stay in main.
 
-## Channel patterns and their events
+The private-channel route/body are present in Kick's public client chunk `https://assets.kick.com/main/_next/static/chunks/0vf3mmzsywzg3.js`, modules `648112` and `942463`, inspected on 2026-10-13. These are internal web APIs, not a published stability guarantee. Do not guess replacement routes when they change.
 
-1) `channel.<streamerId>` and `channel_<streamerId>` (public)
+The SDK handles server ping/pong, connection-token renewal and private subscription-token renewal. Token fetches are guarded against stale connection generations and removed subscriptions. No token values or chat contents belong in diagnostics.
 
-- Primary source for streamer lifecycle and channel-level events:
-  - `App\Events\StreamerIsLive`
-  - `App\Events\StopStreamBroadcast`
-  - `App\Events\LivestreamUpdated`
-  - Often also: `App\Events\PollUpdateEvent`, `App\Events\PollDeleteEvent`, `App\Events\PinnedMessageCreatedEvent`, `App\Events\PinnedMessageDeletedEvent`
-- Notes:
-  - Both dot and underscore variants exist in the wild. We subscribe to both for resilience.
-  - These events fire on state transitions (e.g., when going live), not continuously.
+## IDs
 
-2) `chatrooms.<chatroomId>` and `chatrooms.<chatroomId>.v2` (public)
+- Channel/profile ID: `GET https://kick.com/api/v2/channels/<slug>` → `id`.
+- Chatroom ID: the same response → `chatroom.id`.
+- Livestream session ID: the same response → `livestream.id`, when live.
+- Authenticated account ID: resolved by main from the actual saved session, not accepted from renderer/localStorage.
 
-- Primary source for chat and moderation events:
-  - `App\Events\ChatMessageEvent`
-  - `App\Events\MessageDeletedEvent`
-  - `App\Events\UserBannedEvent`
-  - `App\Events\UserUnbannedEvent`
-- Sometimes also carries channel-level updates (e.g., `ChatroomUpdatedEvent`, polls/pins), but do not rely on it for live/on‑off.
+These IDs are different. Room descriptors contain positive safe integers; the main IPC handler validates them and limits the desired room set.
 
-Observed (support via ChatMessageEvent):
+## Channel ownership
 
-- Kick can emit subscription-like signals as `App\\Events\\ChatMessageEvent` with `type: "celebration"` and details in `metadata.celebration`.
-  - Examples: `metadata.celebration.type = subscription_started | subscription_renewed | subscription_resumed`, with `total_months` present.
-  - Recommended: classify these as support `subscription` events and normalize months from `total_months`.
+| Channel | Scope | Purpose |
+| --- | --- | --- |
+| `channel_<channelId>`, `channel.<channelId>` | Public | Channel lifecycle, stream/pin/poll updates; `KicksGifted` observed on underscore form |
+| `chatrooms.<chatroomId>.v2` | Public | Primary chat readiness; chat, deletion, moderation and subscription events |
+| `chatrooms.<chatroomId>` | Public | Chatroom updates and `StreamHostedEvent` |
+| `chatroom_<chatroomId>` | Public | Gifted subscriptions and reward-redemption events |
+| `private-userfeed.<accountId>` | Authenticated, private JWT | Account notifications and follower-related events |
+| `private-channelpoints-<accountId>` | Authenticated, private JWT | Retained account-scoped channel-point subscriptions |
+| `private-livestream.<livestreamId>` | Authenticated, private JWT | Retained ephemeral livestream-scoped subscriptions |
+| `predictions-channel-<channelId>` | Authenticated client scope | Prediction updates; observed acknowledgment without a private-prefix token |
 
-3) `chatroom_<chatroomId>` (public, legacy/alias)
+The official web client still uses the public dot/underscore channel aliases. The main controller shares ownership of common channels across rooms and removes a subscription only after its final owner is removed. It makes no Pusher or `/broadcasting/auth` requests.
 
-- Legacy alias occasionally used in some deployments. Rarely carries unique events today but we include it for completeness.
+## Publications and readiness
 
-4) `private-livestream.<livestreamId>` (private, requires auth)
+A Centrifugo publication's data has the existing Kick envelope:
 
-- Livestream-scoped updates; observed to include some of the live lifecycle details while a stream is active.
-- Requires auth via `POST https://kick.com/broadcasting/auth` with your `socket_id` and channel name.
-- Only exists while the streamer is live (ephemeral). Use alongside the public `channel.<streamerId>`.
-
-## Subscribing examples (raw frames)
-
-Public channels (no auth field required):
-
-```
-{"event":"pusher:subscribe","data":{"auth":"","channel":"channel.<streamerId>"}}
-{"event":"pusher:subscribe","data":{"auth":"","channel":"channel_<streamerId>"}}
-{"event":"pusher:subscribe","data":{"auth":"","channel":"chatrooms.<chatroomId>"}}
-{"event":"pusher:subscribe","data":{"auth":"","channel":"chatrooms.<chatroomId>.v2"}}
-{"event":"pusher:subscribe","data":{"auth":"","channel":"chatroom_<chatroomId>"}}
+```json
+{"event":"App\\Events\\ChatMessageEvent","data":"<JSON-encoded Kick event payload>"}
 ```
 
-Private livestream channel (requires auth):
+The subscription supplies its channel. Main maps it to room owners and forwards the event name plus JSON data to existing message/channel handlers. Stable chat-message IDs are deduplicated across aliases. Idless state deduplication suppresses adjacent equal values only; intervening state events remain observable, including pin/unpin/repin, poll deletion/recreation and live/offline/live transitions. Non-adjacent alias duplicates may be forwarded rather than risk dropping a valid transition.
 
-1) Resolve auth:
+A native socket open is not room readiness. A room becomes connected only after `chatrooms.<roomId>.v2` acknowledges subscription. Healthy connected tabs show no connection badge; pending, disconnected and failed states retain visible indicators, with retry for terminal failure. All states retain an accessible connection description. Private-subscription warnings remain visible even when public chat is connected. Routine connection transitions do not append chat-history notices.
 
+Transient failures use a bounded retry budget with backoff. The budget resets after primary subscription readiness, not socket open. Terminal failures require an explicit retry. Renderer reload hydrates the current main snapshot; login/logout and final-room removal clean up the relevant connection lifecycle.
+
+Transient private-token renewal failures recover by replacing only the affected subscription through the SDK's public APIs. Failed recovery attempts share one bounded episode budget; a fresh subscription acknowledgment resets it. The shared socket and healthy public/private feeds stay connected. Generation and ownership guards discard retired callbacks and tokens. Replacement briefly interrupts that feed, and events during the gap are not guaranteed replayed.
+
+## Verification tools
+
+```bash
+npm run test:realtime
+npm run smoke:realtime -- --room CHATROOM_ID:CHANNEL_ID --duration 300 --retry-after 90
+npm run collect-events -- --room CHATROOM_ID:CHANNEL_ID --duration 300
 ```
-POST https://kick.com/broadcasting/auth
-Body: { "socket_id": "<your_socket_id>", "channel_name": "private-livestream.<livestreamId>" }
-Headers/Cookies: valid Kick session (Authorization: Bearer <session_token>, cookies for kick_session / XSRF)
-```
 
-2) Subscribe with returned `auth`:
+The smoke and collector use the same production controller. The smoke prints state/subscription metadata, event names, IDs and counts. The collector writes schema-redacted JSONL rather than chat content. Neither tool sends chat messages.
 
-```
-{"event":"pusher:subscribe","data":{"auth":"<returned_auth>","channel":"private-livestream.<livestreamId>"}}
-```
+For automated verification, prefer local HTTP/WebSocket fixtures. Any live send, deletion or moderation requires explicit authorization for the exact account, room and action. Never infer the target from asynchronously changing composer selection, and never automatically retry a live test message.
 
-## When do StreamerIsLive / StopStreamBroadcast arrive?
+## Evidence and limits
 
-- Typically on `channel.<streamerId>` (and sometimes mirrored elsewhere). They emit only on transitions (when going live or ending), not periodically. If nothing changes while you’re listening, you won’t see them.
-- We recommend subscribing to both `channel.<streamerId>` and `private-livestream.<livestreamId>` (when live and authenticated) to maximize coverage.
+On 2026-10-13 the replaced Pusher endpoint rejected the application key with error 4001 in both this fork and current upstream `main`. A 300-second read-only Centrifugo smoke subscribed three rooms across 15 channels, received 651 unique live messages and two deletion events, and recovered after an explicit client retry at 90 seconds. This does not date Kick's migration or prove every private event type arrived.
 
-## App strategy (why multiple subscriptions)
-
-- The app subscribes to all known aliases for robustness across regions/rollouts:
-  - Chat: `chatrooms.<id>`, `chatrooms.<id>.v2` (and `chatroom_<id>`)
-  - Channel: `channel.<id>`, `channel_<id>`
-  - Livestream: `private-livestream.<id>` (with auth when available)
-- Incoming events are mapped to chatrooms by parsing the channel name or by matching `streamerId`/`livestreamId` to known chatrooms.
-- Unknown/unmapped events are logged and reported to telemetry for analysis.
-
-Classification guidance:
-
-- Use a rule-based classifier that considers both WebSocket `event` and ChatMessageEvent subtypes:
-  - Explicit support events (name matches `Subscription|Donation|Tip|Reward`) → support categories.
-  - ChatMessageEvent with `type: "celebration"` and `metadata.celebration.type` starting with `subscription_` → support: `subscription`.
-
-## Quick ID discovery
-
-- `GET https://kick.com/api/v2/channels/<slug>` →
-  - `data.id` → `streamerId`
-  - `data.chatroom.id` → `chatroomId`
-  - `data.livestream.id` (when live) → `livestreamId`
-
-## Caveats
-
-- Channel usage can change; treat the above as what’s observed today. Keep both dot/underscore variants for channel-level events.
-- Private livestream channels require valid auth and only exist while a stream is live.
+Connection JWTs alone were observed to fail private userfeed/channelpoints subscription with error 103; they are not substitutes for the private channel JWT flow above. Private event arrival, OS suspend/resume, outage replay, live reply sending and Windows/macOS packages require separate acceptance evidence. Keep unresolved checks on the project card; a build or fixture pass is not release acceptance.

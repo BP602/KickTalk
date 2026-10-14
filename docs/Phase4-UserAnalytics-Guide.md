@@ -114,10 +114,10 @@ await userAnalytics.recordConnectionQuality(8, 'websocket_connect');
 - 7 new performance budget monitoring methods
 - Consistent error handling and context propagation
 
-**WebSocket Services (`utils/services/kick/kickPusher.js`):**
-- Enhanced connection error handling with user impact tracking
-- Connection quality scoring based on reconnection frequency
-- Automatic user satisfaction correlation during connection issues
+**Kick Realtime Controller (`src/main/services/kickRealtime.cjs`):**
+- Main-process lifecycle and subscription telemetry contains sanitized states, attempts, channel names and error codes, not JWTs or chat contents
+- Room readiness reflects primary subscription acknowledgment, not native socket open
+- Transient retries are bounded; terminal failures and private-subscription warnings remain visible in canonical tab state
 
 ### Frontend Integration Points
 

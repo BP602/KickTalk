@@ -11,7 +11,16 @@ import {
 import clsx from "clsx";
 import useChatStore from "../../providers/ChatProvider";
 import { useShallow } from "zustand/react/shallow";
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon, CircleNotchIcon, WarningCircleIcon, PlugIcon, ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../Shared/Tooltip";
+
+const CONNECTION_STATUSES = {
+  connecting: { label: "Connecting", Icon: CircleNotchIcon },
+  connected: { label: "Connected", Icon: null },
+  reconnecting: { label: "Reconnecting", Icon: CircleNotchIcon },
+  failed: { label: "Connection failed", Icon: WarningCircleIcon },
+  disconnected: { label: "Disconnected", Icon: PlugIcon },
+};
 
 const ChatroomTab = memo(
   ({
@@ -38,6 +47,23 @@ const ChatroomTab = memo(
     const chatroomMessages = useChatStore(
       useShallow((state) => state.messages[chatroom.id] || [])
     );
+    const kickConnection = useChatStore(
+      (state) => state.kickConnectionStates?.[String(chatroom.id)]
+    );
+    const retryKickConnection = useChatStore((state) => state.retryKickConnection);
+    const connectionState = kickConnection?.state || "disconnected";
+    const { label: connectionLabel, Icon: StatusIcon } =
+      CONNECTION_STATUSES[connectionState] || CONNECTION_STATUSES.disconnected;
+    const ConnectionIcon = connectionState === "connected" && kickConnection?.reason
+      ? WarningCircleIcon
+      : StatusIcon;
+    const connectionDescription = [
+      `Kick chat: ${connectionLabel}`,
+      connectionState === "reconnecting" && kickConnection?.attempt > 0
+        ? `Attempt ${kickConnection.attempt}`
+        : null,
+      kickConnection?.reason,
+    ].filter(Boolean).join(". ");
 
     const [streamlinkSettings, setStreamlinkSettings] = useState({ enabled: false, quality: "best" });
 
@@ -117,7 +143,10 @@ const ChatroomTab = memo(
                   tabIndex={0}
                   aria-selected={chatroom.id === currentChatroomId}
                   aria-label={`Chatroom ${chatroom.displayName || chatroom.username}`}
-                  aria-describedby={unreadCount > 0 ? `chatroom-unread-${chatroom.id}` : undefined}
+                  aria-describedby={[
+                    `chatroom-connection-${chatroom.id}`,
+                    unreadCount > 0 ? `chatroom-unread-${chatroom.id}` : null,
+                  ].filter(Boolean).join(" ")}
                   onDoubleClick={(e) =>
                     onRename({ chatroomId: chatroom.id, currentDisplayName: chatroom.displayName || chatroom.username })
                   }
@@ -174,6 +203,51 @@ const ChatroomTab = memo(
                       </>
                     )}
                   </div>
+                  <span
+                    id={`chatroom-connection-${chatroom.id}`}
+                    className="kickConnectionText"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    {connectionDescription}
+                  </span>
+                  {ConnectionIcon && <TooltipProvider>
+                    <span className="kickConnectionControls" data-connection-state={connectionState}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            className="kickConnectionIndicator"
+                            tabIndex={0}
+                            aria-label={connectionDescription}
+                          >
+                            <ConnectionIcon size={14} aria-hidden="true" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{connectionDescription}</TooltipContent>
+                      </Tooltip>
+                      {connectionState === "failed" && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="retryKickConnection"
+                              aria-label={`Retry Kick connection for ${chatroom.displayName || chatroom.username}`}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onDoubleClick={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                retryKickConnection(chatroom.id);
+                              }}
+                            >
+                              <ArrowClockwiseIcon size={14} aria-hidden="true" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Retry Kick connection</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </span>
+                  </TooltipProvider>}
                   <button
                     className="closeChatroom"
                     onClick={(e) => {

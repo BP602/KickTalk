@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { create } from "zustand";
-import KickPusher from "@utils/services/kick/kickPusher";
 import { chatroomErrorHandler } from "../utils/chatErrors";
 
 // Helper function to safely compare chatroom IDs and report mismatches
@@ -87,9 +86,6 @@ const endSpanError = (span, err) => {
   try { span?.end?.(); } catch {}
 };
 
-// Track initial vs. subsequent WebSocket connections per chatroom to trigger
-// a one-shot reconcile after reconnect (no periodic polling).
-const __wsConnectedOnce = new Map();
 
 // Deduplicate support-like events that may arrive via different paths
 // (e.g., explicit Subscription events and ChatMessageEvent with type "celebration").
@@ -397,7 +393,7 @@ const getInitialState = () => {
   return {
     chatrooms,
     messages: {},
-    connections: {},
+    kickConnectionStates: {},
     chatters: {},
     donators: [],
     personalEmoteSets: savedPersonalEmoteSets,
@@ -471,20 +467,7 @@ const useChatStore = create((set, get) => ({
       connectionManager = null;
     }
 
-    // Clean up individual connections (fallback)
-    const connections = get().connections;
-    Object.keys(connections).forEach(chatroomId => {
-      const connection = connections[chatroomId];
-      if (connection?.kickPusher) {
-        connection.kickPusher.close();
-      }
-      if (connection?.stvSocket) {
-        connection.stvSocket.close();
-      }
-    });
-
-    // Clear connections state
-    set({ connections: {} });
+    set({ kickConnectionStates: {} });
 
     console.log("[ChatProvider] Connections cleaned up");
   },
@@ -494,59 +477,19 @@ const useChatStore = create((set, get) => ({
     if (connectionManager) {
       return connectionManager.getConnectionStatus();
     }
-    return {
-      manager: "not initialized",
-      individual_connections: Object.keys(get().connections).length,
-    };
+    return { manager: "not initialized" };
   },
 
   // Development helper to access the active connection manager
   getConnectionManagerInstance: () => connectionManager,
 
-  // Development helper to access the shared Kick pusher instance
-  getSharedKickPusher: () => connectionManager?.kickPusher || null,
 
-  // Debug function to check 7TV WebSocket status
-  get7TVStatus: () => {
-    const connections = get().connections;
-    const chatrooms = get().chatrooms;
-    
-    // CheckIcon if using shared connection manager
-    if (connectionManager) {
-      const span = startSpan('seventv.connection_health_check', {
-        'chatrooms.count': chatrooms.length,
-        'connections.count': Object.keys(connections).length
-      });
-      
-      try {
-        // Record connection health metrics via IPC
-        window.app?.telemetry?.recordSevenTVConnectionHealth?.(
-          chatrooms.length,
-          Object.keys(connections).length,
-          'connected'
-        );
-        endSpanOk(span);
-      } catch (error) {
-        endSpanError(span, error);
-      }
-    }
-    
-    return { chatrooms: chatrooms.length, connections: Object.keys(connections).length };
+  get7TVStatus: () => connectionManager?.getConnectionStatus().stv || {
+    state: "disconnected",
+    chatrooms: 0,
+    events: 0,
   },
 
-  // Debug function to toggle livestream status for testing
-  debugToggleStreamStatus: (chatroomId, isLive) => {
-    console.log(`[DEBUG] Toggling stream status for chatroom ${chatroomId}: ${isLive ? 'LIVE' : 'OFFLINE'}`);
-    const mockEvent = {
-      livestream: {
-        id: Math.random().toString(),
-        is_live: isLive,
-        session_title: "Mock Stream Title",
-        created_at: new Date().toISOString(),
-      }
-    };
-    get().handleStreamStatus(chatroomId, mockEvent, isLive);
-  },
 
 
   // Handles Sending Presence Updates to 7TV for a chatroom
@@ -868,456 +811,6 @@ const useChatStore = create((set, get) => ({
     }));
   },
 
-  // DEPRECATED: Individual STV WebSocket connections - replaced by shared connection system
-  // connectToStvWebSocket: (chatroom) => {
-  //   // This method is no longer used - shared connections handle 7TV WebSocket functionality
-  //   console.warn("connectToStvWebSocket called but is deprecated - using shared connections instead");
-  // },
-
-  connectToChatroom: async (chatroom) => {
-    if (!chatroom?.id) return;
-    const pusher = new KickPusher(chatroom.id, chatroom.streamerData.id, chatroom.streamerData?.user?.username);
-
-    // Connection Events
-    pusher.addEventListener("connection", (event) => {
-      const s = startSpan('kick.ws.connect', { 'chat.id': chatroom.id });
-      console.info("Connected to chatroom:", chatroom.id);
-      get().addMessage(chatroom.id, {
-        id: crypto.randomUUID(),
-        type: "system",
-        ...event?.detail,
-        timestamp: new Date().toISOString(),
-      });
-      endSpanOk(s);
-
-      // Fetch fresh channel info on connect to sync current chatroom state
-      // This ensures we get up-to-date mode information (emote mode, slow mode, etc.)
-      const wasConnectedBefore = __wsConnectedOnce.get(chatroom.id) === true;
-      __wsConnectedOnce.set(chatroom.id, true);
-
-      // Always fetch current state - both for first connect and reconnects
-      setTimeout(async () => {
-        try {
-          console.log('[WebSocket] Fetching current chatroom state after connection:', chatroom.id);
-          const chatroomData = await window.app.kick.getChannelChatroomInfo(chatroom?.streamerData?.slug);
-          if (chatroomData) {
-            const isLive = !!chatroomData?.livestream?.is_live;
-            get().handleStreamStatus(chatroom.id, chatroomData, isLive);
-
-            // Also trigger chatroom info update to get current mode states
-            if (chatroomData?.chatroom) {
-              console.log('[WebSocket] Updating chatroom modes from fresh API data:', chatroomData.chatroom);
-              get().handleChatroomUpdated(chatroom.id, chatroomData.chatroom);
-            }
-          }
-        } catch (error) {
-            console.warn('[State Refresh]: Failed to refresh channel info:', error?.message || error);
-          }
-        }, 1500);
-      return;
-    });
-
-    // Channel Events
-    pusher.addEventListener("channel", (event) => {
-      const parsedEvent = JSON.parse(event.detail.data);
-      switch (event.detail.event) {
-        case "App\\Events\\LivestreamUpdated":
-          get().handleStreamStatus(chatroom.id, parsedEvent, true);
-          break;
-        case "App\\Events\\ChatroomUpdatedEvent":
-          console.log('[WebSocket] ChatroomUpdatedEvent received:', { chatroomId: chatroom.id, parsedEvent });
-          get().handleChatroomUpdated(chatroom.id, parsedEvent);
-          break;
-        case "App\\Events\\StreamerIsLive": {
-          console.log("Streamer is live", parsedEvent);
-          console.log("[DEBUG] Current chatroom ID:", chatroom.id);
-          console.log("[DEBUG] Chatroom data:", chatroom.streamerData?.user?.username);
-          get().handleStreamStatus(chatroom.id, parsedEvent, true);
-
-          (async () => {
-            const shouldShow = await shouldDisplayChatEvent('streamStatus');
-            if (!shouldShow) return;
-
-            const streamLiveMessage = {
-              id: crypto.randomUUID(),
-              type: "stream_live",
-              content: "Stream started",
-              timestamp: new Date().toISOString(),
-              sender: {
-                id: "system",
-                username: chatroom.streamerData?.user?.username || "System"
-              },
-              metadata: {
-                streamer: chatroom.streamerData?.user?.username,
-                event_type: "live",
-                stream_title: parsedEvent.livestream?.session_title,
-                livestream_id: parsedEvent.livestream?.id
-              }
-            };
-            console.log("[DEBUG] Stream live message:", streamLiveMessage);
-            get().addMessage(chatroom.id, streamLiveMessage);
-          })().catch((err) => {
-            window.app?.telemetry?.recordError?.(err, {
-              operation: 'stream_live_event_enqueue',
-              chatroom_id: String(chatroom.id),
-            });
-          });
-          break;
-        }
-        case "App\\Events\\StopStreamBroadcast": {
-          console.log("Streamer is offline", parsedEvent);
-          get().handleStreamStatus(chatroom.id, parsedEvent, false);
-
-          (async () => {
-            const shouldShow = await shouldDisplayChatEvent('streamStatus');
-            if (!shouldShow) return;
-
-            const streamEndMessage = {
-              id: crypto.randomUUID(),
-              type: "stream_end",
-              content: "Stream ended",
-              timestamp: new Date().toISOString(),
-              sender: {
-                id: "system",
-                username: chatroom.streamerData?.user?.username || "System"
-              },
-              metadata: {
-                streamer: chatroom.streamerData?.user?.username,
-                event_type: "offline",
-                livestream_id: parsedEvent.livestream?.id,
-                channel_id: parsedEvent.livestream?.channel?.id
-              }
-            };
-            console.log("[DEBUG] Stream end message:", streamEndMessage);
-            get().addMessage(chatroom.id, streamEndMessage);
-          })().catch((err) => {
-            window.app?.telemetry?.recordError?.(err, {
-              operation: 'stream_end_event_enqueue',
-              chatroom_id: String(chatroom.id),
-            });
-          });
-          break;
-        }
-        case "App\\Events\\PinnedMessageCreatedEvent":
-          get().handlePinnedMessageCreated(chatroom.id, parsedEvent);
-          break;
-        case "App\\Events\\PinnedMessageDeletedEvent":
-          get().handlePinnedMessageDeleted(chatroom.id);
-          break;
-        case "App\\Events\\PollUpdateEvent":
-          console.log("Poll update event:", parsedEvent);
-          get().handlePollUpdate(chatroom.id, parsedEvent?.poll);
-          break;
-        case "App\\Events\\PollDeleteEvent":
-          get().handlePollDelete(chatroom.id);
-          break;
-      }
-    });
-
-    // Message Events
-    pusher.addEventListener("message", async (event) => {
-      const parsedEvent = JSON.parse(event.detail.data);
-
-      switch (event.detail.event) {
-        case "App\\Events\\ChatMessageEvent":
-          // Add user to chatters list if they're not already in there
-          get().addChatter(chatroom.id, parsedEvent?.sender);
-
-          // Get batching settings
-          const settings = await window.app.store.get("chatrooms");
-          const batchingSettings = {
-            enabled: settings?.batching ?? false,
-            interval: settings?.batchingInterval ?? 0,
-          };
-
-          if (!batchingSettings.enabled || batchingSettings.interval === 0) {
-            // No batching - add message immediately
-            const messageWithTimestamp = {
-              ...parsedEvent,
-              timestamp: new Date().toISOString(),
-            };
-            get().addMessage(chatroom.id, messageWithTimestamp);
-
-            if (parsedEvent?.type === "reply") {
-              window.app.replyLogs.add({
-                chatroomId: chatroom.id,
-                userId: parsedEvent.sender.id,
-                message: messageWithTimestamp,
-              });
-            } else {
-              window.app.logs.add({
-                chatroomId: chatroom.id,
-                userId: parsedEvent.sender.id,
-                message: messageWithTimestamp,
-              });
-            }
-          } else {
-            // Use batching system
-            if (!window.__chatMessageBatch) {
-              window.__chatMessageBatch = {};
-            }
-
-            if (!window.__chatMessageBatch[chatroom.id]) {
-              window.__chatMessageBatch[chatroom.id] = {
-                queue: [],
-                timer: null,
-              };
-            }
-
-            // queue batch
-            window.__chatMessageBatch[chatroom.id].queue.push({
-              ...parsedEvent,
-              timestamp: new Date().toISOString(),
-            });
-
-            // flusher
-            const flushBatch = () => {
-              try {
-                const batch = window.__chatMessageBatch[chatroom.id]?.queue;
-                if (batch && batch.length > 0) {
-                  batch.forEach((msg) => {
-                    get().addMessage(chatroom.id, msg);
-
-                    if (msg?.type === "reply") {
-                      window.app.replyLogs.add({
-                        chatroomId: chatroom.id,
-                        userId: msg.sender.id,
-                        message: msg,
-                      });
-                    } else {
-                      window.app.logs.add({
-                        chatroomId: chatroom.id,
-                        userId: msg.sender.id,
-                        message: msg,
-                      });
-                    }
-                  });
-                  window.__chatMessageBatch[chatroom.id].queue = [];
-                }
-              } catch (error) {
-                console.error("[Batching] Error flushing batch:", error);
-              }
-            };
-
-            if (!window.__chatMessageBatch[chatroom.id].timer) {
-              window.__chatMessageBatch[chatroom.id].timer = setTimeout(() => {
-                flushBatch();
-                window.__chatMessageBatch[chatroom.id].timer = null;
-              }, batchingSettings.interval);
-            }
-          }
-
-          break;
-        case "App\\Events\\MessageDeletedEvent":
-          get().handleMessageDelete(chatroom.id, parsedEvent.message.id);
-          break;
-        case "App\\Events\\UserBannedEvent":
-          get().handleUserBanned(chatroom.id, parsedEvent);
-          get().addMessage(chatroom.id, {
-            id: crypto.randomUUID(),
-            type: "mod_action",
-            modAction: parsedEvent?.permanent ? "banned" : "ban_temporary",
-            modActionDetails: parsedEvent,
-            ...parsedEvent,
-            timestamp: new Date().toISOString(),
-          });
-          break;
-        case "App\\Events\\UserUnbannedEvent":
-          get().handleUserUnbanned(chatroom.id, parsedEvent);
-          get().addMessage(chatroom.id, {
-            id: crypto.randomUUID(),
-            type: "mod_action",
-            modAction: parsedEvent?.permanent ? "unbanned" : "removed_timeout",
-            modActionDetails: parsedEvent,
-            ...parsedEvent,
-            timestamp: new Date().toISOString(),
-          });
-          break;
-      }
-    });
-
-    // connect to Pusher after getting initial data
-    pusher.connect();
-
-    // Pre-cache current user info for instant optimistic messaging
-    if (!get().currentUser) {
-      get().cacheCurrentUser().catch(console.error);
-    }
-
-    if (pusher.chat.OPEN) {
-      const channel7TVEmotes = await window.app.stv.getChannelEmotes(chatroom.streamerData.user_id);
-
-      if (channel7TVEmotes) {
-        const seenEmoteNames = new Set();
-
-        // Remove duplicate emotes across all sets
-        channel7TVEmotes.forEach((set) => {
-          set.emotes = set.emotes.filter((emote) => {
-            if (seenEmoteNames.has(emote.name)) {
-              return false; // Skip duplicate
-            }
-            seenEmoteNames.add(emote.name);
-            return true; // Keep first seen instance
-          });
-        });
-
-        seenEmoteNames.clear();
-
-        const savedChatrooms = JSON.parse(localStorage.getItem("chatrooms")) || [];
-        const updatedChatrooms = savedChatrooms.map((room) => (room.id === chatroom.id ? { ...room, channel7TVEmotes } : room));
-
-        localStorage.setItem("chatrooms", JSON.stringify(updatedChatrooms));
-
-        set((state) => ({
-          chatrooms: state.chatrooms.map((room) => (room.id === chatroom.id ? { ...room, channel7TVEmotes } : room)),
-        }));
-      }
-    }
-
-    // TOOD: Cleanup promise.allSettled
-
-    const fetchInitialUserChatroomInfo = async () => {
-      const response = await window.app.kick.getSelfChatroomInfo(chatroom?.streamerData?.slug);
-
-      if (!response?.data) {
-        console.log("[Initial UserIcon Chatroom InfoIcon]: No data received, skipping update");
-        return;
-      }
-
-      set((state) => ({
-        chatrooms: state.chatrooms.map((room) => {
-          if (room.id === chatroom.id) {
-            return {
-              ...room,
-              userChatroomInfo: response.data,
-            };
-          }
-          return room;
-        }),
-      }));
-    };
-
-    fetchInitialUserChatroomInfo();
-
-    const fetchEmotes = async () => {
-      console.log("[Kick Emotes]: Fetching emotes for chatroom:", chatroom?.streamerData?.slug);
-      const data = await window.app.kick.getEmotes(chatroom?.streamerData?.slug);
-      const currentChatroom = get().chatrooms.find((room) => room.id === chatroom.id);
-
-      let sevenTVEmoteNames = new Set();
-      await currentChatroom?.channel7TVEmotes.forEach((set) => {
-        set.emotes.forEach((emote) => {
-          if (emote.name) sevenTVEmoteNames.add(emote.name);
-        });
-      });
-
-      let removedEmotes = [];
-
-      if (Array.isArray(data)) {
-        data.forEach((set) => {
-          set.emotes = set.emotes.filter((emote) => {
-            if (sevenTVEmoteNames.has(emote.name)) {
-              removedEmotes.push({ id: emote.id, name: emote.name, owner: emote.owner });
-              return false;
-            }
-            return true;
-          });
-        });
-      }
-
-      set((state) => ({
-        chatrooms: state.chatrooms.map((room) => {
-          if (room.id === chatroom.id) {
-            return { ...room, emotes: data };
-          }
-          return room;
-        }),
-      }));
-      sevenTVEmoteNames.clear();
-    };
-
-    fetchEmotes();
-
-    // Fetch Initial Chatroom InfoIcon
-    const fetchInitialChatroomInfo = async () => {
-      const chatroomData = await window.app.kick.getChannelChatroomInfo(chatroom?.streamerData?.slug);
-
-      if (!chatroomData) {
-        console.log("[Initial Chatroom InfoIcon]: No data received, skipping update");
-        return;
-      }
-
-      console.log('[Initial Chatroom InfoIcon]: Received chatroom info', {
-        chatroomId: chatroom.id,
-        slug: chatroom?.streamerData?.slug,
-        chat_mode: chatroomData?.chatroom?.chat_mode,
-        emotes_mode: chatroomData?.chatroom?.emotes_mode,
-        followers_mode: chatroomData?.chatroom?.followers_mode,
-        subscribers_mode: chatroomData?.chatroom?.subscribers_mode,
-        account_age: chatroomData?.chatroom?.account_age,
-        slow_mode: chatroomData?.chatroom?.slow_mode,
-      });
-
-      get().setInitialChatroomInfo(chatroom.id, chatroomData);
-    };
-
-    fetchInitialChatroomInfo();
-
-    // Fetch initial messages
-    const fetchInitialMessages = async () => {
-      const response = await window.app.kick.getInitialChatroomMessages(chatroom.streamerData.id);
-
-      if (!response?.data?.data) {
-        console.log("[Initial Messages]: No data received, skipping update");
-        return;
-      }
-
-      const data = response.data.data;
-
-      // Handle initial pinned message
-      if (data?.pinned_message) {
-        get().handlePinnedMessageCreated(chatroom.id, data.pinned_message);
-      } else {
-        get().handlePinnedMessageDeleted(chatroom.id);
-      }
-
-      // Add initial messages to the chatroom
-      if (data?.messages) {
-        get().addInitialChatroomMessages(chatroom.id, data.messages.reverse());
-      }
-    };
-
-    fetchInitialMessages();
-
-    const fetchInitialPollInfo = async () => {
-      const response = await window.app.kick.getInitialPollInfo(chatroom?.streamerData?.slug);
-
-      if (!response) {
-        console.log("[Initial Poll InfoIcon]: No response received, skipping update");
-        return;
-      }
-
-      if (response.data?.status?.code === 404) {
-        get().handlePollDelete(chatroom.id);
-      }
-
-      if (response.data?.status?.code === 200) {
-        get().handlePollUpdate(chatroom.id, response.data?.data?.poll);
-      }
-    };
-
-    fetchInitialPollInfo();
-
-    set((state) => ({
-      connections: {
-        ...state.connections,
-        [chatroom.id]: {
-          ...state.connections[chatroom.id],
-          kickPusher: pusher,
-        },
-      },
-    }));
-  },
 
   // Fetch and cache donators list from API
   fetchDonators: async () => {
@@ -1360,72 +853,41 @@ const useChatStore = create((set, get) => ({
 
       // Create new connection manager
       connectionManager = new ConnectionManager();
+      set({ kickConnectionStates: {} });
+      if (!get().currentUser) get().cacheCurrentUser().catch(console.error);
 
     // Set up event handlers for the shared connections
     const eventHandlers = {
-      // KickPusher event handlers
+      // Main-owned realtime event handlers
       onKickMessage: (event) => {
         try {
           const { chatroomId } = event.detail;
           if (chatroomId) {
-            get().handleKickMessage(chatroomId, event.detail);
+            void get().handleKickMessage(chatroomId, event.detail).catch(() => {
+              console.error("[ChatProvider] Unable to process Kick publication");
+            });
           }
         } catch (error) {
-          console.error("[ChatProvider] Error handling kick message:", error);
+          console.error("[ChatProvider] Unable to process Kick message event");
         }
       },
       onKickChannel: (event) => {
         try {
           const { chatroomId } = event.detail;
           if (chatroomId) {
-            get().handleKickChannel(chatroomId, event.detail);
-          }
-        } catch (error) {
-          console.error("[ChatProvider] Error handling kick channel event:", error);
-        }
-      },
-      onKickRaw: (event) => {
-        try {
-          const { chatroomId, event: wsEvent, channel } = event.detail || {};
-          if (chatroomId && wsEvent) {
-            // Wide-net telemetry for unknown/mapped events
-            window.app?.telemetry?.recordError?.(new Error('Kick raw event'), {
-              component: 'kick_websocket_shared',
-              operation: 'raw_event',
-              websocket_event: wsEvent,
-              websocket_channel: channel,
-              chatroom_id: chatroomId,
+            void get().handleKickChannel(chatroomId, event.detail).catch(() => {
+              console.error("[ChatProvider] Unable to process Kick channel publication");
             });
           }
         } catch (error) {
-          console.error("[ChatProvider] Error handling kick raw event:", error);
+          console.error("[ChatProvider] Unable to process Kick channel event");
         }
       },
-      onKickConnection: (event) => {
+      onKickConnectionState: (event) => {
         try {
           get().handleKickConnection(event.detail);
         } catch (error) {
           console.error("[ChatProvider] Error handling kick connection:", error);
-        }
-      },
-      onKickSubscriptionSuccess: (event) => {
-        try {
-          const { chatroomId } = event.detail;
-          if (chatroomId) {
-            console.log(`[ChatProvider] Subscription successful for chatroom: ${chatroomId}`);
-            // Use setTimeout to prevent immediate state update loops
-            setTimeout(() => {
-              get().addMessage(chatroomId, {
-                id: crypto.randomUUID(),
-                type: "system",
-                content: "connection-success",
-                chatroomNumber: chatroomId,
-                timestamp: new Date().toISOString(),
-              });
-            }, 0);
-          }
-        } catch (error) {
-          console.error("[ChatProvider] Error handling kick subscription success:", error);
         }
       },
       // 7TV event handlers
@@ -1480,17 +942,6 @@ const useChatStore = create((set, get) => ({
           console.error("[ChatProvider] Error handling 7TV connection:", error);
         }
       },
-      onChatroomUpdated: (event) => {
-        try {
-          const { chatroomId, data } = event.detail;
-          if (chatroomId && data) {
-            console.log('[ChatProvider] Received chatroom update from shared connection:', { chatroomId, data });
-            get().handleChatroomUpdated(chatroomId, data);
-          }
-        } catch (error) {
-          console.error("[ChatProvider] Error handling chatroom update:", error);
-        }
-      },
     };
 
       try {
@@ -1505,6 +956,28 @@ const useChatStore = create((set, get) => ({
           handleChatroomUpdated: get().handleChatroomUpdated,
           updateChannel7TVEmotes: get().setChatroomChannel7TVEmotes,
           setInitialChatroomInfo: get().setInitialChatroomInfo,
+          setKickEmotes: (roomId, emotes) => {
+            set((state) => ({
+              chatrooms: state.chatrooms.map((room) => {
+                if (String(room.id) !== String(roomId)) return room;
+                const names = new Set((room.channel7TVEmotes || [])
+                  .flatMap((set) => set.emotes || []).map((emote) => emote.name));
+                const filtered = Array.isArray(emotes) ? emotes.map((set) => ({
+                  ...set,
+                  emotes: (set.emotes || []).filter((emote) => !names.has(emote.name)),
+                })) : emotes;
+                return { ...room, emotes: filtered };
+              }),
+            }));
+            localStorage.setItem("chatrooms", JSON.stringify(get().chatrooms));
+          },
+          setUserChatroomInfo: (roomId, userChatroomInfo) => set((state) => ({
+            chatrooms: state.chatrooms.map((room) => String(room.id) === String(roomId)
+              ? { ...room, userChatroomInfo }
+              : room),
+          })),
+          handlePollUpdate: get().handlePollUpdate,
+          handlePollDelete: get().handlePollDelete,
         };
 
         // Initialize connections with the new manager
@@ -1513,10 +986,6 @@ const useChatStore = create((set, get) => ({
         console.log("[ChatProvider] ✅ Optimized connection initialization completed!");
         console.log("[ChatProvider] 📊 Connection status:", connectionManager.getConnectionStatus());
 
-        // Show performance comparison in console
-        console.log("[ChatProvider] 🚀 Performance improvement:");
-        console.log(`  - WebSocket connections: ${chatrooms.length * 2} → 2 (${((chatrooms.length * 2 - 2) / (chatrooms.length * 2) * 100).toFixed(1)}% reduction)`);
-        console.log(`  - Expected startup time improvement: ~75% faster`);
 
         try {
           const refreshedChatrooms = get().chatrooms;
@@ -1544,36 +1013,21 @@ const useChatStore = create((set, get) => ({
         }
 
       } catch (error) {
-        console.error("[ChatProvider] ❌ Error during optimized initialization:", error);
-        // Fallback to individual connections if shared connections fail
-        console.log("[ChatProvider] 🔄 Falling back to individual connections...");
-        get().initializeIndividualConnections();
+        console.error("[ChatProvider] Error initializing shared connections:", error);
       }
     } finally {
       initializationInProgress = false;
     }
   },
 
-  // Fallback method for individual connections (existing behavior)
-  initializeIndividualConnections: () => {
-    console.log("[ChatProvider] Initializing individual connections (fallback)...");
-
-    get()?.chatrooms?.forEach((chatroom) => {
-      if (!get().connections[chatroom.id]) {
-        // Connect to chatroom
-        get().connectToChatroom(chatroom);
-
-        // Connect to 7TV WebSocket - DEPRECATED: Now handled by shared connections
-        // get().connectToStvWebSocket(chatroom);
-      }
-    });
-  },
 
   // Shared connection event handlers
   handleKickMessage: async (chatroomId, eventDetail) => {
     const parsedEvent = JSON.parse(eventDetail.data);
+    if (!get().chatrooms.some((room) => String(room.id) === String(chatroomId))) return;
+    const eventName = eventDetail.event.split("\\").pop();
 
-    if (eventDetail.event === "App\\Events\\ChatMessageEvent") {
+    if (eventName === "ChatMessageEvent") {
       // Normalize celebration → subscription support message (Kick sometimes
       // emits subscription signals as ChatMessageEvent with type "celebration")
       try {
@@ -1628,6 +1082,7 @@ const useChatStore = create((set, get) => ({
 
       // Get batching settings
       const settings = await window.app.store.get("chatrooms");
+      if (!get().chatrooms.some((room) => String(room.id) === String(chatroomId))) return;
       const batchingSettings = {
         enabled: settings?.batching ?? false,
         interval: settings?.batchingInterval ?? 0,
@@ -1707,55 +1162,55 @@ const useChatStore = create((set, get) => ({
           }, batchingSettings.interval);
         }
       }
-    } else if (eventDetail.event === "App\\Events\\MessageDeletedEvent") {
+    } else if (eventName === "MessageDeletedEvent") {
       get().handleMessageDelete(chatroomId, parsedEvent.message.id);
-    } else if (eventDetail.event === "App\\Events\\UserBannedEvent") {
-      get().handleUserBanned(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "App\\Events\\UserUnbannedEvent") {
-      get().handleUserUnbanned(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "App\\Events\\SubscriptionEvent") {
-      get().handleSubscriptionEvent(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "App\\Events\\ChannelSubscriptionEvent") {
-      get().handleChannelSubscriptionEvent(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "RewardRedeemedEvent") {
-      get().handleRewardRedeemedEvent(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "GiftedSubscriptionsEvent") {
-      get().handleGiftedSubscriptionsEvent(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "App\\Events\\LuckyUsersWhoGotGiftSubscriptionsEvent") {
-      get().handleLuckyUsersGiftSubscriptionEvent(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "App\\Events\\StreamHostedEvent") {
-      get().handleStreamHostedEvent(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "App\\Events\\StreamHostEvent") {
-      get().handleStreamHostEvent(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "App\\Events\\ChatMoveToSupportedChannelEvent") {
-      get().handleChatMoveToSupportedChannelEvent(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "GoalProgressUpdateEvent") {
-      get().handleGoalProgressUpdateEvent(chatroomId, parsedEvent);
-    } else if (eventDetail.event === "KicksGifted") {
-      get().handleKicksGiftEvent(chatroomId, parsedEvent);
+    } else if (eventName === "UserBannedEvent") {
+      await get().handleUserBanned(chatroomId, parsedEvent);
+    } else if (eventName === "UserUnbannedEvent") {
+      await get().handleUserUnbanned(chatroomId, parsedEvent);
+    } else if (eventName === "SubscriptionEvent") {
+      await get().handleSubscriptionEvent(chatroomId, parsedEvent);
+    } else if (eventName === "ChannelSubscriptionEvent") {
+      await get().handleChannelSubscriptionEvent(chatroomId, parsedEvent);
+    } else if (eventName === "RewardRedeemedEvent") {
+      await get().handleRewardRedeemedEvent(chatroomId, parsedEvent);
+    } else if (eventName === "GiftedSubscriptionsEvent") {
+      await get().handleGiftedSubscriptionsEvent(chatroomId, parsedEvent);
+    } else if (eventName === "LuckyUsersWhoGotGiftSubscriptionsEvent") {
+      await get().handleLuckyUsersGiftSubscriptionEvent(chatroomId, parsedEvent);
+    } else if (eventName === "StreamHostedEvent") {
+      await get().handleStreamHostedEvent(chatroomId, parsedEvent);
+    } else if (eventName === "StreamHostEvent") {
+      await get().handleStreamHostEvent(chatroomId, parsedEvent);
+    } else if (eventName === "ChatMoveToSupportedChannelEvent") {
+      await get().handleChatMoveToSupportedChannelEvent(chatroomId, parsedEvent);
+    } else if (eventName === "GoalProgressUpdateEvent") {
+      await get().handleGoalProgressUpdateEvent(chatroomId, parsedEvent);
+    } else if (eventName === "KicksGifted") {
+      await get().handleKicksGiftEvent(chatroomId, parsedEvent);
     }
   },
 
-  handleKickChannel: (chatroomId, eventDetail) => {
+  handleKickChannel: async (chatroomId, eventDetail) => {
     const parsedEvent = JSON.parse(eventDetail.data);
+    if (!get().chatrooms.some((room) => String(room.id) === String(chatroomId))) return;
 
-    switch (eventDetail.event) {
-      case "App\\Events\\LivestreamUpdated":
+    switch (eventDetail.event.split("\\").pop()) {
+      case "LivestreamUpdated":
         get().handleStreamStatus(chatroomId, parsedEvent, true);
         break;
-      case "App\\Events\\ChatroomUpdatedEvent":
-        console.log('[WebSocket] ChatroomUpdatedEvent received (handler 2):', { chatroomId, parsedEvent });
+      case "ChatroomUpdatedEvent":
         get().handleChatroomUpdated(chatroomId, parsedEvent);
         break;
-      case "App\\Events\\StreamerIsLive": {
-        console.log("Streamer is live", parsedEvent);
+      case "StreamerIsLive": {
         get().handleStreamStatus(chatroomId, parsedEvent, true);
+        if (!(await shouldDisplayChatEvent("streamStatus"))) break;
         // Add stream start message to chat
         const chatroom = get().chatrooms.find(c => c.id === chatroomId);
         const streamLiveMessage = {
           id: crypto.randomUUID(),
           type: "stream_live",
-          content: "",
+          content: "Stream started",
           timestamp: new Date().toISOString(),
           sender: {
             id: "system",
@@ -1771,15 +1226,15 @@ const useChatStore = create((set, get) => ({
         get().addMessage(chatroomId, streamLiveMessage);
         break;
       }
-      case "App\\Events\\StopStreamBroadcast": {
-        console.log("Streamer is offline", parsedEvent);
+      case "StopStreamBroadcast": {
         get().handleStreamStatus(chatroomId, parsedEvent, false);
+        if (!(await shouldDisplayChatEvent("streamStatus"))) break;
         // Add stream end message to chat  
         const chatroom = get().chatrooms.find(c => c.id === chatroomId);
         const streamEndMessage = {
           id: crypto.randomUUID(),
           type: "stream_end",
-          content: "",
+          content: "Stream ended",
           timestamp: new Date().toISOString(),
           sender: {
             id: "system",
@@ -1795,36 +1250,51 @@ const useChatStore = create((set, get) => ({
         get().addMessage(chatroomId, streamEndMessage);
         break;
       }
-      case "App\\Events\\PinnedMessageCreatedEvent":
+      case "PinnedMessageCreatedEvent":
         get().handlePinnedMessageCreated(chatroomId, parsedEvent);
         break;
-      case "App\\Events\\PinnedMessageDeletedEvent":
+      case "PinnedMessageDeletedEvent":
         get().handlePinnedMessageDeleted(chatroomId);
         break;
-      case "App\\Events\\PollUpdateEvent":
-        console.log("Poll update event:", parsedEvent);
+      case "PollUpdateEvent":
         get().handlePollUpdate(chatroomId, parsedEvent?.poll);
         break;
-      case "App\\Events\\PollDeleteEvent":
+      case "PollDeleteEvent":
         get().handlePollDelete(chatroomId);
-        break;
-      case "KicksGifted":
-        get().handleKicksGiftEvent(chatroomId, parsedEvent);
         break;
     }
   },
 
   handleKickConnection: (eventDetail) => {
-    const { chatrooms } = eventDetail;
-    if (chatrooms) {
-      chatrooms.forEach(chatroomId => {
-        get().addMessage(chatroomId, {
-          id: crypto.randomUUID(),
-          type: "system",
-          content: eventDetail.content,
-          chatroomNumber: chatroomId,
-          timestamp: new Date().toISOString(),
-        });
+    const { chatroomId, state, attempt, reason, code } = eventDetail;
+    const key = String(chatroomId);
+    const chatroom = get().chatrooms.find((room) => String(room.id) === key);
+    if (!chatroom) return;
+    const previous = get().kickConnectionStates[key];
+    set((store) => ({
+      kickConnectionStates: {
+        ...store.kickConnectionStates,
+        [key]: { state, attempt, ...(reason ? { reason } : {}), ...(code != null ? { code } : {}) },
+      },
+    }));
+    // Routine notices live in the tab status indicator, including terminal failure.
+    // Reconcile modes and livestream state only when the primary subscription is ready.
+    if (state === "connected" && previous?.state !== "connected") {
+      const activeRoom = connectionManager?.chatrooms.get(key);
+      if (activeRoom) void connectionManager.fetchInitialChatroomInfo(activeRoom);
+    }
+  },
+
+  retryKickConnection: async (roomId) => {
+    try {
+      if (!connectionManager) await get().initializeConnections();
+      await connectionManager?.kickRealtime.retry(roomId);
+    } catch {
+      get().handleKickConnection({
+        chatroomId: roomId,
+        state: "failed",
+        attempt: get().kickConnectionStates[String(roomId)]?.attempt || 0,
+        reason: "Realtime retry unavailable",
       });
     }
   },
@@ -2190,11 +1660,13 @@ const useChatStore = create((set, get) => ({
         chatrooms: [...state.chatrooms, newChatroom],
       }));
 
-      // Connect to chatroom
-      get().connectToChatroom(newChatroom);
-
-      // Connect to 7TV WebSocket - DEPRECATED: Now handled by shared connections
-      // get().connectToStvWebSocket(newChatroom);
+      // Every new tab joins the same main-owned desired subscription set.
+      if (connectionManager) {
+        void connectionManager.addChatroom(newChatroom);
+        void connectionManager.fetchChatroomEmotes(newChatroom);
+      } else {
+        void get().initializeConnections();
+      }
 
       // Save to local storage
       localStorage.setItem("chatrooms", JSON.stringify([...savedChatrooms, newChatroom]));
@@ -2287,19 +1759,6 @@ const useChatStore = create((set, get) => ({
       connectionManager.removeChatroom(chatroomId);
     }
     
-    // Clean up any individual connections in state (works for both pooled and individual modes)
-    const { connections } = get();
-    const connection = connections[chatroomId];
-    const stvSocket = connection?.stvSocket;
-    const kickPusher = connection?.kickPusher;
-
-    if (stvSocket) {
-      stvSocket.close();
-    }
-
-    if (kickPusher) {
-      kickPusher.close();
-    }
 
     // Clean up batching system
     if (window.__chatMessageBatch?.[chatroomId]) {
@@ -2317,13 +1776,13 @@ const useChatStore = create((set, get) => ({
 
     set((state) => {
       const { [chatroomId]: _, ...messages } = state.messages;
-      const { [chatroomId]: __, ...connections } = state.connections;
+      const { [String(chatroomId)]: __, ...kickConnectionStates } = state.kickConnectionStates;
       const { [chatroomId]: ___, ...mentions } = state.mentions;
 
       return {
         chatrooms: state.chatrooms.filter((room) => room.id !== chatroomId),
         messages,
-        connections,
+        kickConnectionStates,
         mentions,
         splitPaneChatrooms: (state.splitPaneChatrooms || []).filter(
           (id) => !safeChatroomIdMatch(id, chatroomId, 'removeChatroom'),
@@ -2695,28 +2154,34 @@ const useChatStore = create((set, get) => ({
   },
 
   handleStreamStatus: (chatroomId, event, isLive) => {
-    const currentChatroom = get().chatrooms.find((room) => room.id === chatroomId);
+    const currentChatroom = get().chatrooms.find((room) => String(room.id) === String(chatroomId));
+    if (!currentChatroom) return;
     const updatedChatroom = {
       ...currentChatroom,
       isStreamerLive: isLive,
       streamerData: {
         ...currentChatroom.streamerData,
-        livestream: event?.livestream ? { ...currentChatroom.streamerData?.livestream, ...event?.livestream } : null,
+        livestream: isLive && event?.livestream
+          ? { ...currentChatroom.streamerData?.livestream, ...event.livestream }
+          : null,
       },
     };
 
     set((state) => ({
       chatrooms: state.chatrooms.map((room) => {
-        if (room.id === chatroomId) {
+        if (String(room.id) === String(chatroomId)) {
           return updatedChatroom;
         }
         return room;
       }),
     }));
+    if (connectionManager?.chatrooms.has(String(chatroomId))) {
+      void connectionManager.kickRealtime.addChatroom(updatedChatroom);
+    }
 
     // Update local storage with the updated chatroom
     const savedChatrooms = JSON.parse(localStorage.getItem("chatrooms")) || [];
-    const updatedChatrooms = savedChatrooms.map((room) => (room.id === chatroomId ? updatedChatroom : room));
+    const updatedChatrooms = savedChatrooms.map((room) => (String(room.id) === String(chatroomId) ? updatedChatroom : room));
     localStorage.setItem("chatrooms", JSON.stringify(updatedChatrooms));
   },
 
@@ -4367,9 +3832,6 @@ if (window.location.pathname === "/" || window.location.pathname.endsWith("index
 // Expose debug functions globally in development
 if (process.env.NODE_ENV === 'development') {
   window.debugKickTalk = {
-    toggleStreamStatus: (chatroomId, isLive) => {
-      useChatStore.getState().debugToggleStreamStatus(chatroomId, isLive);
-    },
     getChatrooms: () => {
       return useChatStore.getState().chatrooms.map(room => ({
         id: room.id,
@@ -4384,7 +3846,6 @@ if (process.env.NODE_ENV === 'development') {
       return useChatStore.getState().get7TVStatus();
     },
     getConnectionManager: () => useChatStore.getState().getConnectionManagerInstance(),
-    getSharedKickPusher: () => useChatStore.getState().getSharedKickPusher(),
   };
 }
 

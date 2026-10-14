@@ -125,7 +125,9 @@ try {
   await verify(renderer, rendererIds, 'kicktalk-renderer');
   if (args.has('--main')) {
     main = await connect(9230, target => !!target.webSocketDebuggerUrl);
-    const mainIds = await main.evaluate(probe("require('@opentelemetry/api')"));
+    const moduleUrl = JSON.stringify(new URL('../out/main/index.js', import.meta.url).href);
+    const mainApi = `process.getBuiltinModule('module').createRequire(${moduleUrl})('@opentelemetry/api')`;
+    const mainIds = await main.evaluate(probe(mainApi));
     await verify(renderer, mainIds, 'kicktalk');
   }
   console.log('OTEL smoke passed. Controlled exception spans above are intentional.');

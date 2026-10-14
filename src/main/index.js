@@ -47,6 +47,10 @@ try {
 } catch {}
 
 const { app, shell, BrowserWindow, ipcMain, screen, session, Tray, Menu, dialog } = require("electron");
+import { KickRealtimeController } from "./services/kickRealtime.cjs";
+import { createRealtimeSessionProvider } from "./services/kickRealtimeSession.cjs";
+const { trace } = require("@opentelemetry/api");
+const { pathToFileURL } = require("node:url");
 const appVersion = app.getVersion();
 // Resource detection happens during SDK startup, not after it.
 const resourceAttributes = (process.env.OTEL_RESOURCE_ATTRIBUTES || '')
@@ -362,6 +366,56 @@ const authStore = new Store({
   },
 });
 
+const kickRealtime = new KickRealtimeController({
+  getSession: createRealtimeSessionProvider(authStore),
+  emit: (event) => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("kick:realtime:event", event);
+    }
+  },
+  telemetry: (event) => {
+    if (!isTelemetryEnabled()) return;
+    const attributes = {
+      ...(event.chatroomId !== undefined && { "kick.realtime.room_id": event.chatroomId }),
+      "kick.realtime.state": event.state,
+      ...(event.attempt !== undefined && { "kick.realtime.attempt": event.attempt }),
+      ...(event.reason && { "kick.realtime.reason": event.reason }),
+      ...(event.code !== undefined && { "kick.realtime.code": event.code }),
+      ...(event.channel && { "kick.realtime.channel": event.channel }),
+    };
+    const span = trace.getTracer("kicktalk.realtime").startSpan(`kick.realtime.${event.kind}`, { attributes });
+    span.end();
+    if (event.state === "failed") metrics.recordConnectionError(event.reason || "realtime_failed", event.chatroomId);
+    if (event.state === "reconnecting") metrics.recordReconnection(event.chatroomId, event.reason);
+  },
+});
+
+const requireMainRealtimeSender = (event) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame) {
+    throw new Error("Realtime control is restricted to the main renderer");
+  }
+  const rendererUrl = new URL(event.senderFrame.url);
+  if (isDev && process.env.ELECTRON_RENDERER_URL) {
+    const expected = new URL(process.env.ELECTRON_RENDERER_URL);
+    if (rendererUrl.origin !== expected.origin || rendererUrl.pathname !== expected.pathname) {
+      throw new Error("Invalid realtime renderer");
+    }
+  } else if (rendererUrl.protocol !== "file:" || rendererUrl.pathname !== pathToFileURL(join(__dirname, "../renderer/index.html")).pathname) {
+    throw new Error("Invalid realtime renderer");
+  }
+};
+
+ipcMain.handle("kick:realtime:set-rooms", (event, rooms) => {
+  requireMainRealtimeSender(event);
+  return kickRealtime.setRooms(rooms);
+});
+ipcMain.handle("kick:realtime:retry", (event, roomId) => {
+  requireMainRealtimeSender(event);
+  return kickRealtime.retry(roomId);
+});
+app.on("before-quit", () => kickRealtime.close());
+
 ipcMain.setMaxListeners(100);
 
 const userLogsStore = new Map(); // User logs by chatroom
@@ -462,6 +516,7 @@ const retrieveToken = async (token_name) => {
 
 const clearAuthTokens = async () => {
   try {
+    kickRealtime.close();
     authStore.clear();
     await session.defaultSession.clearStorageData({
       storages: ["cookies"],
@@ -1170,6 +1225,9 @@ const createWindow = () => {
     },
   });
 
+  mainWindow.webContents.once("destroyed", () => kickRealtime.close());
+  mainWindow.webContents.on("render-process-gone", () => kickRealtime.close());
+
   mainWindow.setThumbarButtons([
     {
       icon: iconPath,
@@ -1319,6 +1377,7 @@ const loginToKick = async (method) => {
 
         loginDialog.close();
         authDialog.close();
+        kickRealtime.close();
         mainWindow.webContents.reload();
 
         resolve(true);
@@ -1470,11 +1529,11 @@ ipcMain.handle("logout", () => {
       buttons: ["Yes", "Cancel"],
     })
     // Dialog returns a promise so let's handle it correctly
-    .then((result) => {
+    .then(async (result) => {
       if (result.response !== 0) return;
 
       if (result.response === 0) {
-        clearAuthTokens();
+        await clearAuthTokens();
         mainWindow.webContents.reload();
         settingsDialog.close();
       }

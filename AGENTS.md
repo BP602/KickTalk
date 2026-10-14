@@ -2,6 +2,14 @@
 
 `AGENTS.md` is the sole maintained repository instruction file. Edit it directly; do not add duplicate instruction files or synchronization workflows.
 
+## Project direction
+
+- `BP602/KickTalk` is an independently maintained breakaway project. Product decisions, fixes and releases are owned here; this is not a staging fork for contributions to `KickTalkOrg/KickTalk`.
+- Default to this repository's development and release workflow. Internal PRs may be used for review; do not plan upstream PRs, rebases or automatic upstream synchronization unless the user explicitly selects that work.
+- Preserve original attribution, applicable licenses and Git history. Historical upstream comparisons and retained reference checkouts do not create an integration obligation.
+- GitHub's fork-network designation is a separate administrative matter. Do not delete/recreate the repository, discard repository metadata, alter someone else's child fork, or remove preserved local refs/checkouts merely to remove the fork label. Detachment requires a preservation plan and explicit approval of any irreversible effects.
+
+
 ## Project planning and maintenance
 
 - Task board: [KickTalk restart](https://github.com/users/BP602/projects/1/views/1), owned by `BP602`, project `1`. Use it as the source of truth for selected work, priorities, dependencies, and completion evidence.
@@ -100,10 +108,11 @@ GIT_IDENTITY_ACCOUNT=bp602 gh project field-list 1 --owner BP602 --format json
 
 ## Testing
 
-- Status: no formal unit tests configured.
-- If adding tests: use Vitest + React Testing Library.
-- Naming: `Component.test.jsx`; colocate next to file or use `__tests__/`.
-- Guidance: keep tests fast/deterministic; mock Electron bridges.
+- Runner: Vitest. Run `npm run test:realtime` for the controller, IPC adapter, room-manager/7TV routing and collector/analyzer suites in `tests/kickRealtime.test.js`, `tests/kickRealtimeClient.test.js`, `tests/connectionManager.test.js` and `tests/eventAnalyzer.test.js`.
+- Transport fixtures use real loopback HTTP/WebSocket traffic and synthetic credentials; tests must not access Kick or a saved account.
+- For React component tests, use React Testing Library with Vitest. Naming: `Component.test.jsx`; colocate or use `__tests__/`.
+- Keep tests deterministic and isolated; stub Electron bridges only at their public seam.
+- Live sends, deletions and moderation require explicit approval for the exact account, room and action. Verify the target immediately before the mutation; never infer it from an asynchronously changing active composer or automatically retry a live test message.
 
 ## Dev & Build
 

@@ -1,4 +1,4 @@
-import SharedKickPusher from "./kick/sharedKickPusher.js";
+import KickRealtimeClient from "./kick/kickRealtimeClient.js";
 import SharedStvWebSocket from "./seventv/sharedStvWebSocket.js";
 
 // OpenTelemetry instrumentation
@@ -22,7 +22,10 @@ try {
 
 class ConnectionManager {
   constructor() {
-    this.kickPusher = new SharedKickPusher();
+    this.kickRealtime = new KickRealtimeClient();
+    this.chatrooms = new Map();
+    this.handlerCleanups = [];
+    this.closed = false;
     this.stvWebSocket = new SharedStvWebSocket();
     this.initializationInProgress = false;
     this.emoteCache = new Map(); // Cache for global/common emotes
@@ -68,14 +71,16 @@ class ConnectionManager {
       this.setupEventHandlers(eventHandlers);
       span.addEvent('setup_event_handlers_complete');
 
-      // Start shared connections
-      span.addEvent('shared_connections_start');
-      await this.startSharedConnections();
-      span.addEvent('shared_connections_complete');
+      // Register every Kick room before starting optional 7TV work.
+      this.chatrooms = new Map(chatrooms.map((room) => [String(room.id), room]));
+      await this.kickRealtime.setRooms(chatrooms);
+      if (this.closed) return;
+      this.startSharedConnections();
 
       // Initialize chatrooms in staggered batches
       span.addEvent('chatroom_batches_start');
       await this.initializeChatroomsInBatches(chatrooms);
+      if (this.closed) return;
       span.addEvent('chatroom_batches_complete');
 
       // Batch fetch emotes
@@ -98,100 +103,27 @@ class ConnectionManager {
   }
 
   setupEventHandlers(handlers) {
-    // Set up KickPusher event handlers
-    if (handlers.onKickMessage) {
-      this.kickPusher.addEventListener("message", handlers.onKickMessage);
-    }
-    if (handlers.onKickChannel) {
-      this.kickPusher.addEventListener("channel", handlers.onKickChannel);
-    }
-    if (handlers.onKickRaw) {
-      this.kickPusher.addEventListener("raw", handlers.onKickRaw);
-    }
-    if (handlers.onKickConnection) {
-      this.kickPusher.addEventListener("connection", handlers.onKickConnection);
-    }
-    if (handlers.onKickSubscriptionSuccess) {
-      this.kickPusher.addEventListener("subscription_success", handlers.onKickSubscriptionSuccess);
-    }
-    if (handlers.onChatroomUpdated) {
-      this.kickPusher.addEventListener("chatroom-updated", handlers.onChatroomUpdated);
-    }
-
-    // Set up 7TV event handlers
-    if (handlers.onStvMessage) {
-      console.log(`[ConnectionManager] Registering onStvMessage handler`);
-      this.stvWebSocket.addEventListener("message", handlers.onStvMessage);
-    } else {
-      console.warn(`[ConnectionManager] No onStvMessage handler provided!`);
-    }
-    if (handlers.onStvOpen) {
-      console.log(`[ConnectionManager] Registering onStvOpen handler`);
-      this.stvWebSocket.addEventListener("open", handlers.onStvOpen);
-    }
-    if (handlers.onStvConnection) {
-      console.log(`[ConnectionManager] Registering onStvConnection handler`);
-      this.stvWebSocket.addEventListener("connection", handlers.onStvConnection);
-    }
+    this.handlerCleanups.forEach((cleanup) => cleanup());
+    this.handlerCleanups = [];
+    const listen = (target, name, handler) => {
+      if (!handler) return;
+      target.addEventListener(name, handler);
+      this.handlerCleanups.push(() => target.removeEventListener(name, handler));
+    };
+    listen(this.kickRealtime, "message", handlers.onKickMessage);
+    listen(this.kickRealtime, "channel", handlers.onKickChannel);
+    listen(this.kickRealtime, "connection-state", handlers.onKickConnectionState);
+    listen(this.stvWebSocket, "message", handlers.onStvMessage);
+    listen(this.stvWebSocket, "open", handlers.onStvOpen);
+    listen(this.stvWebSocket, "connection", handlers.onStvConnection);
   }
 
-  async startSharedConnections() {
-    const span = tracer.startSpan('connection_manager.shared_connections', {
-      attributes: {
-        'connection.kick.enabled': true,
-        'connection.7tv.enabled': true,
-        'connection.timeout_ms': 10000
-      }
-    });
-
-    console.log("[ConnectionManager] Starting shared connections...");
-    span.addEvent('shared_connections_start');
-
+  startSharedConnections() {
+    // 7TV is optional: neither its readiness nor failure gates Kick receive.
     try {
-      // Start both connections in parallel
-      const kickPromise = new Promise((resolve) => {
-        const onConnection = (event) => {
-          if (event.detail.content === "connection-success") {
-            this.kickPusher.removeEventListener("connection", onConnection);
-            span.addEvent('kick_connection_success');
-            resolve();
-          }
-        };
-        this.kickPusher.addEventListener("connection", onConnection);
-        span.addEvent('kick_connection_attempt');
-        this.kickPusher.connect();
-      });
-
-      const stvPromise = new Promise((resolve) => {
-        const onConnection = (event) => {
-          if (event.detail.content === "connection-success") {
-            this.stvWebSocket.removeEventListener("connection", onConnection);
-            span.addEvent('7tv_connection_success');
-            resolve();
-          }
-        };
-        this.stvWebSocket.addEventListener("connection", onConnection);
-        span.addEvent('7tv_connection_attempt');
-        this.stvWebSocket.connect();
-      });
-
-      // Wait for both connections with timeout
-      await Promise.race([
-        Promise.all([kickPromise, stvPromise]),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Connection timeout")), 10000)
-        )
-      ]);
-
-      console.log("[ConnectionManager] Shared connections established");
-      span.addEvent('all_connections_established');
-      span.setStatus({ code: 1 }); // SUCCESS
+      this.stvWebSocket.connect();
     } catch (error) {
-      span.recordException(error);
-      span.setStatus({ code: 2, message: error.message }); // ERROR
-      throw error;
-    } finally {
-      span.end();
+      console.warn("[ConnectionManager] Unable to start 7TV connection:", error);
     }
   }
 
@@ -218,6 +150,7 @@ class ConnectionManager {
       span.addEvent('chatrooms_split_into_batches');
 
       for (let i = 0; i < batches.length; i++) {
+        if (this.closed) return;
         const batch = batches[i];
         console.log(`[ConnectionManager] Processing batch ${i + 1}/${batches.length} (${batch.length} chatrooms)`);
         
@@ -231,7 +164,9 @@ class ConnectionManager {
 
         try {
           // Process batch in parallel
-          const batchPromises = batch.map(chatroom => this.addChatroom(chatroom));
+          const batchPromises = batch
+            .filter((room) => this.chatrooms.has(String(room.id)))
+            .map((room) => this.addChatroom(room));
           const results = await Promise.allSettled(batchPromises);
           
           const successCount = results.filter(r => r.status === 'fulfilled').length;
@@ -275,6 +210,33 @@ class ConnectionManager {
   }
 
   async addChatroom(chatroom) {
+    if (this.closed) return;
+    this.chatrooms.set(String(chatroom.id), chatroom);
+    const kickRegistration = this.kickRealtime.addChatroom(chatroom);
+
+    // Register initial 7TV IDs before yielding; concurrent emote hydration may
+    // replace them while Kick IPC is pending and must remain authoritative.
+    const channelEmoteSet = Array.isArray(chatroom.channel7TVEmotes)
+      ? chatroom.channel7TVEmotes.find(set => set.type === "channel")
+      : null;
+    const stvId = channelEmoteSet?.user?.id || "0";
+    const stvEmoteSetId = channelEmoteSet?.setInfo?.id || "0";
+
+    try {
+      if (this.isActiveRoom(chatroom)) {
+        this.stvWebSocket.addChatroom(
+          chatroom.id,
+          chatroom.streamerData.user_id,
+          stvId,
+          stvEmoteSetId
+        );
+      }
+    } catch (error) {
+      console.warn("[ConnectionManager] Unable to add 7TV room:", error);
+    }
+
+    await kickRegistration;
+    if (!this.isActiveRoom(chatroom)) return;
     const span = tracer.startSpan('connection_manager.add_chatroom', {
       attributes: {
         'chatroom.id': chatroom.id,
@@ -285,37 +247,13 @@ class ConnectionManager {
     });
 
     try {
-      // Add to KickPusher
-      span.addEvent('kick_pusher_add_start');
-      this.kickPusher.addChatroom(
-        chatroom.id,
-        chatroom.streamerData.id,
-        chatroom
-      );
-      span.addEvent('kick_pusher_add_complete');
-
-      // Add to 7TV WebSocket
-      // Extract 7TV user ID and emote set ID from channel emotes
-      const channelEmoteSet = Array.isArray(chatroom.channel7TVEmotes) 
-        ? chatroom.channel7TVEmotes.find(set => set.type === "channel")
-        : null;
-      const stvId = channelEmoteSet?.user?.id || "0";
-      const stvEmoteSetId = channelEmoteSet?.setInfo?.id || "0";
+      span.addEvent('kick_realtime_room_registered');
 
       span.setAttributes({
         '7tv.user_id': stvId,
         '7tv.emote_set_id': stvEmoteSetId,
         '7tv.channel_emote_set_found': !!channelEmoteSet
       });
-
-      span.addEvent('7tv_websocket_add_start');
-      this.stvWebSocket.addChatroom(
-        chatroom.id,
-        chatroom.streamerData.user_id, // Use the correct Kick user ID for cosmetic/entitlement subscriptions
-        stvId,
-        stvEmoteSetId
-      );
-      span.addEvent('7tv_websocket_add_complete');
 
       // Fetch initial messages for this chatroom
       span.addEvent('initial_messages_fetch_start');
@@ -326,6 +264,7 @@ class ConnectionManager {
       span.addEvent('chatroom_info_fetch_start');
       await this.fetchInitialChatroomInfo(chatroom);
       span.addEvent('chatroom_info_fetch_complete');
+      await this.fetchInitialUserAndPollInfo(chatroom);
 
       console.log(`[ConnectionManager] Added chatroom ${chatroom.id} (${chatroom.streamerData?.user?.username})`);
       span.addEvent('chatroom_added_successfully');
@@ -340,8 +279,10 @@ class ConnectionManager {
   }
 
   async removeChatroom(chatroomId) {
-    this.kickPusher.removeChatroom(chatroomId);
+    this.chatrooms.delete(String(chatroomId));
+    const update = this.kickRealtime.removeChatroom(chatroomId);
     this.stvWebSocket.removeChatroom(chatroomId);
+    await update;
     console.log(`[ConnectionManager] Removed chatroom ${chatroomId}`);
   }
 
@@ -467,6 +408,7 @@ class ConnectionManager {
   }
 
   async fetchChatroomEmotes(chatroom) {
+    if (!this.isActiveRoom(chatroom)) return null;
     const cacheKey = `${chatroom.streamerData?.slug}`;
     
     const span = tracer.startSpan('connection_manager.fetch_chatroom_emotes', {
@@ -488,6 +430,9 @@ class ConnectionManager {
       span.end();
 
       await this.fetchChannel7TVEmotes(chatroom);
+      if (this.isActiveRoom(chatroom)) {
+        this.storeCallbacks?.setKickEmotes?.(chatroom.id, this.emoteCache.get(cacheKey));
+      }
       return this.emoteCache.get(cacheKey);
     }
 
@@ -497,6 +442,7 @@ class ConnectionManager {
 
       // Fetch Kick emotes
       const kickEmotes = await window.app.kick.getEmotes(chatroom.streamerData?.slug);
+      if (!this.isActiveRoom(chatroom)) return null;
       span.addEvent('api_fetch_complete');
 
       // Cache the result
@@ -509,6 +455,7 @@ class ConnectionManager {
       span.setStatus({ code: 1 }); // SUCCESS
 
       await this.fetchChannel7TVEmotes(chatroom);
+      if (this.isActiveRoom(chatroom)) this.storeCallbacks?.setKickEmotes?.(chatroom.id, kickEmotes);
 
       return kickEmotes;
     } catch (error) {
@@ -522,7 +469,7 @@ class ConnectionManager {
   }
 
   async fetchChannel7TVEmotes(chatroom) {
-    if (!chatroom?.streamerData?.user_id) {
+    if (!this.isActiveRoom(chatroom) || !chatroom?.streamerData?.user_id) {
       return null;
     }
 
@@ -554,6 +501,7 @@ class ConnectionManager {
     try {
       span.addEvent('api_fetch_start');
       const channel7TVEmotes = await window.app.stv.getChannelEmotes(chatroom.streamerData.user_id);
+      if (!this.isActiveRoom(chatroom)) return null;
       span.addEvent('api_fetch_complete');
 
       if (channel7TVEmotes) {
@@ -626,11 +574,7 @@ class ConnectionManager {
   // Status methods
   getConnectionStatus() {
     return {
-      kick: {
-        state: this.kickPusher.getConnectionState(),
-        chatrooms: this.kickPusher.getChatroomCount(),
-        channels: this.kickPusher.getSubscribedChannelCount(),
-      },
+      kick: this.kickRealtime.getConnectionStatus(),
       stv: {
         state: this.stvWebSocket.getConnectionState(),
         chatrooms: this.stvWebSocket.getChatroomCount(),
@@ -647,6 +591,7 @@ class ConnectionManager {
   async fetchInitialMessages(chatroom) {
     try {
       const response = await window.app.kick.getInitialChatroomMessages(chatroom.streamerData.id);
+      if (!this.isActiveRoom(chatroom)) return;
 
       if (!response?.data?.data) {
         console.log(`[ConnectionManager] No initial messages data for chatroom ${chatroom.id}`);
@@ -679,6 +624,7 @@ class ConnectionManager {
   async fetchInitialChatroomInfo(chatroom) {
     try {
       const chatroomData = await window.app.kick.getChannelChatroomInfo(chatroom.streamerData.slug);
+      if (!this.isActiveRoom(chatroom)) return;
 
       if (!chatroomData) {
         return;
@@ -698,12 +644,43 @@ class ConnectionManager {
     }
   }
 
+  isActiveRoom(chatroom) {
+    return !this.closed && this.chatrooms.get(String(chatroom.id)) === chatroom;
+  }
+
+  async fetchInitialUserAndPollInfo(chatroom) {
+    if (!this.isActiveRoom(chatroom)) return;
+    await Promise.allSettled([
+      (async () => {
+        const response = await window.app.kick.getSelfChatroomInfo(chatroom.streamerData.slug);
+        if (this.isActiveRoom(chatroom) && response?.data) {
+          this.storeCallbacks?.setUserChatroomInfo?.(chatroom.id, response.data);
+        }
+      })(),
+      (async () => {
+        const response = await window.app.kick.getInitialPollInfo(chatroom.streamerData.slug);
+        if (!this.isActiveRoom(chatroom)) return;
+        if (response?.data?.status?.code === 404) {
+          this.storeCallbacks?.handlePollDelete?.(chatroom.id);
+        } else if (response?.data?.status?.code === 200) {
+          this.storeCallbacks?.handlePollUpdate?.(chatroom.id, response.data.data?.poll);
+        }
+      })(),
+    ]);
+  }
+
   // Cleanup method
   cleanup() {
     console.log("[ConnectionManager] Cleaning up connections...");
-    this.kickPusher.close();
+    this.closed = true;
+    this.chatrooms.clear();
+    this.handlerCleanups.forEach((cleanup) => cleanup());
+    this.handlerCleanups = [];
+    this.kickRealtime.close();
     this.stvWebSocket.close();
     this.emoteCache.clear();
+    this.channelStvEmoteCache.clear();
+    this.storeCallbacks = null;
     this.globalStvEmotesCache = null;
     this.initializationInProgress = false;
   }

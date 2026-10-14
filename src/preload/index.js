@@ -30,8 +30,6 @@ import {
   getPinMessage,
   getUnpinMessage,
 
-  // Kick Auth for Events
-  getKickAuthForEvents,
   getUpdateTitle,
   getClearChatroom,
 } from "../../utils/services/kick/kickAPI";
@@ -441,6 +439,15 @@ if (process.contextIsolated) {
 
       // Kick API
       kick: {
+        realtime: {
+          setRooms: (rooms) => ipcRenderer.invoke("kick:realtime:set-rooms", rooms),
+          retry: (roomId) => ipcRenderer.invoke("kick:realtime:retry", roomId),
+          onEvent: (callback) => {
+            const handler = (_, event) => callback(event);
+            ipcRenderer.on("kick:realtime:event", handler);
+            return () => ipcRenderer.removeListener("kick:realtime:event", handler);
+          },
+        },
         getChannelInfo,
         getChannelChatroomInfo,
         getInitialPollInfo: async (channelName) => {
@@ -480,8 +487,6 @@ if (process.contextIsolated) {
         getUnpinMessage: (chatroomName) => withAuth((token, session) => getUnpinMessage(chatroomName, token, session)),
         getSubmitPollVote: (channelName, optionId) =>
           withAuth((token, session) => getSubmitPollVote(channelName, optionId, token, session)),
-        getKickAuthForEvents: (eventName, socketId) =>
-          withAuth((token, session) => getKickAuthForEvents(eventName, socketId, token, session)),
         getChatroomViewers: (chatroomId) => getChatroomViewers(chatroomId),
       },
 

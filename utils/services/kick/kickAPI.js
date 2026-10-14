@@ -17,36 +17,6 @@ const getKickTalkDonators = async () => {
   return response.data;
 };
 
-const getKickAuthForEvents = async (eventChannelName, socketId, sessionCookie, kickSession) => {
-  try {
-    const response = await axios.post(
-      `${APIUrl}/broadcasting/auth`,
-      {
-        socket_id: socketId,
-        channel_name: eventChannelName,
-      },
-      {
-        headers: {
-          accept: "application/json, text/plain, */*",
-          "accept-language": "en-US",
-          authorization: `Bearer ${sessionCookie}`,
-          "content-type": "application/json",
-          priority: "u=1, i",
-        },
-        Cookie: `kick_session=${kickSession}, session_token=${sessionCookie}, x-xsrf-token=${sessionCookie}, XSRF-TOKEN=${kickSession}`,
-        referrerPolicy: "strict-origin-when-cross-origin",
-        method: "POST",
-        mode: "cors",
-        credentials: "include",
-      },
-    );
-
-    return response?.data;
-  } catch (error) {
-    console.error("[KickAPI]: Auth Token Retrieval Failed:", error);
-    throw error;
-  }
-};
 
 /**
  *
@@ -986,6 +956,4 @@ export {
   getTimeoutUser,
   getDeleteMessage,
 
-  // Kick Auth
-  getKickAuthForEvents,
 };

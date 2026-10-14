@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # WebSocket domain blocking script for testing connection recovery
-# Usage: ./scripts/block-websockets.sh {start|stop|status}
-
-DOMAINS=("ws-us2.pusher.com" "events.7tv.io")
+# Usage: ./scripts/block-websockets-hosts.sh {start|stop|status}
+# Match Kick's discovered regional gateway if it differs from this observed host.
+DOMAINS=("realtime.us-west-2.platform.kick.com" "events.7tv.io")
 HOSTS_FILE="/etc/hosts"
 
 check_blocked() {

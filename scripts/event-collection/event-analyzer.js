@@ -163,7 +163,8 @@ class KickEventAnalyzer {
       return;
     }
 
-    const structure = this.extractStructure(samples[0].data);
+    const sample = samples[0];
+    const structure = this.extractStructure(sample.data, 0, sample.redacted === true);
     this.eventDefinitions.set(eventType, {
       count: this.eventTypes.get(eventType),
       structure: structure,
@@ -171,7 +172,7 @@ class KickEventAnalyzer {
     });
   }
 
-  extractStructure(data, depth = 0) {
+  extractStructure(data, depth = 0, redacted = false) {
     if (depth > 3) return '...'; // Prevent deep recursion
     
     if (data === null || data === undefined) {
@@ -180,17 +181,31 @@ class KickEventAnalyzer {
     
     if (Array.isArray(data)) {
       if (data.length === 0) return [];
-      return [this.extractStructure(data[0], depth + 1)];
+      return [this.extractStructure(data[0], depth + 1, redacted)];
     }
     
     if (typeof data === 'object') {
       const structure = {};
       for (const [key, value] of Object.entries(data)) {
-        structure[key] = this.extractStructure(value, depth + 1);
+        structure[key] = this.extractStructure(value, depth + 1, redacted);
       }
       return structure;
     }
     
+    // Marker strings carry type information only in schema-redacted records.
+    if (redacted) {
+      switch (data) {
+        case '[number]': return 'number';
+        case '[boolean]': return 'boolean';
+        case '[string]': return 'string';
+        case '[undefined]': return 'undefined';
+        case '[bigint]': return 'bigint';
+        case '[symbol]': return 'symbol';
+        case '[function]': return 'function';
+        case '[depth_limit]': return '...';
+      }
+    }
+
     return typeof data;
   }
 

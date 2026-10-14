@@ -7,6 +7,13 @@ An Application for Kick to enhance your experience as a chatter.
 Designed & Developed by Dark
 Developed by ftk789
 
+## Project direction
+
+`BP602/KickTalk` is an independently maintained breakaway from the original KickTalk project. Development and releases are owned here; changes are not prepared as upstream PRs or tied to an upstream rebase/synchronization plan. Internal PRs can still be used to review work in this repository.
+
+Original authorship, applicable license obligations and Git history are retained. GitHub's fork-network label is administrative metadata, not the project's development strategy; changing that relationship must not silently discard repository data or someone else's child fork.
+
+
 ## UI scale
 
 With the main app window focused, use `Ctrl+-` to reduce text and spacing, `Ctrl++` to enlarge them, and `Ctrl+0` to reset to 100%. Use `Cmd` instead of `Ctrl` on macOS.
@@ -184,6 +191,36 @@ Open <http://127.0.0.1:3000>, select Explore → Tempo and paste a printed trace
 Verification on 2026-10-13: Cloud main/renderer roundtrips preserved 251.3/250.3 ms child durations and events; local main/renderer roundtrips preserved 250.6/250.2 ms. Both carried version `2.0.2`, correct error/kind/parent/scope metadata, and one parent/child pair. Local Grafana rendered the trace waterfall and Prometheus returned `kicktalk_up_ratio=1`. Build passed; lint had 0 errors and 323 warnings.
 
 This fixes the earlier pre-end renderer export that collapsed durations to 1 ms and dropped events. It does not repair Kick's dead Pusher transport, change WebSocket metric semantics, add log export, or upgrade OpenTelemetry packages. Cloud metrics remain disabled by the current private config; local OTLP metrics were exercised. Authentication, sending and cross-platform packaging were not tested.
+
+### Kick realtime transport cutover
+
+The `fix/kick-realtime` branch replaces the rejected hosted Pusher connection with Kick's current Centrifugo transport. Main owns one `centrifuge@5.7.4` client, discovers its gateway and obtains connection/private-channel JWTs. The preload bridge exposes only desired rooms, explicit retry and normalized state/publication events. The old shared/per-room Pusher modules and obsolete replay script are removed; 7TV remains independent.
+
+Healthy connected room tabs have no connection badge; connecting, reconnecting, disconnected and warning states remain visible, with retry for terminal failure. Connection descriptions remain available to assistive technology, and routine transitions do not append repeated chat notices. Retry budgets reset on a successful primary subscription, not native socket open. Login/logout, renderer reload, removed rooms and pending refreshes have explicit lifecycle handling. Private subscription tokens use the verified `/api/v1/realtime/auth/channel` route; token failures warn without disabling healthy public chat.
+
+```bash
+npm ci
+npm run test:realtime
+npm run build
+# Read-only public transport probe; no sends, deletions or moderation:
+npm run smoke:realtime -- --room CHATROOM_ID:CHANNEL_ID --duration 300 --retry-after 90
+```
+
+Verification on 2026-10-13: 47 local regressions passed with Vitest `4.1.11` against the real SDK and isolated HTTP/WebSocket fixtures, covering bounded/fatal retries, connection and private-token renewal, permission rejection, concurrent room ownership, warning cleanup, teardown/refresh races, deduplication and stale renderer snapshots. Production build passed; lint reported 0 errors and 322 warnings. A 300-second public probe subscribed three rooms across 15 channels, received 651 unique messages and two deletion events, and recovered after an explicit retry at 90 seconds. A final 20-second read-only probe also received four messages and recovered after retry. Before the cutover, both this fork and upstream `a3570be` repeatedly closed with Pusher error 4001.
+
+The actual app displayed seven saved rooms connected with no repeated connection rows. An isolated empty-profile cold boot verified the native main/preload path, rejection of invalid room descriptors and absence of renderer Node access. The private-channel JWT flow is confirmed by Kick's public client source and local permission/renewal fixtures; live private event arrival after that correction remains unverified.
+
+The initially selected test runner was replaced after an audit finding; `4.1.11` is patched and supports the existing Vite `6.4.4` peer range. The final dependency audit still reports 60 package findings (1 low, 26 moderate, 32 high, 1 critical). These are release risks requiring separate review, not proof of application exploits or permission to run a broad forced upgrade.
+
+A clean `npm ci` completed the official Electron installer/rebuild and passed the same 47 regressions and production build from the updated lockfile. Existing dependency deprecations, a git-dependency integrity warning and install-script policy warnings remain recorded as setup/release risks; they were not suppressed.
+
+Review fixes verified on 2026-10-14: `npm run test:realtime` passed 71 tests across the controller, IPC adapter, room manager and event analyzer. Pin/unpin/repin, poll recreation and live/offline/live transitions retain opposing events; cached room re-add preserves 7TV routing; the analyzer recognizes redacted scalar types without changing historical input inference. Production build passed; lint reported 0 errors and 322 warnings.
+
+Independent local smoke exercised the actual SDK over loopback HTTP/WebSocket: five intermittent private renewal failures recovered on one shared socket, while persistent private recovery failures stopped only the affected feed and public messages continued. A separate production smoke-runner fixture connected two rooms across ten subscriptions and recovered after explicit retry. Private recovery replaces the affected subscription and resets its retry episode on a fresh acknowledgment; events during that brief gap are not guaranteed replayed. No live events or native UI were exercised for these review fixes.
+
+This is not release acceptance. Own-channel live send/reply acceptance has not been completed. Automated verification currently permits only local fixtures and read-only probes; live sends, deletions and moderation require fresh explicit authorization for the exact account, room and action. Never infer the target from an asynchronously changing active composer or automatically retry a live test message. The smoke/collector tools have no mutation operation.
+
+Before an independent release is advertised as ready, record remaining private-event, own-channel send/reply, suspend/outage, packaging/update and dependency/security evidence. No version bump, package publication or release is part of this cutover. No upstream PR is planned. The profile-state migration and other unrelated backlog work remain unselected. See [the channel guide](docs/kick-websocket-channels.md) and [collector instructions](scripts/event-collection/README-event-collector.md).
 
 ### Build
 
