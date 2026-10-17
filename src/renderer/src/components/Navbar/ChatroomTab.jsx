@@ -12,6 +12,7 @@ import clsx from "clsx";
 import useChatStore from "../../providers/ChatProvider";
 import { useShallow } from "zustand/react/shallow";
 import { XIcon, CircleNotchIcon, WarningCircleIcon, PlugIcon, ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { isLiveNotificationEnabled, setLiveNotification } from "../../utils/liveNotifications";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../Shared/Tooltip";
 
 const CONNECTION_STATUSES = {
@@ -67,6 +68,7 @@ const ChatroomTab = memo(
 
     const [streamlinkSettings, setStreamlinkSettings] = useState({ enabled: false, quality: "best" });
 
+    const liveNotificationEnabled = isLiveNotificationEnabled(settings?.liveNotifications, chatroom.id);
     const unreadCount = useMemo(() => {
       return chatroomMessages.filter((message) => !message.isRead && message.type !== "system").length;
     }, [chatroomMessages]);
@@ -298,6 +300,14 @@ const ChatroomTab = memo(
                   disabled={!canOpenInSplitPane}
                 >
                   Open in Split Pane
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onSelect={() =>
+                    setLiveNotification(chatroom.id, !liveNotificationEnabled).catch((error) =>
+                      console.error("Failed to update live notification setting:", error),
+                    )
+                  }>
+                  {liveNotificationEnabled ? "Stop Notifying When Live" : "Notify When Live"}
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem

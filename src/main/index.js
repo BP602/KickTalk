@@ -46,9 +46,10 @@ try {
   }
 } catch {}
 
-const { app, shell, BrowserWindow, ipcMain, screen, session, Tray, Menu, dialog } = require("electron");
+const { app, shell, BrowserWindow, ipcMain, screen, session, Tray, Menu, dialog, Notification } = require("electron");
 import { KickRealtimeController } from "./services/kickRealtime.cjs";
 import { createRealtimeSessionProvider } from "./services/kickRealtimeSession.cjs";
+import { createLiveNotifier } from "./services/liveNotification.cjs";
 const { trace } = require("@opentelemetry/api");
 const { pathToFileURL } = require("node:url");
 const appVersion = app.getVersion();
@@ -390,10 +391,10 @@ const kickRealtime = new KickRealtimeController({
   },
 });
 
-const requireMainRealtimeSender = (event) => {
+const requireMainRendererSender = (event) => {
   if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
       event.senderFrame !== mainWindow.webContents.mainFrame) {
-    throw new Error("Realtime control is restricted to the main renderer");
+    throw new Error("IPC is restricted to the main renderer");
   }
   const rendererUrl = new URL(event.senderFrame.url);
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
@@ -407,11 +408,11 @@ const requireMainRealtimeSender = (event) => {
 };
 
 ipcMain.handle("kick:realtime:set-rooms", (event, rooms) => {
-  requireMainRealtimeSender(event);
+  requireMainRendererSender(event);
   return kickRealtime.setRooms(rooms);
 });
 ipcMain.handle("kick:realtime:retry", (event, roomId) => {
-  requireMainRealtimeSender(event);
+  requireMainRendererSender(event);
   return kickRealtime.retry(roomId);
 });
 app.on("before-quit", () => kickRealtime.close());
@@ -456,7 +457,9 @@ const createTrayContextMenu = () => {
       label: 'Settings',
       click: async () => {
         try {
-          await openSettingsDialog({ userData: null });
+          // The main renderer opens it so the dialog receives the room roster; fall back if it is gone.
+          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("settingsDialog:open-request");
+          else await openSettingsDialog({ userData: null });
         } catch (error) {
           console.error('[Tray]: Error opening settings:', error);
         }
@@ -1180,6 +1183,12 @@ ipcMain.handle("bring-to-front", () => {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   }
+});
+
+const liveNotifier = createLiveNotifier({ Notification, getMainWindow: () => mainWindow });
+ipcMain.handle("liveNotification:show", (event, payload) => {
+  requireMainRendererSender(event);
+  return liveNotifier.show(payload);
 });
 
 

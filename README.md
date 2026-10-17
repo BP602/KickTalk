@@ -20,6 +20,23 @@ With the main app window focused, use `Ctrl+-` to reduce text and spacing, `Ctrl
 
 The selected zoom is saved and restored after startup and page reloads.
 
+## External player defaults
+
+Enable Streamlink in **Settings > External Players** after installing Streamlink and mpv. Fresh settings use this command:
+
+```bash
+streamlink "https://kick.com/CHANNEL" best \
+  --kick-low-latency \
+  --player mpv \
+  --player-args="--cache=no --speed=1.01"
+```
+
+Saved settings are not overwritten. For an existing profile, select quality `best`, set Player Command to `mpv`, and set Custom Arguments to `--kick-low-latency --player-args="--cache=no --speed=1.01"` to use these defaults. An empty Player Command uses Streamlink's player auto-detection; empty Custom Arguments adds no options.
+
+Custom Arguments supports single/double-quoted values and escaped spaces or quotes. Values are passed directly to Streamlink without a shell; variables and command substitutions are not expanded. Unmatched quotes produce an error before launch.
+
+Run `npx vitest run tests/streamlinkArgs.test.js` for quote/escape regressions. The Linux production smoke exercised the real launch IPC with Streamlink 8.4.0's `--can-handle-url https://kick.com/4HEAD` check, plus fresh defaults, saved customizations and empty values across Settings reload. Live playback and Windows/macOS were not tested.
+
 ## Restart baseline
 
 `~/Code/KickTalk` on local `main` is the canonical daily checkout. The original approved application revision is `2681e28`; the signed `restart-checkpoint-2026-10-11` tag identifies the promoted checkpoint, including the operating guide and checkout map. Accepted topic upgrades are merged locally after their recorded checks. This does not publish a release or push `main`.
@@ -239,6 +256,18 @@ npx vitest run
 Verification on 2026-10-15: 51 send-failure/UI/real-SDK regressions and 71 existing realtime/tooling regressions passed. An isolated Chromium surface used the actual store, message component, parser and SCSS with synthetic bridge responses to exercise mapped/fallback/timeout text, copy, one-click retry, pending/confirmed transitions, keyboard focus and 320 px wrapping. An isolated Electron preload fixture used actual Axios over loopback HTTP for both send methods and verified safe error envelopes and stripped success responses. No saved account, live send or automatic retry was used. Production build passed; lint reported 0 errors and 319 warnings. The cause of the previously reported isolated failed send is still unknown.
 
 Local OTEL readback initially found `[object Object]` failure descriptions and no cause code. After correction, actual renderer SDK → preload IPC → main OTLP relay → Podman `kicktalk-lgtm` produced 28 stored spans for 12 synthetic send/reply scenarios: slow mode, rate limiting, HTTP authentication rejection, unknown error, and confirmation timeouts after both accepted and still-pending requests. Real 30-second timers fired; API/timeout parent IDs, temp IDs, safe reasons, known HTTP statuses and absence of synthetic content/credentials were checked in Tempo. Local-auth traces separately verified no invented HTTP status. Grafana Explore displayed the timeout span and its `SEND_TIMEOUT` / `unconfirmed` attributes. Use the local workflow above, then search Tempo with `{ resource.service.name = "kicktalk-renderer" && span.error.type = "SEND_TIMEOUT" }`.
+
+### Live notifications
+
+Right-click a chatroom tab and choose **Notify When Live** (or **Stop Notifying When Live**), or switch streamers on in **Settings > General > Live Notifications**. Both write `liveNotifications.streamers` (chatroom ids) in the electron-store settings and stay in sync. Every streamer is off by default. The Settings window lists the rooms that were open in the main window when Settings was opened (the main window passes the roster; a signed-out preload clears the shared `localStorage`, so the Settings window cannot read it from there). Rooms added while Settings is open appear the next time it is opened.
+
+A native OS notification ("<streamer> is live", with the stream title) is shown only for an offline-to-live transition delivered as a `StreamerIsLive` or `LivestreamUpdated` push event. Clicking it restores and focuses the window and selects that room. Startup, reconnect and the initial chatroom-info fetch only update state and never notify; a repeat event for the same livestream id does not re-notify, and an event whose `created_at` is more than 5 minutes old is treated as stale. If **Enable Notifications** and **Sound** are on in Settings, the existing notification sound also plays; the OS notification itself is silent.
+
+The renderer sends `{ chatroomId, streamerName, streamTitle }` over `liveNotification:show`; main (`src/main/services/liveNotification.cjs`) accepts it only from the main window, validates and bounds it, and issues the `Notification`. A missed live event (for example while the machine was suspended) means no notification; see the board card on live status after suspend/wake.
+
+```bash
+npm run test:live
+```
 
 ### Build
 

@@ -127,6 +127,19 @@ const schema = {
       soundFileName: "default",
     },
   },
+  liveNotifications: {
+    type: "object",
+    properties: {
+      streamers: {
+        type: "array",
+        items: { type: "string" },
+        default: [],
+      },
+    },
+    default: {
+      streamers: [],
+    },
+  },
   moderation: {
     type: "object",
     properties: {

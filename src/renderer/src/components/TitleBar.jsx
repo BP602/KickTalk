@@ -6,6 +6,7 @@ import "@assets/styles/components/TitleBar.scss";
 import clsx from "clsx";
 import Updater from "./Updater";
 import useChatStore from "../providers/ChatProvider";
+import { getLiveNotificationRoster } from "../utils/liveNotifications";
 
 const TitleBar = () => {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
@@ -27,6 +28,17 @@ const TitleBar = () => {
     }
   }, [currentUser, cacheCurrentUser]);
 
+  const openSettings = useCallback(
+    () =>
+      window.app.settingsDialog.open({
+        userData: currentUser,
+        rooms: getLiveNotificationRoster(useChatStore.getState().chatrooms),
+      }),
+    [currentUser],
+  );
+
+  useEffect(() => window.app?.settingsDialog?.onOpenRequest?.(openSettings), [openSettings]);
+
   const handleAuthBtn = useCallback((e) => {
     const cords = [e.clientX, e.clientY];
 
@@ -43,11 +55,7 @@ const TitleBar = () => {
         {currentUser?.id ? (
           <button
             className="titleBarSettingsBtn"
-            onClick={() =>
-              window.app.settingsDialog.open({
-                userData: currentUser,
-              })
-            }>
+            onClick={openSettings}>
             <span className="titleBarUsername">{currentUser?.username || "Loading..."}</span>
             <div className="titleBarDivider" />
             <GearIcon weight="fill" className="titleBarSettingsIcon" size={16} aria-label="Settings" />
@@ -60,11 +68,7 @@ const TitleBar = () => {
             <div className="titleBarDivider" />
             <button
               className="titleBarSettingsBtn"
-              onClick={() =>
-                window.app.settingsDialog.open({
-                  userData: currentUser,
-                })
-              }>
+              onClick={openSettings}>
               <GearIcon weight="fill" size={16} aria-label="Settings" />
             </button>
           </div>

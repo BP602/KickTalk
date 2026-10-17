@@ -333,6 +333,21 @@ if (process.contextIsolated) {
         openFolder: () => ipcRenderer.invoke("notificationSounds:openFolder"),
       },
 
+      // Native "went live" notification. Main validates and sanitizes the payload.
+      liveNotification: {
+        show: ({ chatroomId, streamerName, streamTitle }) =>
+          ipcRenderer.invoke("liveNotification:show", { chatroomId, streamerName, streamTitle }),
+      },
+
+      // Main asks the renderer to select a room (e.g. after a notification click).
+      navigation: {
+        onSelectChatroom: (callback) => {
+          const listener = (_event, { chatroomId }) => callback(String(chatroomId));
+          ipcRenderer.on("chatroom:select", listener);
+          return () => ipcRenderer.removeListener("chatroom:select", listener);
+        },
+      },
+
       authDialog: {
         open: (data) => ipcRenderer.invoke("authDialog:open", { data }),
         auth: (data) => ipcRenderer.invoke("authDialog:auth", { data }),
@@ -373,6 +388,12 @@ if (process.contextIsolated) {
 
           ipcRenderer.on("settingsDialog:data", handler);
           return () => ipcRenderer.removeListener("settingsDialog:data", handler);
+        },
+        // Main asks the renderer to open Settings (e.g. from the tray) so it can attach its room roster.
+        onOpenRequest: (callback) => {
+          const handler = () => callback();
+          ipcRenderer.on("settingsDialog:open-request", handler);
+          return () => ipcRenderer.removeListener("settingsDialog:open-request", handler);
         },
       },
 

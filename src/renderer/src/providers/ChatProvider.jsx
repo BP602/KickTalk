@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import { chatroomErrorHandler, getChatSendFailure } from "../utils/chatErrors";
+import { announceWentLive } from "../utils/liveNotifications";
 
 // Helper function to safely compare chatroom IDs and report mismatches
 const safeChatroomIdMatch = (roomId, chatroomId, context = 'unknown') => {
@@ -115,6 +116,29 @@ const checkSendResponse = (response, span) => {
 // Optimistic sends awaiting their request; `confirmed` flips when the echo or an
 // explicit confirmation replaces the row, independent of row visibility.
 const sendsInFlight = new Map();
+
+// chatroom id -> last livestream id announced as "went live", so repeated events stay silent
+const announcedLivestreams = new Map();
+
+const playNotificationAudio = async (settings) => {
+  const soundUrl = await window.app.notificationSounds.getSoundUrl(settings?.soundFile);
+  const audio = new Audio(soundUrl);
+  audio.volume = settings?.volume || 0.1;
+  await audio.play();
+};
+
+// Applies a live push event and announces it only if it flipped the room from offline to live.
+// Initial chatroom fetches call handleStreamStatus directly and never announce.
+const applyLiveEvent = (get, chatroomId, event) => {
+  const previousRoom = get().chatrooms.find((room) => String(room.id) === String(chatroomId));
+  get().handleStreamStatus(chatroomId, event, true);
+  announceWentLive({
+    previousRoom,
+    livestream: event?.livestream,
+    announced: announcedLivestreams,
+    playSound: playNotificationAudio,
+  }).catch((error) => console.error("[LiveNotification]: Failed to announce live stream:", error));
+};
 
 const markSendFailed = (get, chatroomId, tempId, reason) => {
   const row = get().messages[chatroomId]?.find(message => message.tempId === tempId);
@@ -1191,13 +1215,13 @@ const useChatStore = create((set, get) => ({
 
     switch (eventDetail.event.split("\\").pop()) {
       case "LivestreamUpdated":
-        get().handleStreamStatus(chatroomId, parsedEvent, true);
+        applyLiveEvent(get, chatroomId, parsedEvent);
         break;
       case "ChatroomUpdatedEvent":
         get().handleChatroomUpdated(chatroomId, parsedEvent);
         break;
       case "StreamerIsLive": {
-        get().handleStreamStatus(chatroomId, parsedEvent, true);
+        applyLiveEvent(get, chatroomId, parsedEvent);
         if (!(await shouldDisplayChatEvent("streamStatus"))) break;
         // Add stream start message to chat
         const chatroom = get().chatrooms.find(c => c.id === chatroomId);
@@ -1499,10 +1523,7 @@ const useChatStore = create((set, get) => ({
     try {
       console.log("[Notifications]: Playing notification sound");
 
-      const soundUrl = await window.app.notificationSounds.getSoundUrl(settings?.soundFile);
-      const audio = new Audio(soundUrl);
-      audio.volume = settings?.volume || 0.1;
-      await audio.play();
+      await playNotificationAudio(settings);
       get().getUpdateSoundPlayed(chatroomId, message.id);
     } catch (error) {
       console.error("[Notifications]: Error playing notification sound:", error);

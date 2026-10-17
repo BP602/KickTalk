@@ -5,6 +5,7 @@ import { useSettings } from "../../../providers/SettingsProvider";
 import { TooltipProvider } from "../../Shared/Tooltip";
 import { GeneralSection, ChatroomSection, NotificationsSection, CosmeticsSection, ExternalPlayersSection } from "./Sections/General";
 import { ChatEventsSection } from "./Sections/ChatEvents";
+import { LiveNotificationsSection } from "./Sections/LiveNotifications";
 import SettingsHeader from "./SettingsHeader";
 import SettingsMenu from "./SettingsMenu";
 import AboutSection from "./Sections/About";
@@ -14,6 +15,7 @@ const Settings = () => {
   const { updateSettings, settings } = useSettings();
   const [activeSection, setActiveSection] = useState("general");
   const [settingsData, setSettingsData] = useState(null);
+  const [rooms, setRooms] = useState([]);
   const [appInfo, setAppInfo] = useState(null);
 
   useEffect(() => {
@@ -26,6 +28,7 @@ const Settings = () => {
 
   useEffect(() => {
     const handleDialogData = (data) => {
+      if (Array.isArray(data?.rooms)) setRooms(data.rooms);
       if (JSON.stringify(data?.settings) !== JSON.stringify(settingsData)) {
         setSettingsData(data?.settings);
       }
@@ -71,6 +74,7 @@ const Settings = () => {
                 <ChatroomSection settingsData={settingsData} onChange={changeSetting} />
                 <CosmeticsSection settingsData={settingsData} onChange={changeSetting} />
                 <NotificationsSection settingsData={settingsData} onChange={changeSetting} />
+                <LiveNotificationsSection settingsData={settingsData} rooms={rooms} />
               </>
             )}
             {activeSection === "externalPlayers" && (

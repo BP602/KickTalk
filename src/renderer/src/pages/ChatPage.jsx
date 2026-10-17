@@ -4,6 +4,7 @@ import { useSettings } from "../providers/SettingsProvider";
 import useChatStore, { MAX_SPLIT_PANE_COUNT } from "../providers/ChatProvider";
 import Chat from "../components/Chat";
 import Navbar from "../components/Navbar";
+import { findChatroomId } from "../utils/liveNotifications";
 import TitleBar from "../components/TitleBar";
 import Mentions from "../components/Dialogs/Mentions";
 import SplitPaneChat from "../components/SplitPaneChat";
@@ -157,6 +158,15 @@ const ChatPage = () => {
   useEffect(() => {
     setCurrentChatroom(activeChatroomId);
   }, [activeChatroomId, setCurrentChatroom]);
+
+  // Main asks for a room switch, e.g. when a "went live" notification is clicked.
+  useEffect(() => {
+    return window.app?.navigation?.onSelectChatroom?.((chatroomId) => {
+      // Store ids are numbers and chat views compare them strictly; select by the room's own id.
+      const roomId = findChatroomId(useChatStore.getState().chatrooms, chatroomId);
+      if (roomId !== undefined) handleChatroomSwitch(roomId);
+    });
+  });
 
   return (
     <div className="chatPageContainer">
