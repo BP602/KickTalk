@@ -109,6 +109,7 @@ GIT_IDENTITY_ACCOUNT=bp602 gh project field-list 1 --owner BP602 --format json
 ## Testing
 
 - Runner: Vitest. Run `npm run test:realtime` for the controller, IPC adapter, room-manager/7TV routing and collector/analyzer suites in `tests/kickRealtime.test.js`, `tests/kickRealtimeClient.test.js`, `tests/connectionManager.test.js` and `tests/eventAnalyzer.test.js`.
+- Run `npm run test:messages` for failed-send association, safe reasons, timeout uncertainty, confirmation/retry transitions, actual message server rendering and real OpenTelemetry SDK span export in `tests/failedSends.test.jsx`. This suite uses the installed React DOM server renderer without adding a DOM test dependency. SDK in-memory export callbacks need a 1 ms fake-timer advance before flushing; do not drain pending 30-second confirmation timers accidentally. `npx vitest run` runs all local suites.
 - Transport fixtures use real loopback HTTP/WebSocket traffic and synthetic credentials; tests must not access Kick or a saved account.
 - For React component tests, use React Testing Library with Vitest. Naming: `Component.test.jsx`; colocate or use `__tests__/`.
 - Keep tests deterministic and isolated; stub Electron bridges only at their public seam.

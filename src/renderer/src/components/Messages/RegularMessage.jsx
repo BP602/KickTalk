@@ -134,20 +134,25 @@ const RegularMessage = memo(
 
         <div className="chatMessageContent">{messageContent}</div>
 
-        <div className="chatMessageActions">
-          {message.isOptimistic && message.state === "failed" ? (
-            // Show retry and copy buttons for failed messages
-            <>
-              <button onClick={handleRetryMessage} className="chatMessageActionButton" title="Retry sending message">
-                <ArrowClockwiseIcon weight="fill" size={16} aria-label="Retry Message" />
+        {message.isOptimistic && message.state === "failed" ? (
+          <div className="chatMessageFailure">
+            <span className="chatMessageFailureReason" role="status">
+              {typeof message.failureReason === "string" && message.failureReason.trim()
+                ? message.failureReason
+                : "Message could not be sent. You can retry or copy your message."}
+            </span>
+            <div className="chatMessageActions">
+              <button onClick={handleRetryMessage} className="chatMessageActionButton" aria-label="Retry sending message">
+                <ArrowClockwiseIcon weight="fill" size={16} aria-hidden="true" />
+                <span>Retry</span>
               </button>
-              <button onClick={handleCopyMessage} className="chatMessageActionButton">
-                <CopyIcon weight="fill" size={16} aria-label="Copy Message" />
+              <button onClick={handleCopyMessage} className="chatMessageActionButton" aria-label="Copy message">
+                <CopyIcon weight="fill" size={16} aria-hidden="true" />
               </button>
-            </>
-          ) : (
-            // Show normal action buttons for successful messages
-            <>
+            </div>
+          </div>
+        ) : (
+          <div className="chatMessageActions">
               {canModerate && !message?.deleted && (
                 <button onClick={handlePinMessage} className="chatMessageActionButton">
                   <PushPinIcon weight="fill" size={16} aria-label="Pin Message" />
@@ -163,9 +168,8 @@ const RegularMessage = memo(
               <button onClick={handleCopyMessage} className="chatMessageActionButton">
                 <CopyIcon weight="fill" size={16} aria-label="Copy Message" />
               </button>
-            </>
-          )}
-        </div>
+          </div>
+        )}
       </span>
     );
   },

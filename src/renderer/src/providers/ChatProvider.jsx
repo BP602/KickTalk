@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { create } from "zustand";
-import { chatroomErrorHandler } from "../utils/chatErrors";
+import { chatroomErrorHandler, getChatSendFailure } from "../utils/chatErrors";
 
 // Helper function to safely compare chatroom IDs and report mismatches
 const safeChatroomIdMatch = (roomId, chatroomId, context = 'unknown') => {
@@ -58,11 +58,14 @@ import { recordChatModeFeatureUsage } from "../telemetry/chatModeTelemetry";
 const getRendererTracer = () =>
   (typeof window !== 'undefined' && (window.__KT_TRACER__ || window.__KT_TRACE_API__?.trace?.getTracer?.('kicktalk-renderer'))) || null;
 
-const startSpan = (name, attributes = {}) => {
+const startSpan = (name, attributes = {}, parentSpan = null) => {
   try {
     const tracer = getRendererTracer();
     if (!tracer || typeof tracer.startSpan !== 'function') return null;
-    const span = tracer.startSpan(name);
+    const api = typeof window !== 'undefined' ? window.__KT_TRACE_API__ : null;
+    const parentContext = parentSpan && api
+      ? api.trace.setSpan(api.context.active(), parentSpan) : undefined;
+    const span = tracer.startSpan(name, {}, parentContext);
     try {
       if (span && attributes && typeof attributes === 'object') {
         Object.entries(attributes).forEach(([k, v]) => {
@@ -84,6 +87,88 @@ const endSpanOk = (span) => {
 const endSpanError = (span, err) => {
   try { span?.setStatus?.({ code: 2, message: (err && (err.message || String(err))) || '' }); } catch {}
   try { span?.end?.(); } catch {}
+};
+
+// Send failures use only fixed reasons/codes; leave unrelated tracing callers unchanged.
+const endSendSpanError = (span, failure) => {
+  try {
+    span?.setAttribute?.('error.type', failure.code);
+    if (failure.status !== undefined) span?.setAttribute?.('http.response.status_code', failure.status);
+    if (failure.code === 'SEND_TIMEOUT') span?.setAttribute?.('message.delivery', 'unconfirmed');
+    span?.setStatus?.({ code: 2, message: failure.reason });
+  } catch {}
+  try { span?.end?.(); } catch {}
+};
+
+const checkSendResponse = (response, span) => {
+  if (response?.sendError) throw response.sendError;
+  const status = response?.status;
+  if (Number.isInteger(status) && status >= 100 && status <= 599) {
+    try { span?.setAttribute?.('http.response.status_code', status); } catch {}
+  }
+  // Some legacy bridge responses resolve an auth rejection instead of throwing.
+  if (response?.data?.status?.code === 401) {
+    throw { code: 'Unauthorized', status, showLoginMessage: true };
+  }
+};
+
+// Optimistic sends awaiting their request; `confirmed` flips when the echo or an
+// explicit confirmation replaces the row, independent of row visibility.
+const sendsInFlight = new Map();
+
+const markSendFailed = (get, chatroomId, tempId, reason) => {
+  const row = get().messages[chatroomId]?.find(message => message.tempId === tempId);
+  if (!row?.isOptimistic || row.state === MESSAGE_STATES.CONFIRMED) return false;
+  get().updateMessageState(chatroomId, tempId, MESSAGE_STATES.FAILED, reason);
+  return true;
+};
+
+const recordConfirmationTimeout = (get, chatroomId, tempId, operation, opSpan) => {
+  const row = get().messages[chatroomId]?.find(message => message.tempId === tempId);
+  if (!row?.isOptimistic || row.state !== MESSAGE_STATES.OPTIMISTIC) return;
+  const failure = getChatSendFailure({ code: 'SEND_TIMEOUT' });
+  if (!markSendFailed(get, chatroomId, tempId, failure.reason)) return;
+  // The request operation may already be ended; its context still parents this timeout.
+  const span = startSpan(`chat.${operation}.confirmation_timeout`, {
+    'chat.id': chatroomId,
+    'message.temp_id': tempId,
+    'message.delivery': 'unconfirmed',
+  }, opSpan);
+  endSendSpanError(span, failure);
+};
+
+const handleSendFailure = (error, { get, chatroomId, optimisticMessage, operation, opSpan, startTime, streamerName }) => {
+  const failure = getChatSendFailure(error);
+  const tempId = optimisticMessage?.tempId;
+  // Only an echo/confirmation counts as delivery. A row that vanished (history
+  // eviction, room removal) is still a genuine request failure.
+  const confirmed = sendsInFlight.get(tempId)?.confirmed === true;
+  if (optimisticMessage && confirmed) {
+    try { opSpan?.addEvent?.('send.failure_ignored', { 'error.type': failure.code, 'message.temp_id': tempId }); } catch {}
+    endSpanOk(opSpan);
+    return false;
+  }
+  if (optimisticMessage) markSendFailed(get, chatroomId, tempId, failure.reason);
+  endSendSpanError(opSpan, failure);
+  const duration = (Date.now() - startTime) / 1000;
+  window.app?.telemetry?.recordMessageSent?.(chatroomId, operation === 'send' ? 'regular' : 'reply', duration, false, streamerName);
+  window.app?.telemetry?.recordError?.(failure.reason, {
+    'chatroom.id': chatroomId,
+    'message.operation': operation,
+    ...(tempId ? { 'message.temp_id': tempId } : {}),
+    'error.type': failure.code,
+    error_code: failure.code,
+    ...(failure.status === undefined ? {} : { 'http.response.status_code': failure.status }),
+  });
+  if (error?.showLoginMessage === true) {
+    get().addMessage(chatroomId, {
+      id: crypto.randomUUID(),
+      type: 'system',
+      content: chatroomErrorHandler({ code: 'Unauthorized' }),
+      timestamp: new Date().toISOString(),
+    });
+  }
+  return false;
 };
 
 
@@ -542,6 +627,8 @@ const useChatStore = create((set, get) => ({
     try { opSpan?.setAttribute?.('streamer.name', streamerName); } catch {}
     console.log(`[Telemetry] sendMessage - chatroomId: ${chatroomId}, streamerName: ${streamerName}`);
     
+    let optimisticMessage;
+    let timeoutId;
     try {
       const message = content.trim();
       console.info("Sending message to chatroom:", chatroomId);
@@ -552,34 +639,20 @@ const useChatStore = create((set, get) => ({
         currentUser = await get().cacheCurrentUser();
       }
 
-      if (!currentUser) {
-        get().addMessage(chatroomId, {
-          id: crypto.randomUUID(),
-          type: "system",
-          content: "You must login to chat.",
-          timestamp: new Date().toISOString(),
-        });
-        return false;
-      }
+      if (!currentUser) throw { code: 'Unauthorized', showLoginMessage: true };
 
       // Create and immediately add optimistic message (should be instant now!)
-      const optimisticMessage = createOptimisticMessage(chatroomId, message, currentUser);
+      optimisticMessage = createOptimisticMessage(chatroomId, message, currentUser);
+      sendsInFlight.set(optimisticMessage.tempId, { confirmed: false });
       get().addMessage(chatroomId, optimisticMessage);
       try {
+        opSpan?.setAttribute?.('message.temp_id', optimisticMessage.tempId);
         opSpan?.addEvent?.('optimistic.add', { 'message.temp_id': optimisticMessage.tempId });
       } catch {}
 
       // Set timeout to mark message as failed if not confirmed within 30 seconds
-      const timeoutId = setTimeout(() => {
-        const messages = get().messages[chatroomId] || [];
-        const stillOptimistic = messages.find(msg => 
-            msg.tempId === optimisticMessage.tempId &&
-          msg.state === MESSAGE_STATES.OPTIMISTIC
-        );
-        if (stillOptimistic) {
-          console.warn('[Optimistic]: Message timeout, marking as failed:', optimisticMessage.tempId);
-          get().updateMessageState(chatroomId, optimisticMessage.tempId, MESSAGE_STATES.FAILED);
-        }
+      timeoutId = setTimeout(() => {
+        recordConfirmationTimeout(get, chatroomId, optimisticMessage.tempId, 'send', opSpan);
       }, 30000);
 
       // Send message to server
@@ -590,44 +663,28 @@ const useChatStore = create((set, get) => ({
         'server.address': 'kick.com',
         'server.port': 443,
         'url.full': url,
-        'api.endpoint': 'kick_send_message'
-      });
+        'api.endpoint': 'kick_send_message',
+        'message.temp_id': optimisticMessage.tempId,
+      }, opSpan);
       let response;
       try {
         response = await window.app.kick.sendMessage(chatroomId, message);
-        try { apiSpan?.setAttribute?.('http.response.status_code', response?.status || response?.data?.status?.code || 200); } catch {}
+        checkSendResponse(response, apiSpan);
         endSpanOk(apiSpan);
       } catch (err) {
-        endSpanError(apiSpan, err);
+        endSendSpanError(apiSpan, getChatSendFailure(err));
         throw err;
       }
       const apiDuration = (Date.now() - apiStartTime) / 1000;
 
-      // Clear timeout if request completes (success or known failure)
-      clearTimeout(timeoutId);
-
       // Record API request timing
       try {
-        const statusCode = response?.status || response?.data?.status?.code || 200;
-        await window.app?.telemetry?.recordAPIRequest?.('kick_send_message', 'POST', statusCode, apiDuration);
+        const statusCode = response?.status;
+        if (Number.isInteger(statusCode) && statusCode >= 100 && statusCode <= 599) {
+          await window.app?.telemetry?.recordAPIRequest?.('kick_send_message', 'POST', statusCode, apiDuration);
+        }
       } catch (telemetryError) {
         console.warn('[Telemetry]: Failed to record API request:', telemetryError);
-      }
-
-      if (response?.data?.status?.code === 401) {
-        // Record auth failure
-        const duration = (Date.now() - startTime) / 1000;
-        window.app?.telemetry?.recordMessageSent(chatroomId, 'regular', duration, false, streamerName);
-        
-        // Mark optimistic message as failed and show error
-        get().updateMessageState(chatroomId, optimisticMessage.tempId, MESSAGE_STATES.FAILED);
-        get().addMessage(chatroomId, {
-          id: crypto.randomUUID(),
-          type: "system",
-          content: "You must login to chat.",
-          timestamp: new Date().toISOString(),
-        });
-        return false;
       }
 
       // Record successful message send
@@ -638,30 +695,12 @@ const useChatStore = create((set, get) => ({
       // Message sent successfully - it will be confirmed when we receive it back via WebSocket
       return true;
     } catch (error) {
-      console.error('[Send Message]: Error sending message:', error);
-      endSpanError(opSpan, error);
-
-      // Record failed message send with error details
-      const duration = (Date.now() - startTime) / 1000;
-      window.app?.telemetry?.recordMessageSent(chatroomId, 'regular', duration, false, streamerName);
-      window.app?.telemetry?.recordError(error, {
-        'chatroom.id': chatroomId,
-        'message.operation': 'send',
-        'message.content_length': content?.length || 0
+      clearTimeout(timeoutId);
+      return handleSendFailure(error, {
+        get, chatroomId, optimisticMessage, operation: 'send', opSpan, startTime, streamerName,
       });
-      
-      const errMsg = chatroomErrorHandler(error);
-
-      // Find and mark the optimistic message as failed
-      const messages = get().messages[chatroomId] || [];
-      const optimisticMsg = messages.find(msg => msg.isOptimistic && msg.content === content.trim());
-      if (optimisticMsg) {
-        get().updateMessageState(chatroomId, optimisticMsg.tempId, MESSAGE_STATES.FAILED);
-      }
-
-      // No system message needed - failed state and retry button provide clear feedback
-
-      return false;
+    } finally {
+      if (optimisticMessage) sendsInFlight.delete(optimisticMessage.tempId);
     }
   },
 
@@ -676,6 +715,8 @@ const useChatStore = create((set, get) => ({
     try { opSpan?.setAttribute?.('streamer.name', streamerName); } catch {}
     console.log(`[Telemetry] sendReply - chatroomId: ${chatroomId}, streamerName: ${streamerName}`);
     
+    let optimisticReply;
+    let timeoutId;
     try {
       const message = content.trim();
       console.info("Sending reply to chatroom:", chatroomId);
@@ -685,32 +726,20 @@ const useChatStore = create((set, get) => ({
       if (!currentUser) {
         currentUser = await get().cacheCurrentUser();
       }
-      if (!currentUser) {
-        get().addMessage(chatroomId, {
-          id: crypto.randomUUID(),
-          type: "system",
-          content: "You must login to chat.",
-          timestamp: new Date().toISOString(),
-        });
-        return false;
-      }
+      if (!currentUser) throw { code: 'Unauthorized', showLoginMessage: true };
 
       // Create and immediately add optimistic reply (should be instant now!)
-      const optimisticReply = createOptimisticReply(chatroomId, message, currentUser, metadata);
+      optimisticReply = createOptimisticReply(chatroomId, message, currentUser, metadata);
+      sendsInFlight.set(optimisticReply.tempId, { confirmed: false });
       get().addMessage(chatroomId, optimisticReply);
-      try { opSpan?.addEvent?.('optimistic.add', { 'message.temp_id': optimisticReply.tempId }); } catch {}
+      try {
+        opSpan?.setAttribute?.('message.temp_id', optimisticReply.tempId);
+        opSpan?.addEvent?.('optimistic.add', { 'message.temp_id': optimisticReply.tempId });
+      } catch {}
 
       // Set timeout to mark reply as failed if not confirmed within 30 seconds
-      const timeoutId = setTimeout(() => {
-        const messages = get().messages[chatroomId] || [];
-        const stillOptimistic = messages.find(msg => 
-            msg.tempId === optimisticReply.tempId &&
-          msg.state === MESSAGE_STATES.OPTIMISTIC
-        );
-        if (stillOptimistic) {
-          console.warn('[Optimistic]: ReplyIcon timeout, marking as failed:', optimisticReply.tempId);
-          get().updateMessageState(chatroomId, optimisticReply.tempId, MESSAGE_STATES.FAILED);
-        }
+      timeoutId = setTimeout(() => {
+        recordConfirmationTimeout(get, chatroomId, optimisticReply.tempId, 'reply', opSpan);
       }, 30000);
 
       // Send reply to server
@@ -721,44 +750,28 @@ const useChatStore = create((set, get) => ({
         'server.address': 'kick.com',
         'server.port': 443,
         'url.full': url,
-        'api.endpoint': 'kick_send_reply'
-      });
+        'api.endpoint': 'kick_send_reply',
+        'message.temp_id': optimisticReply.tempId,
+      }, opSpan);
       let response;
       try {
         response = await window.app.kick.sendReply(chatroomId, message, metadata);
-        try { apiSpan?.setAttribute?.('http.response.status_code', response?.status || response?.data?.status?.code || 200); } catch {}
+        checkSendResponse(response, apiSpan);
         endSpanOk(apiSpan);
       } catch (err) {
-        endSpanError(apiSpan, err);
+        endSendSpanError(apiSpan, getChatSendFailure(err));
         throw err;
       }
       const apiDuration = (Date.now() - apiStartTime) / 1000;
 
-      // Clear timeout if request completes (success or known failure)
-      clearTimeout(timeoutId);
-
       // Record API request timing
       try {
-        const statusCode = response?.status || response?.data?.status?.code || 200;
-        await window.app?.telemetry?.recordAPIRequest?.('kick_send_reply', 'POST', statusCode, apiDuration);
+        const statusCode = response?.status;
+        if (Number.isInteger(statusCode) && statusCode >= 100 && statusCode <= 599) {
+          await window.app?.telemetry?.recordAPIRequest?.('kick_send_reply', 'POST', statusCode, apiDuration);
+        }
       } catch (telemetryError) {
         console.warn('[Telemetry]: Failed to record API request:', telemetryError);
-      }
-
-      if (response?.data?.status?.code === 401) {
-        // Record auth failure for reply
-        const duration = (Date.now() - startTime) / 1000;
-        window.app?.telemetry?.recordMessageSent(chatroomId, 'reply', duration, false, streamerName);
-        
-        // Mark optimistic reply as failed and show error
-        get().updateMessageState(chatroomId, optimisticReply.tempId, MESSAGE_STATES.FAILED);
-        get().addMessage(chatroomId, {
-          id: crypto.randomUUID(),
-          type: "system",
-          content: "You must login to chat.",
-          timestamp: new Date().toISOString(),
-        });
-        return false;
       }
 
       // Record successful reply send
@@ -769,31 +782,12 @@ const useChatStore = create((set, get) => ({
       // ReplyIcon sent successfully - it will be confirmed when we receive it back via WebSocket
       return true;
     } catch (error) {
-      console.error('[Send ReplyIcon]: Error sending reply:', error);
-      endSpanError(opSpan, error);
-
-      // Record failed reply send with error details
-      const duration = (Date.now() - startTime) / 1000;
-      window.app?.telemetry?.recordMessageSent(chatroomId, 'reply', duration, false, streamerName);
-      window.app?.telemetry?.recordError(error, {
-        'chatroom.id': chatroomId,
-        'message.operation': 'reply',
-        'message.content_length': content?.length || 0,
-        'reply.original_message_id': metadata.original_message?.id
+      clearTimeout(timeoutId);
+      return handleSendFailure(error, {
+        get, chatroomId, optimisticMessage: optimisticReply, operation: 'reply', opSpan, startTime, streamerName,
       });
-      
-      const errMsg = chatroomErrorHandler(error);
-
-      // Find and mark the optimistic reply as failed
-      const messages = get().messages[chatroomId] || [];
-      const optimisticMsg = messages.find(msg => msg.isOptimistic && msg.content === content.trim() && msg.type === "reply");
-      if (optimisticMsg) {
-        get().updateMessageState(chatroomId, optimisticMsg.tempId, MESSAGE_STATES.FAILED);
-      }
-
-      // No system message needed - failed state and retry button provide clear feedback
-
-      return false;
+    } finally {
+      if (optimisticReply) sendsInFlight.delete(optimisticReply.tempId);
     }
   },
 
@@ -1541,6 +1535,8 @@ const useChatStore = create((set, get) => ({
 
         if (optimisticIndex !== -1) {
           // Replace optimistic message with confirmed message
+          const inFlight = sendsInFlight.get(messages[optimisticIndex].tempId);
+          if (inFlight) inFlight.confirmed = true;
           const updatedMessages = [...messages];
           updatedMessages[optimisticIndex] = {
             ...newMessage,
@@ -1678,14 +1674,18 @@ const useChatStore = create((set, get) => ({
   },
 
   // Update message state (optimistic -> confirmed/failed)
-  updateMessageState: (chatroomId, tempId, newState) => {
+  updateMessageState: (chatroomId, tempId, newState, failureReason) => {
     set((state) => {
       const messages = state.messages[chatroomId] || [];
-      const updatedMessages = messages.map(msg => 
-        msg.tempId === tempId 
-          ? { ...msg, state: newState }
-          : msg
-      );
+      const updatedMessages = messages.map(msg => {
+        if (msg.tempId !== tempId) return msg;
+        if (newState === MESSAGE_STATES.FAILED && (!msg.isOptimistic || msg.state === MESSAGE_STATES.CONFIRMED)) return msg;
+        const message = { ...msg };
+        delete message.failureReason;
+        return newState === MESSAGE_STATES.FAILED
+          ? { ...message, state: newState, failureReason: failureReason || chatroomErrorHandler() }
+          : { ...message, state: newState };
+      });
 
       return {
         ...state,
@@ -1701,11 +1701,14 @@ const useChatStore = create((set, get) => ({
   confirmMessage: (chatroomId, tempId, confirmedMessage) => {
     set((state) => {
       const messages = state.messages[chatroomId] || [];
-      const updatedMessages = messages.map(msg => 
-        msg.tempId === tempId
-          ? { ...confirmedMessage, state: MESSAGE_STATES.CONFIRMED, isOptimistic: false }
-          : msg
-      );
+      const updatedMessages = messages.map(msg => {
+        if (msg.tempId !== tempId) return msg;
+        const inFlight = sendsInFlight.get(tempId);
+        if (inFlight) inFlight.confirmed = true;
+        const confirmed = { ...confirmedMessage, state: MESSAGE_STATES.CONFIRMED, isOptimistic: false };
+        delete confirmed.failureReason;
+        return confirmed;
+      });
 
       return {
         ...state,

@@ -45,7 +45,8 @@
     "collect-events": "node scripts/event-collection/event-collector.js",
     "analyze-events": "node scripts/event-collection/event-analyzer.js",
     "smoke:realtime": "node scripts/realtime-smoke.cjs",
-    "test:realtime": "vitest run tests/kickRealtime.test.js tests/kickRealtimeClient.test.js tests/connectionManager.test.js tests/eventAnalyzer.test.js"
+    "test:realtime": "vitest run tests/kickRealtime.test.js tests/kickRealtimeClient.test.js tests/connectionManager.test.js tests/eventAnalyzer.test.js",
+    "test:messages": "vitest run tests/failedSends.test.jsx"
   },
   "repository": "https://github.com/KickTalkOrg/KickTalk",
   "publish": {

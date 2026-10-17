@@ -35,6 +35,7 @@ import {
 } from "../../utils/services/kick/kickAPI";
 import { getUserStvProfile, getChannelEmotes } from "../../utils/services/seventv/stvAPI";
 
+import { CHAT_ERROR_CODES } from "../../utils/constants";
 import Store from "electron-store";
 
 try {
@@ -161,6 +162,32 @@ const sanitizeAxiosResponse = (response) => {
     status: typeof status === "number" ? status : null,
     data: data ?? null,
   };
+};
+
+// Error properties are not preserved by contextBridge. Send only allowlisted
+// codes and an actual HTTP status, never Axios errors with headers or credentials.
+const sendChatWithAuth = async (send) => {
+  if (!authSession.token || !authSession.session) {
+    return { sendError: { code: "Unauthorized" } };
+  }
+  try {
+    const response = await send(authSession.token, authSession.session);
+    // The local cooldown guard can decline a send without throwing.
+    if (!response) return { sendError: { code: "CHAT_RATE_LIMIT_ERROR" } };
+    return sanitizeAxiosResponse(response);
+  } catch (error) {
+    const httpStatus = error?.response?.status;
+    const status = Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599
+      ? httpStatus : undefined;
+    const failureStatus = status ?? error?.response?.data?.status?.code;
+    const candidate = error?.response?.data?.status?.message || error?.code;
+    let code = "UNKNOWN_SEND_ERROR";
+    if (typeof candidate === "string" && Object.hasOwn(CHAT_ERROR_CODES, candidate)) code = candidate;
+    if (failureStatus === 401) code = "Unauthorized";
+    if (failureStatus === 429) code = "CHAT_RATE_LIMIT_ERROR";
+    if (["SEND_TIMEOUT", "ETIMEDOUT", "ECONNABORTED"].includes(candidate)) code = "SEND_TIMEOUT";
+    return { sendError: { code, ...(status === undefined ? {} : { status }) } };
+  }
 };
 
 // Simple readiness bridge for the renderer (contextIsolation-safe)
@@ -455,9 +482,9 @@ if (process.contextIsolated) {
           return sanitizeAxiosResponse(response);
         },
         sendMessage: (channelId, message) =>
-          withAuth((token, session) => sendMessageToChannel(channelId, message, token, session)),
+          sendChatWithAuth((token, session) => sendMessageToChannel(channelId, message, token, session)),
         sendReply: (channelId, message, metadata = {}) =>
-          withAuth((token, session) => sendReplyToChannel(channelId, message, metadata, token, session)),
+          sendChatWithAuth((token, session) => sendReplyToChannel(channelId, message, metadata, token, session)),
         getSilencedUsers: () => withAuth((token, session) => getSilencedUsers(token, session)),
         getSelfInfo: async () => {
           try {

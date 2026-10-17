@@ -222,6 +222,24 @@ This is not release acceptance. Own-channel live send/reply acceptance has not b
 
 Before an independent release is advertised as ready, record remaining private-event, own-channel send/reply, suspend/outage, packaging/update and dependency/security evidence. No version bump, package publication or release is part of this cutover. No upstream PR is planned. The profile-state migration and other unrelated backlog work remain unselected. See [the channel guide](docs/kick-websocket-channels.md) and [collector instructions](scripts/event-collection/README-event-collector.md).
 
+### Failed-send feedback
+
+Failed regular messages and replies keep their content and show a reason on the affected row: slow mode, rate limiting, login required, another recognized chat restriction, or a safe fallback. The preload sends only allowlisted error codes and a validated HTTP status when known across the isolation boundary; raw request objects, headers and credentials are not used as failure text.
+
+If delivery is still unconfirmed after 30 seconds, the row warns that the message may have been sent. Check chat before choosing **Retry**; retries are manual and can duplicate an unconfirmed delivery. **Copy** preserves the original content. Retrying creates a new pending row without the old reason; confirmation clears it. Existing automatic echo matching after a row has timed out is unchanged, so the uncertainty warning can remain even if a late message appears.
+
+With telemetry enabled, `chat.send` / `chat.reply` and their API child spans retain the fixed reason, `error.type`, `message.temp_id` and actual `http.response.status_code` when available. Local authentication failures do not invent an HTTP response. An unconfirmed row produces `chat.send.confirmation_timeout` or `chat.reply.confirmation_timeout` in the original operation's trace, with `error.type=SEND_TIMEOUT` and `message.delivery=unconfirmed`, even if the HTTP request already completed. These spans do not include message bodies or credentials.
+
+```bash
+npm run test:messages
+# All local regression suites:
+npx vitest run
+```
+
+Verification on 2026-10-15: 51 send-failure/UI/real-SDK regressions and 71 existing realtime/tooling regressions passed. An isolated Chromium surface used the actual store, message component, parser and SCSS with synthetic bridge responses to exercise mapped/fallback/timeout text, copy, one-click retry, pending/confirmed transitions, keyboard focus and 320 px wrapping. An isolated Electron preload fixture used actual Axios over loopback HTTP for both send methods and verified safe error envelopes and stripped success responses. No saved account, live send or automatic retry was used. Production build passed; lint reported 0 errors and 319 warnings. The cause of the previously reported isolated failed send is still unknown.
+
+Local OTEL readback initially found `[object Object]` failure descriptions and no cause code. After correction, actual renderer SDK → preload IPC → main OTLP relay → Podman `kicktalk-lgtm` produced 28 stored spans for 12 synthetic send/reply scenarios: slow mode, rate limiting, HTTP authentication rejection, unknown error, and confirmation timeouts after both accepted and still-pending requests. Real 30-second timers fired; API/timeout parent IDs, temp IDs, safe reasons, known HTTP statuses and absence of synthetic content/credentials were checked in Tempo. Local-auth traces separately verified no invented HTTP status. Grafana Explore displayed the timeout span and its `SEND_TIMEOUT` / `unconfirmed` attributes. Use the local workflow above, then search Tempo with `{ resource.service.name = "kicktalk-renderer" && span.error.type = "SEND_TIMEOUT" }`.
+
 ### Build
 
 ```bash
