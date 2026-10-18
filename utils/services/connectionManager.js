@@ -3,21 +3,55 @@ import SharedStvWebSocket from "./seventv/sharedStvWebSocket.js";
 
 // OpenTelemetry instrumentation
 let tracer;
+let otelContext;
+let otelTrace;
 try {
-  const { trace } = require('@opentelemetry/api');
+  const { context, trace } = require('@opentelemetry/api');
+  otelContext = context;
+  otelTrace = trace;
   tracer = trace.getTracer('kicktalk-connection-manager', '1.0.0');
-} catch (e) {
+} catch {
   // Fallback if OpenTelemetry not available
+  otelContext = { active: () => ({}) };
+  otelTrace = { setSpan: (ctx) => ctx };
   tracer = {
-    startSpan: (name, options) => ({ 
-      end: () => {}, 
-      setStatus: () => {}, 
+    startSpan: (name, options) => ({
+      end: () => {},
+      setStatus: () => {},
       recordException: () => {},
       addEvent: () => {},
       setAttribute: () => {},
       setAttributes: () => {}
     })
   };
+}
+
+function stageHttpStatus(error) {
+  const candidate = error?.response?.status ?? error?.status ?? error?.data?.status?.code;
+  return Number.isInteger(candidate) && candidate >= 100 && candidate <= 599 ? candidate : undefined;
+}
+
+function stageErrorType(error) {
+  if (stageHttpStatus(error) !== undefined) return 'http_error';
+  if (['ETIMEDOUT', 'ECONNABORTED'].includes(error?.code)) return 'timeout';
+  return 'request_failed';
+}
+
+// Records one low-cardinality stage outcome; never copies error text or payloads.
+function recordStageOutcome(span, stage, required, outcome) {
+  const succeeded = !outcome || outcome.succeeded !== false;
+  span.setAttribute(`room_load.stage.${stage}`, succeeded ? 'succeeded' : 'failed');
+  if (!succeeded) {
+    const attributes = {
+      'room_load.stage': stage,
+      'room_load.stage_required': required,
+      'error.type': stageErrorType(outcome.error),
+    };
+    const status = stageHttpStatus(outcome.error);
+    if (status !== undefined) attributes['http.response.status_code'] = status;
+    span.addEvent('room_load_stage_failed', attributes);
+  }
+  return succeeded;
 }
 
 class ConnectionManager {
@@ -79,7 +113,7 @@ class ConnectionManager {
 
       // Initialize chatrooms in staggered batches
       span.addEvent('chatroom_batches_start');
-      await this.initializeChatroomsInBatches(chatrooms);
+      const roomTotals = await this.initializeChatroomsInBatches(chatrooms, otelTrace.setSpan(otelContext.active(), span));
       if (this.closed) return;
       span.addEvent('chatroom_batches_complete');
 
@@ -90,7 +124,16 @@ class ConnectionManager {
 
       console.log("[ConnectionManager] Initialization completed successfully");
       span.addEvent('initialization_completed');
-      span.setStatus({ code: 1 }); // SUCCESS
+      if (roomTotals) {
+        span.setAttributes({
+          'chatroom.success_count': roomTotals.successCount,
+          'chatroom.partial_count': roomTotals.partialCount,
+          'chatroom.failure_count': roomTotals.failureCount
+        });
+      }
+      if (roomTotals?.failureCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_failed' }); // ERROR
+      else if (roomTotals?.partialCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_partial' }); // ERROR
+      else span.setStatus({ code: 1 }); // SUCCESS
     } catch (error) {
       console.error("[ConnectionManager] Error during initialization:", error);
       span.recordException(error);
@@ -127,14 +170,14 @@ class ConnectionManager {
     }
   }
 
-  async initializeChatroomsInBatches(chatrooms) {
+  async initializeChatroomsInBatches(chatrooms, parentContext) {
     const span = tracer.startSpan('connection_manager.chatroom_batches', {
       attributes: {
         'chatroom.total_count': chatrooms.length,
         'batch.size': this.config.batchSize,
         'batch.stagger_delay_ms': this.config.staggerDelay
       }
-    });
+    }, parentContext);
 
     console.log(`[ConnectionManager] Initializing ${chatrooms.length} chatrooms in batches of ${this.config.batchSize}`);
     span.addEvent('chatroom_batch_processing_start');
@@ -149,36 +192,46 @@ class ConnectionManager {
       span.setAttribute('batch.count', batches.length);
       span.addEvent('chatrooms_split_into_batches');
 
+      const totals = { successCount: 0, partialCount: 0, failureCount: 0 };
       for (let i = 0; i < batches.length; i++) {
         if (this.closed) return;
         const batch = batches[i];
         console.log(`[ConnectionManager] Processing batch ${i + 1}/${batches.length} (${batch.length} chatrooms)`);
-        
+
         const batchSpan = tracer.startSpan(`connection_manager.chatroom_batch_${i + 1}`, {
           attributes: {
             'batch.index': i + 1,
             'batch.total': batches.length,
             'batch.chatroom_count': batch.length
           }
-        });
+        }, otelTrace.setSpan(otelContext.active(), span));
 
         try {
-          // Process batch in parallel
+          // Process batch in parallel; room spans take the batch span as parent.
+          const roomParentContext = otelTrace.setSpan(otelContext.active(), batchSpan);
           const batchPromises = batch
             .filter((room) => this.chatrooms.has(String(room.id)))
-            .map((room) => this.addChatroom(room));
+            .map((room) => this.addChatroom(room, roomParentContext));
           const results = await Promise.allSettled(batchPromises);
-          
-          const successCount = results.filter(r => r.status === 'fulfilled').length;
+
+          const successCount = results.filter(r => r.status === 'fulfilled' && r.value === 'ready').length;
+          const partialCount = results.filter(r => r.status === 'fulfilled' && r.value === 'partial').length;
           const failureCount = results.filter(r => r.status === 'rejected').length;
-          
+          totals.successCount += successCount;
+          totals.partialCount += partialCount;
+          totals.failureCount += failureCount;
+
           batchSpan.setAttributes({
             'batch.success_count': successCount,
+            'batch.partial_count': partialCount,
             'batch.failure_count': failureCount
           });
-          
+
           if (failureCount > 0) {
             batchSpan.addEvent('batch_had_failures', { failure_count: failureCount });
+          }
+          if (partialCount > 0) {
+            batchSpan.addEvent('batch_had_partial_rooms', { partial_count: partialCount });
           }
 
           // Add delay between batches (except for the last one)
@@ -186,8 +239,10 @@ class ConnectionManager {
             await this.delay(this.config.staggerDelay);
             batchSpan.addEvent('stagger_delay_applied');
           }
-          
-          batchSpan.setStatus({ code: 1 }); // SUCCESS
+
+          if (failureCount > 0) batchSpan.setStatus({ code: 2, message: 'chatroom_batch_failed' }); // ERROR
+          else if (partialCount > 0) batchSpan.setStatus({ code: 2, message: 'chatroom_batch_partial' }); // ERROR
+          else batchSpan.setStatus({ code: 1 }); // SUCCESS
         } catch (error) {
           batchSpan.recordException(error);
           batchSpan.setStatus({ code: 2, message: error.message }); // ERROR
@@ -199,7 +254,15 @@ class ConnectionManager {
 
       console.log("[ConnectionManager] All chatrooms initialized");
       span.addEvent('all_chatrooms_initialized');
-      span.setStatus({ code: 1 }); // SUCCESS
+      span.setAttributes({
+        'chatroom.success_count': totals.successCount,
+        'chatroom.partial_count': totals.partialCount,
+        'chatroom.failure_count': totals.failureCount
+      });
+      if (totals.failureCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_failed' }); // ERROR
+      else if (totals.partialCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_partial' }); // ERROR
+      else span.setStatus({ code: 1 }); // SUCCESS
+      return totals;
     } catch (error) {
       span.recordException(error);
       span.setStatus({ code: 2, message: error.message }); // ERROR
@@ -209,7 +272,7 @@ class ConnectionManager {
     }
   }
 
-  async addChatroom(chatroom) {
+  async addChatroom(chatroom, parentContext) {
     if (this.closed) return;
     this.chatrooms.set(String(chatroom.id), chatroom);
     const kickRegistration = this.kickRealtime.addChatroom(chatroom);
@@ -235,8 +298,6 @@ class ConnectionManager {
       console.warn("[ConnectionManager] Unable to add 7TV room:", error);
     }
 
-    await kickRegistration;
-    if (!this.isActiveRoom(chatroom)) return;
     const span = tracer.startSpan('connection_manager.add_chatroom', {
       attributes: {
         'chatroom.id': chatroom.id,
@@ -244,9 +305,21 @@ class ConnectionManager {
         'chatroom.slug': chatroom.streamerData?.slug,
         'chatroom.kick_channel_id': chatroom.streamerData.id
       }
-    });
+    }, parentContext);
+    let registrationFailed = false;
 
     try {
+      try {
+        await kickRegistration;
+      } catch (error) {
+        registrationFailed = true;
+        recordStageOutcome(span, 'realtime_registration', true, { succeeded: false, error });
+        span.setAttribute('room_load.outcome', 'failed');
+        span.setStatus({ code: 2, message: 'realtime_registration_failed' }); // ERROR
+        throw error;
+      }
+      recordStageOutcome(span, 'realtime_registration', true, { succeeded: true });
+      if (!this.isActiveRoom(chatroom)) return;
       span.addEvent('kick_realtime_room_registered');
 
       span.setAttributes({
@@ -255,24 +328,36 @@ class ConnectionManager {
         '7tv.channel_emote_set_found': !!channelEmoteSet
       });
 
+      let failedStages = 0;
       // Fetch initial messages for this chatroom
       span.addEvent('initial_messages_fetch_start');
-      await this.fetchInitialMessages(chatroom);
-      span.addEvent('initial_messages_fetch_complete');
+      if (!recordStageOutcome(span, 'initial_messages', false, await this.fetchInitialMessages(chatroom))) failedStages += 1;
+      else span.addEvent('initial_messages_fetch_complete');
 
       // Fetch initial chatroom info (including livestream status)
       span.addEvent('chatroom_info_fetch_start');
-      await this.fetchInitialChatroomInfo(chatroom);
-      span.addEvent('chatroom_info_fetch_complete');
-      await this.fetchInitialUserAndPollInfo(chatroom);
+      if (!recordStageOutcome(span, 'initial_chatroom_info', false, await this.fetchInitialChatroomInfo(chatroom))) failedStages += 1;
+      else span.addEvent('chatroom_info_fetch_complete');
+      for (const [stage, outcome] of await this.fetchInitialUserAndPollInfo(chatroom)) {
+        if (!recordStageOutcome(span, stage, false, outcome)) failedStages += 1;
+      }
 
+      const outcome = failedStages > 0 ? 'partial' : 'ready';
+      span.setAttributes({
+        'room_load.outcome': outcome,
+        'room_load.failed_stage_count': failedStages,
+      });
       console.log(`[ConnectionManager] Added chatroom ${chatroom.id} (${chatroom.streamerData?.user?.username})`);
       span.addEvent('chatroom_added_successfully');
-      span.setStatus({ code: 1 }); // SUCCESS
+      if (failedStages > 0) span.setStatus({ code: 2, message: 'room_load_partial' }); // ERROR
+      else span.setStatus({ code: 1 }); // SUCCESS
+      return outcome;
     } catch (error) {
+      if (registrationFailed) throw error;
       console.error(`[ConnectionManager] Error adding chatroom ${chatroom.id}:`, error);
       span.recordException(error);
       span.setStatus({ code: 2, message: error.message }); // ERROR
+      return undefined;
     } finally {
       span.end();
     }
@@ -591,11 +676,11 @@ class ConnectionManager {
   async fetchInitialMessages(chatroom) {
     try {
       const response = await window.app.kick.getInitialChatroomMessages(chatroom.streamerData.id);
-      if (!this.isActiveRoom(chatroom)) return;
+      if (!this.isActiveRoom(chatroom)) return { succeeded: true };
 
       if (!response?.data?.data) {
         console.log(`[ConnectionManager] No initial messages data for chatroom ${chatroom.id}`);
-        return;
+        return { succeeded: true };
       }
 
       const data = response.data.data;
@@ -615,8 +700,10 @@ class ConnectionManager {
           console.log(`[ConnectionManager] Loaded ${data.messages.length} initial messages for chatroom ${chatroom.id}`);
         }
       }
+      return { succeeded: true };
     } catch (error) {
       console.error(`[ConnectionManager] Error fetching initial messages for chatroom ${chatroom.id}:`, error);
+      return { succeeded: false, error };
     }
   }
 
@@ -624,10 +711,10 @@ class ConnectionManager {
   async fetchInitialChatroomInfo(chatroom) {
     try {
       const chatroomData = await window.app.kick.getChannelChatroomInfo(chatroom.streamerData.slug);
-      if (!this.isActiveRoom(chatroom)) return;
+      if (!this.isActiveRoom(chatroom)) return { succeeded: true };
 
       if (!chatroomData) {
-        return;
+        return { succeeded: true };
       }
 
       // Use callbacks to avoid circular imports
@@ -639,8 +726,10 @@ class ConnectionManager {
         const isLive = chatroomData?.livestream?.is_live || false;
         this.storeCallbacks.handleStreamStatus?.(chatroom.id, chatroomData, isLive);
       }
+      return { succeeded: true };
     } catch (error) {
       console.error(`[ConnectionManager] Error fetching initial chatroom info for chatroom ${chatroom.id}:`, error);
+      return { succeeded: false, error };
     }
   }
 
@@ -649,8 +738,9 @@ class ConnectionManager {
   }
 
   async fetchInitialUserAndPollInfo(chatroom) {
-    if (!this.isActiveRoom(chatroom)) return;
-    await Promise.allSettled([
+    const stages = ['initial_user_info', 'initial_poll_info'];
+    if (!this.isActiveRoom(chatroom)) return stages.map((stage) => [stage, { succeeded: true }]);
+    const results = await Promise.allSettled([
       (async () => {
         const response = await window.app.kick.getSelfChatroomInfo(chatroom.streamerData.slug);
         if (this.isActiveRoom(chatroom) && response?.data) {
@@ -667,6 +757,9 @@ class ConnectionManager {
         }
       })(),
     ]);
+    return stages.map((stage, index) => [stage, results[index].status === 'fulfilled'
+      ? { succeeded: true }
+      : { succeeded: false, error: results[index].reason }]);
   }
 
   // Cleanup method
