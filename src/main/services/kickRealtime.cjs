@@ -314,7 +314,16 @@ class KickRealtimeController {
         let firstConnecting = true;
         client.on('connecting', (context) => {
           if (firstConnecting) { firstConnecting = false; return; }
-          this._scheduleRecovery(generation, new RealtimeError('realtime_connection_lost', context.code));
+          // The SDK routes server disconnect/close codes in its no-reconnect ranges
+          // (3500-3999, 4500-4999, as in its _handleDisconnect) to 'disconnected',
+          // except a raw socket close with an empty reason, which it misroutes to
+          // 'connecting' with the code intact. Apply the SDK's own ranges here so a
+          // fatal close cannot reset the attempt budget by resubscribing first.
+          const fatal = Number.isInteger(context.code) &&
+            ((context.code >= 3500 && context.code < 4000) || (context.code >= 4500 && context.code < 5000));
+          this._scheduleRecovery(generation, fatal
+            ? new RealtimeError('realtime_server_disconnected', context.code, true)
+            : new RealtimeError('realtime_connection_lost', context.code));
         });
         client.on('disconnected', (context) => this._scheduleRecovery(generation,
           new RealtimeError('realtime_server_disconnected', context.code, true)));

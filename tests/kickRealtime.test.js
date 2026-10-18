@@ -328,6 +328,9 @@ async function createFixture() {
     disconnect(connection, code = 3001, reason = 'fixture recoverable disconnect') {
       send(connection, { push: { disconnect: { code, reason, reconnect: code < 3500 } } });
     },
+    closeSocket(connection, code = 1001, reason = '') {
+      if (connection.socket.readyState === WebSocket.OPEN) connection.socket.close(code, reason);
+    },
     later(callback, milliseconds = 5) {
       const timer = setTimeout(() => { scheduled.delete(timer); callback(); }, milliseconds);
       scheduled.add(timer);
@@ -633,6 +636,79 @@ describe('KickRealtimeController with the real Centrifugo wire protocol', () => 
     expect(JSON.stringify(events)).not.toContain('fixture-private-response-marker');
     await sleep(120);
     expect(fixture.connections).toHaveLength(1);
+  });
+
+  it('bounds transient server disconnects after readiness when primary readiness is not regained', async () => {
+    let dropPrimary = false;
+    fixture.subscribeHandler = (connection, command) => {
+      if (!dropPrimary || command.subscribe.channel !== PRIMARY_A) return true;
+      fixture.later(() => fixture.disconnect(connection), 1);
+      return false;
+    };
+    await controller.setRooms([ROOM_A]);
+    await waitConnected(101);
+    dropPrimary = true;
+    fixture.disconnect(fixture.connections.at(-1));
+    await until(() => latestState(101)?.state === 'failed', 'exhausted post-readiness transient disconnect budget');
+    expect(latestState(101)).toMatchObject({ state: 'failed', attempt: 3, code: 3001 });
+    expect(stateEvents(101).filter((event) => event.state === 'connected')).toHaveLength(1);
+    const attempts = stateEvents(101)
+      .filter((event) => event.state === 'reconnecting')
+      .map((event) => event.attempt);
+    expect(attempts).toEqual([1, 2, 3]);
+    expect(fixture.connections).toHaveLength(4);
+    await sleep(120);
+    expect(fixture.connections).toHaveLength(4);
+  });
+
+  it('treats a fatal-range server disconnect in the 4500 range as terminal without reconnecting', async () => {
+    await controller.setRooms([ROOM_A]);
+    await waitConnected(101);
+    fixture.disconnect(fixture.connections[0], 4500, 'fixture terminal disconnect');
+    await until(() => latestState(101)?.state === 'failed', 'terminal 4500 server disconnect');
+    expect(latestState(101).code).toBe(4500);
+    await sleep(120);
+    expect(fixture.connections).toHaveLength(1);
+  });
+
+  it('bounds a temporary protocol connect error instead of treating it as terminal', async () => {
+    fixture.connectError = { code: 111, message: 'fixture temporary connect error', temporary: true };
+    await controller.setRooms([ROOM_A]);
+    await until(() => latestState(101)?.state === 'failed', 'exhausted temporary connect error budget');
+    expect(latestState(101)).toMatchObject({ state: 'failed', attempt: 3, code: 111 });
+    expect(stateEvents(101).some((event) => event.state === 'reconnecting')).toBe(true);
+    expect(fixture.connections).toHaveLength(3);
+    await sleep(120);
+    expect(fixture.connections).toHaveLength(3);
+  });
+
+  it.each([3500, 4500])('treats a fatal-range raw socket close (%i) as terminal without reconnecting', async (code) => {
+    await controller.setRooms([ROOM_A]);
+    await waitConnected(101);
+    fixture.closeSocket(fixture.connections[0], code);
+    await until(() => latestState(101)?.state === 'failed', 'terminal raw socket close');
+    expect(latestState(101).code).toBe(code);
+    await sleep(120);
+    expect(fixture.connections).toHaveLength(1);
+  });
+
+  it('bounds transient raw socket closes when primary readiness is not regained', async () => {
+    let dropPrimary = false;
+    fixture.subscribeHandler = (connection, command) => {
+      if (!dropPrimary || command.subscribe.channel !== PRIMARY_A) return true;
+      fixture.later(() => fixture.closeSocket(connection, 1012), 1);
+      return false;
+    };
+    await controller.setRooms([ROOM_A]);
+    await waitConnected(101);
+    dropPrimary = true;
+    fixture.closeSocket(fixture.connections.at(-1), 1012);
+    await until(() => latestState(101)?.state === 'failed', 'exhausted transient raw close budget');
+    expect(latestState(101)).toMatchObject({ state: 'failed', attempt: 3 });
+    expect(stateEvents(101).filter((event) => event.state === 'connected')).toHaveLength(1);
+    expect(fixture.connections).toHaveLength(4);
+    await sleep(120);
+    expect(fixture.connections).toHaveLength(4);
   });
 
   it('keeps another ready room receiving when one primary subscription is permanently denied', async () => {
