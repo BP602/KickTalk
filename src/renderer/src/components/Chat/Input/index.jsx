@@ -183,7 +183,7 @@ const readTelemetryPromptDismissal = () => {
   return null;
 };
 
-const EmoteSuggestions = memo(
+export const EmoteSuggestions = memo(
   ({ suggestions, onSelect, selectedIndex, userChatroomInfo }) => {
     const suggestionsRef = useRef(null);
     const selectedSuggestionRef = useRef(null);
@@ -216,7 +216,7 @@ const EmoteSuggestions = memo(
           {suggestions?.map((emote, i) => {
             return (
               <div
-                key={`${emote.id}-${emote.alias}`}
+                key={`${emote.platform}-${emote.type ?? emote.__sectionKey ?? ""}-${emote.id}-${emote.name}`}
                 ref={selectedIndex === i ? selectedSuggestionRef : null}
                 disabled={!canUseEmote(emote)}
                 className={clsx(
