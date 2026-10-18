@@ -75,7 +75,6 @@ const validateSessionToken = async () => {
   if (!authSession.token || !authSession.session) {
     console.log("[Session Validation]: No session tokens available");
     authStore.clear();
-    localStorage.clear();
     return false;
   }
 
@@ -86,7 +85,6 @@ const validateSessionToken = async () => {
     if (!data?.id) {
       console.warn("[Session Validation]: No user data received");
       authStore.clear();
-      localStorage.clear();
 
       return false;
     }
