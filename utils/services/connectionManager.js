@@ -34,6 +34,19 @@ function recordStageOutcome(span, stage, required, outcome) {
   return result;
 }
 
+async function waitForRendererTracer() {
+  try {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined'
+      || JSON.parse(localStorage.getItem('settings') || '{}')?.telemetry?.enabled !== true) return;
+  } catch {
+    return;
+  }
+  const startedAt = Date.now();
+  while (!window.__KT_TRACER__ && Date.now() - startedAt < 1000) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 class ConnectionManager {
   constructor() {
     this.kickRealtime = new KickRealtimeClient();
@@ -60,18 +73,29 @@ class ConnectionManager {
   }
 
   async initializeConnections(chatrooms, eventHandlers = {}, storeCallbacks = {}) {
-    const span = tracer.startSpan('connection_manager.initialize', {
-      attributes: {
-        'chatroom.count': chatrooms.length,
-        'connection.type': 'shared_pooled',
-        'batch.size': this.config.batchSize
+    const startedAt = Date.now();
+    const events = [];
+    let span;
+    const addEarlyEvent = (name) => events.push({ name, time: Date.now() });
+    const ensureSpan = () => {
+      if (!span) {
+        span = tracer.startSpan('connection_manager.initialize', {
+          startTime: startedAt,
+          attributes: {
+            'chatroom.count': chatrooms.length,
+            'connection.type': 'shared_pooled',
+            'batch.size': this.config.batchSize
+          }
+        });
+        for (const event of events) span.addEvent(event.name, {}, event.time);
       }
-    });
+      return span;
+    };
 
     if (this.initializationInProgress) {
       console.log("[ConnectionManager] Initialization already in progress");
-      span.addEvent('initialization_already_in_progress');
-      span.end();
+      addEarlyEvent('initialization_already_in_progress');
+      ensureSpan().end();
       return;
     }
 
@@ -79,13 +103,13 @@ class ConnectionManager {
     this.storeCallbacks = storeCallbacks;
     console.log(`[ConnectionManager] Starting optimized initialization for ${chatrooms.length} chatrooms`);
     
-    span.addEvent('initialization_started');
+    addEarlyEvent('initialization_started');
 
     try {
       // Set up event handlers
-      span.addEvent('setup_event_handlers_start');
+      addEarlyEvent('setup_event_handlers_start');
       this.setupEventHandlers(eventHandlers);
-      span.addEvent('setup_event_handlers_complete');
+      addEarlyEvent('setup_event_handlers_complete');
 
       // Register every Kick room before starting optional 7TV work.
       for (const load of this.activeRoomLoads.values()) load.finishCancelled();
@@ -93,6 +117,11 @@ class ConnectionManager {
       await this.kickRealtime.setRooms(chatrooms);
       if (this.closed) return;
       this.startSharedConnections();
+      // Startup may reach this manager before the renderer registers its tracer.
+      // Defer the root span, but retain its original start time and early events.
+      await waitForRendererTracer();
+      if (this.closed) return;
+      ensureSpan();
 
       // Initialize chatrooms in staggered batches
       span.addEvent('chatroom_batches_start');
@@ -125,12 +154,12 @@ class ConnectionManager {
       else if (roomTotals?.cancelledCount === 0 && emoteTotals.cancelledCount === 0) span.setStatus({ code: 1 }); // SUCCESS
     } catch (error) {
       console.error("[ConnectionManager] Error during initialization:", error);
-      span.recordException(error);
+      ensureSpan().recordException(error);
       span.setStatus({ code: 2, message: error.message }); // ERROR
       throw error;
     } finally {
       this.initializationInProgress = false;
-      span.end();
+      ensureSpan().end();
     }
   }
 

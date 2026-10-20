@@ -247,6 +247,96 @@ describe('ConnectionManager room-load stage telemetry', () => {
   const addChatroomSpan = () => spanExporter.getFinishedSpans()
     .find((span) => span.name === 'connection_manager.add_chatroom');
 
+  it('defers the initialize trace until enabled renderer tracing is ready and parents every phase', async () => {
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => JSON.stringify({ telemetry: { enabled: true } })) });
+    let completed = false;
+    const initializing = manager.initializeConnections([room(1)], {}, callbacks).then(() => { completed = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(completed).toBe(false);
+    expect(spanExporter.getFinishedSpans().some((span) => span.name === 'connection_manager.initialize')).toBe(false);
+    expect(app.kick.initialLoad.messages).not.toHaveBeenCalled();
+    window.__KT_TRACER__ = {};
+    await vi.advanceTimersByTimeAsync(25);
+    await initializing;
+    const spans = spanExporter.getFinishedSpans();
+    const root = spans.find((span) => span.name === 'connection_manager.initialize');
+    const batches = spans.find((span) => span.name === 'connection_manager.chatroom_batches');
+    expect(batches.parentSpanContext.spanId).toBe(root.spanContext().spanId);
+    for (const name of ['connection_manager.chatroom_batches', 'connection_manager.chatroom_batch_1', 'connection_manager.add_chatroom', 'connection_manager.batch_emote_fetch']) {
+      expect(spans.find((span) => span.name === name).spanContext().traceId).toBe(root.spanContext().traceId);
+    }
+    const nanos = ([seconds, fraction]) => seconds * 1e9 + fraction;
+    expect(nanos(root.startTime)).toBeLessThanOrEqual(nanos(batches.startTime));
+    expect(nanos(root.events.find((event) => event.name === 'setup_event_handlers_complete').time))
+      .toBeLessThanOrEqual(nanos(batches.startTime));
+    expect(root.attributes['chatroom.success_count']).toBe(1);
+    expect(root.status.code).toBe(1);
+  });
+
+  it('bounds enabled tracer readiness to one second when the renderer tracer never arrives', async () => {
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => JSON.stringify({ telemetry: { enabled: true } })) });
+    let completed = false;
+    const initializing = manager.initializeConnections([room(1)], {}, callbacks).then(() => { completed = true; });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(completed).toBe(false);
+    expect(app.kick.initialLoad.messages).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await initializing;
+    expect(completed).toBe(true);
+    expect(app.kick.initialLoad.messages).toHaveBeenCalledTimes(1);
+    expect(window.__KT_TRACER__).toBeUndefined();
+  });
+
+  it.each([null, '{}', '{"telemetry":{"enabled":false}}', 'invalid settings'])('does not wait for a tracer when telemetry settings are %s', async (settings) => {
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => settings) });
+    let completed = false;
+    const initializing = manager.initializeConnections([room(1)], {}, callbacks).then(() => { completed = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(completed).toBe(true);
+    expect(window.__KT_TRACER__).toBeUndefined();
+    await initializing;
+  });
+
+  it('creates and ends the deferred initialize span when registration rejects before readiness', async () => {
+    app.kick.realtime.onEvent.mockImplementationOnce(() => { throw new Error('registration setup failed'); });
+    await expect(manager.initializeConnections([room(1)], {}, callbacks)).rejects.toThrow('registration setup failed');
+    const span = spanExporter.getFinishedSpans().find((entry) => entry.name === 'connection_manager.initialize');
+    expect(span.attributes).toMatchObject({ 'chatroom.count': 1, 'connection.type': 'shared_pooled', 'batch.size': 3 });
+    expect(span.events.map((event) => event.name)).toEqual(expect.arrayContaining([
+      'initialization_started', 'setup_event_handlers_start', 'setup_event_handlers_complete', 'exception',
+    ]));
+    expect(span.status).toMatchObject({ code: 2, message: 'registration setup failed' });
+    expect(manager.initializationInProgress).toBe(false);
+  });
+
+  it('creates and ends the deferred initialize span after cleanup during registration', async () => {
+    const pending = deferred();
+    app.kick.realtime.setRooms.mockImplementationOnce(() => pending.promise);
+    const initializing = manager.initializeConnections([room(1)], {}, callbacks);
+    manager.cleanup();
+    pending.resolve([]);
+    await initializing;
+    const spans = spanExporter.getFinishedSpans().filter((entry) => entry.name === 'connection_manager.initialize');
+    expect(spans).toHaveLength(1);
+    expect(spans[0].events.map((event) => event.name)).toContain('setup_event_handlers_complete');
+    expect(app.kick.initialLoad.messages).not.toHaveBeenCalled();
+    expect(manager.initializationInProgress).toBe(false);
+  });
+
+  it('preserves the running initialization when a duplicate call ends its own deferred span', async () => {
+    const pending = deferred();
+    app.kick.realtime.setRooms.mockImplementationOnce(() => pending.promise);
+    const initializing = manager.initializeConnections([room(1)], {}, callbacks);
+    await manager.initializeConnections([], {}, callbacks);
+    expect(manager.initializationInProgress).toBe(true);
+    const duplicate = spanExporter.getFinishedSpans().find((entry) => entry.name === 'connection_manager.initialize');
+    expect(duplicate.attributes['chatroom.count']).toBe(0);
+    expect(duplicate.events.map((event) => event.name)).toEqual(['initialization_already_in_progress']);
+    pending.resolve([]);
+    await initializing;
+    expect(manager.initializationInProgress).toBe(false);
+  });
+
   it('preserves public emote helper values, caches and callbacks across provider failures', async () => {
     const activeRoom = room(1);
     manager.chatrooms.set('1', activeRoom);
