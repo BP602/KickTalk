@@ -2,7 +2,7 @@
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import {
-  decodeAttributes, decodeOtlpBody, expectSendTrace, forbiddenHits, hexId, normalizeSpans,
+  classifyTempoHttp, decodeAttributes, decodeOtlpBody, expectSendTrace, forbiddenHits, hexId, normalizeSpans, staleSourceFiles,
 } from '../scripts/otel-failure-smoke.mjs';
 
 // The live harness (scripts/otel-failure-smoke.mjs) is never run here; these pin the pure
@@ -54,7 +54,35 @@ function unconfirmed({ pending = false, afterMs = 30001, timeoutAttrs = {} } = {
   ];
 }
 
+describe('Tempo absence versus failure, and build freshness', () => {
+  it('treats only HTTP 404 as proven absence', () => {
+    expect(classifyTempoHttp(404, 'trace not found')).toEqual({ kind: 'absent' });
+    expect(classifyTempoHttp(404, '')).toEqual({ kind: 'absent' });
+    expect(classifyTempoHttp(200, '{"traces":[]}')).toEqual({ kind: 'ok', data: { traces: [] } });
+  });
+
+  it('classifies transport, server and parse failures as errors, never absence', () => {
+    for (const [status, body] of [[null, ''], [undefined, ''], [500, '{}'], [503, 'down'], [429, ''], [200, '{invalid'], [301, '']]) {
+      expect(classifyTempoHttp(status, body).kind).toBe('error');
+    }
+    expect(classifyTempoHttp(500, '{}').message).toMatch(/HTTP 500/);
+    expect(classifyTempoHttp(null, '').message).toMatch(/transport/);
+    expect(classifyTempoHttp(200, '{invalid').message).toMatch(/invalid JSON/);
+  });
+
+  it('flags only sources strictly newer than the build output', () => {
+    const files = [
+      { path: 'src/older.js', mtimeMs: 999 },
+      { path: 'src/same.js', mtimeMs: 1000 },
+      { path: 'utils/newer.js', mtimeMs: 1001 },
+    ];
+    expect(staleSourceFiles(files, 1000)).toEqual(['utils/newer.js']);
+    expect(staleSourceFiles(files, 2000)).toEqual([]);
+    expect(staleSourceFiles([], 0)).toEqual([]);
+  });
+});
 describe('Tempo decoding', () => {
+
   it('normalizes hex and base64 ids', () => {
     expect(hexId('00f067aa0ba902b7')).toBe('00f067aa0ba902b7');
     expect(hexId(Buffer.from('00f067aa0ba902b7', 'hex').toString('base64'))).toBe('00f067aa0ba902b7');

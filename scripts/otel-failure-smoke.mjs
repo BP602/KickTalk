@@ -6,10 +6,11 @@
 // The harness (host side) owns the LGTM lifecycle, Tempo readback, assertions and
 // cleanup. Each app launch runs inside a throwaway `unshare -rn` network
 // namespace ("agent" mode) whose only interfaces are a fresh loopback:
-//   - kick.com / 7tv.io / *.kicktalk.app are mapped by Chromium to a local HTTPS
-//     stub (throwaway self-signed cert, trusted by SPKI pin) that scripts the
-//     external API boundary. Nothing else is replaced: the real preload bridge,
-//     store, OpenTelemetry SDK, IPC relay and exporters run unmodified.
+//   - kick.com, 7tv.io, api.kicktalk.app and cdn.kicktalk.app are mapped by
+//     Chromium to a local HTTPS stub (throwaway self-signed cert, trusted by
+//     SPKI pin) that scripts the external API boundary. Nothing else is
+//     replaced: the real preload bridge, store, OpenTelemetry SDK, IPC relay
+//     and exporters run unmodified.
 //   - 127.0.0.1:4318 inside the namespace is a counting "receiver gate" that
 //     either rejects (HTTP 401) or forwards to the host's LGTM through a unix
 //     socket, so receiver-side counts are observed at the real boundary.
@@ -126,6 +127,25 @@ export function decodeOtlpBody(body, headers = {}) {
 }
 
 export const forbiddenHits = (text, markers) => markers.filter(marker => text.includes(marker));
+
+// HTTP 404 is the only response that proves a trace is absent; transport,
+// server and parse failures are errors the caller must surface, never "absent".
+export function classifyTempoHttp(status, bodyText) {
+  if (status === 404) return { kind: 'absent' };
+  if (!Number.isInteger(status) || status < 200 || status >= 300) {
+    return { kind: 'error', message: `Tempo query failed (HTTP ${status ?? 'transport'})` };
+  }
+  try {
+    return { kind: 'ok', data: JSON.parse(bodyText) };
+  } catch {
+    return { kind: 'error', message: 'Tempo returned invalid JSON' };
+  }
+}
+
+// Source files (relative path + mtime) newer than the build output make it stale.
+export function staleSourceFiles(files, buildMtimeMs) {
+  return files.filter(file => file.mtimeMs > buildMtimeMs).map(file => file.path);
+}
 
 // Asserts one send/reply trace exactly as stored by Tempo. `reason` is the text
 // the application showed to the user for the same attempt.
@@ -688,9 +708,16 @@ async function runAgent(cfg) {
       ? fs.readFileSync(appLog, 'utf8').split('\n').filter(line => /rror/.test(line) && !/dbus|gpu/i.test(line)).slice(-12) : null;
   } finally {
     page?.close();
-    report.stub = stub && { sends: stub.sends, routes: stub.routes, hostsSeen: [...stub.hostsSeen] };
-    report.gate = gate && { records: gate.state.records.map(({ ...record }) => record) };
+    // Kill first: SDK shutdown flushes also reach the gate and must be inside the
+    // single snapshot below (leak scan, per-path counts, exported-once checks).
     await killApp();
+    if (gate) {
+      // Bounded drain so in-flight forwards settle to a final status (0 = pending).
+      await waitFor('in-flight gate forwards to settle',
+        () => gate.state.records.every(item => item.status !== 0), { timeoutMs: 5000, intervalMs: 100 }).catch(() => {});
+    }
+    report.stub = stub && structuredClone({ sends: stub.sends, routes: stub.routes, hostsSeen: [...stub.hostsSeen] });
+    report.gate = gate && { records: structuredClone(gate.state.records) };
     stub?.close();
     gate?.close();
     fs.writeFileSync(cfg.reportPath, JSON.stringify(report));
@@ -716,14 +743,22 @@ async function check(name, run) {
   }
 }
 
+// Returns parsed JSON on 2xx, null only on HTTP 404 (proven absence); every
+// transport/exec/server/parse failure throws so checks fail instead of passing.
 async function tempoGet(pathname, params = {}) {
-  const args = ['exec', CONTAINER, 'curl', '-fsS', '-G', '--max-time', '10'];
+  const args = ['exec', CONTAINER, 'curl', '-sS', '-G', '--max-time', '10', '-w', '\n%{http_code}'];
   for (const [key, value] of Object.entries(params)) args.push('--data-urlencode', `${key}=${value}`);
   args.push(`${TEMPO}${pathname}`);
+  let stdout;
   try {
-    const { stdout } = await exec('podman', args, { maxBuffer: 32 * 1024 * 1024, timeout: 20000 });
-    return JSON.parse(stdout);
-  } catch { return null; }
+    ({ stdout } = await exec('podman', args, { maxBuffer: 32 * 1024 * 1024, timeout: 20000 }));
+  } catch {
+    throw new Error(`Tempo query transport failure for ${pathname}`);
+  }
+  const split = stdout.lastIndexOf('\n');
+  const result = classifyTempoHttp(Number(stdout.slice(split + 1)), stdout.slice(0, split));
+  if (result.kind === 'error') throw new Error(`${result.message} for ${pathname}`);
+  return result.kind === 'absent' ? null : result.data;
 }
 
 async function readTrace(traceId, minSpans, timeoutMs = 30000) {
@@ -742,16 +777,20 @@ async function readTrace(traceId, minSpans, timeoutMs = 30000) {
 
 async function searchTraceIds(query, runStart, expected = 1, timeoutMs = 45000) {
   let ids = [];
+  let succeeded = false;
   try {
     await waitFor(`Tempo search ${query}`, async () => {
       const data = await tempoGet('/api/search', {
         q: query, limit: 20, start: Math.floor(runStart / 1000) - 30, end: Math.floor(Date.now() / 1000) + 300,
       });
+      if (data === null) return false; // No successful response yet: keep polling.
+      succeeded = true;
       ids = (data?.traces || []).map(trace => trace.traceID);
-      return ids.length >= expected;
+      // Zero is only acceptable after at least one successful Tempo response.
+      return expected === 0 || ids.length >= expected;
     }, { timeoutMs, intervalMs: 1500 });
   } catch (error) {
-    if (!ids.length && expected > 0) throw error;
+    if (expected === 0 ? !succeeded : !ids.length && expected > 0) throw error;
   }
   return ids;
 }
@@ -1019,8 +1058,24 @@ async function main() {
 
   try {
     // --- prerequisites (never creates or replaces the container) ---
-    if (!fs.existsSync(path.join(REPO, 'out/main/index.js'))) {
+    const buildPath = path.join(REPO, 'out/main/index.js');
+    if (!fs.existsSync(buildPath)) {
       console.error('Build first: npm run build'); process.exit(2);
+    }
+    const sourceFiles = [];
+    const collect = dir => {
+      for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, item.name);
+        if (item.isDirectory()) collect(full);
+        else if (item.isFile()) sourceFiles.push({ path: path.relative(REPO, full), mtimeMs: fs.statSync(full).mtimeMs });
+      }
+    };
+    collect(path.join(REPO, 'src'));
+    collect(path.join(REPO, 'utils'));
+    const stale = staleSourceFiles(sourceFiles, fs.statSync(buildPath).mtimeMs);
+    if (stale.length) {
+      console.error(`Stale build: ${stale.slice(0, 10).join(', ')}${stale.length > 10 ? ` (+${stale.length - 10} more)` : ''} `
+        + 'is newer than out/main/index.js. Run: npm run build'); process.exit(2);
     }
     await exec('unshare', ['-rn', 'true']).catch(() => { console.error('Unprivileged user+net namespaces (unshare -rn) are required'); process.exit(2); });
     await exec('openssl', ['version']).catch(() => { console.error('openssl is required'); process.exit(2); });
