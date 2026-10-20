@@ -45,6 +45,7 @@
     "collect-events": "node scripts/event-collection/event-collector.js",
     "analyze-events": "node scripts/event-collection/event-analyzer.js",
     "smoke:realtime": "node scripts/realtime-smoke.cjs",
+    "smoke:otel-failures": "node scripts/otel-failure-smoke.mjs",
     "test:realtime": "vitest run tests/kickRealtime.test.js tests/kickRealtimeClient.test.js tests/connectionManager.test.js tests/eventAnalyzer.test.js",
     "test:messages": "vitest run tests/failedSends.test.jsx",
     "test:live": "vitest run tests/liveNotifications.test.jsx tests/liveNotifier.test.js"
