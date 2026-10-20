@@ -188,6 +188,20 @@ const sendChatWithAuth = async (send) => {
   }
 };
 
+// Classify before contextBridge strips custom Error properties.
+const initialLoadResult = async (load) => {
+  try {
+    return { ok: true, value: await load() };
+  } catch (error) {
+    const status = error?.response?.status;
+    const failure = Number.isInteger(status) && status >= 100 && status <= 599
+      ? { type: "http_error", status }
+      : ["ETIMEDOUT", "ECONNABORTED"].includes(error?.code)
+        ? { type: "timeout" } : { type: "request_failed" };
+    return { ok: false, failure };
+  }
+};
+
 // Simple readiness bridge for the renderer (contextIsolation-safe)
 let __preloadReady = false;
 let __preloadWaiters = [];
@@ -493,6 +507,15 @@ if (process.contextIsolated) {
             ipcRenderer.on("kick:realtime:event", handler);
             return () => ipcRenderer.removeListener("kick:realtime:event", handler);
           },
+        },
+        initialLoad: {
+          messages: (channelID) => initialLoadResult(async () =>
+            sanitizeAxiosResponse(await getInitialChatroomMessages(channelID))),
+          chatroomInfo: (slug) => initialLoadResult(() => getChannelChatroomInfo(slug)),
+          selfChatroomInfo: (slug) => initialLoadResult(async () =>
+            sanitizeAxiosResponse(await withAuth((token, session) => getSelfChatroomInfo(slug, token, session)))),
+          pollInfo: (slug) => initialLoadResult(async () =>
+            sanitizeAxiosResponse(await withAuth((token, session) => getInitialPollInfo(slug, token, session)))),
         },
         getChannelInfo,
         getChannelChatroomInfo,

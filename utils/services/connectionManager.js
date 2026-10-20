@@ -1,30 +1,9 @@
 import KickRealtimeClient from "./kick/kickRealtimeClient.js";
 import SharedStvWebSocket from "./seventv/sharedStvWebSocket.js";
 
-// OpenTelemetry instrumentation
-let tracer;
-let otelContext;
-let otelTrace;
-try {
-  const { context, trace } = require('@opentelemetry/api');
-  otelContext = context;
-  otelTrace = trace;
-  tracer = trace.getTracer('kicktalk-connection-manager', '1.0.0');
-} catch {
-  // Fallback if OpenTelemetry not available
-  otelContext = { active: () => ({}) };
-  otelTrace = { setSpan: (ctx) => ctx };
-  tracer = {
-    startSpan: (name, options) => ({
-      end: () => {},
-      setStatus: () => {},
-      recordException: () => {},
-      addEvent: () => {},
-      setAttribute: () => {},
-      setAttributes: () => {}
-    })
-  };
-}
+import { context as otelContext, trace as otelTrace } from '@opentelemetry/api';
+
+const tracer = otelTrace.getTracer('kicktalk-connection-manager', '1.0.0');
 
 function stageHttpStatus(error) {
   const candidate = error?.response?.status ?? error?.status ?? error?.data?.status?.code;
@@ -39,19 +18,20 @@ function stageErrorType(error) {
 
 // Records one low-cardinality stage outcome; never copies error text or payloads.
 function recordStageOutcome(span, stage, required, outcome) {
-  const succeeded = !outcome || outcome.succeeded !== false;
-  span.setAttribute(`room_load.stage.${stage}`, succeeded ? 'succeeded' : 'failed');
-  if (!succeeded) {
+  const result = outcome.result;
+  span.setAttribute(`room_load.stage.${stage}`, result);
+  if (result === 'failed') {
     const attributes = {
       'room_load.stage': stage,
       'room_load.stage_required': required,
-      'error.type': stageErrorType(outcome.error),
+      'error.type': outcome.failure.type,
     };
-    const status = stageHttpStatus(outcome.error);
+    const candidate = outcome.failure.status;
+    const status = Number.isInteger(candidate) && candidate >= 100 && candidate <= 599 ? candidate : undefined;
     if (status !== undefined) attributes['http.response.status_code'] = status;
     span.addEvent('room_load_stage_failed', attributes);
   }
-  return succeeded;
+  return result;
 }
 
 class ConnectionManager {
@@ -128,7 +108,8 @@ class ConnectionManager {
         span.setAttributes({
           'chatroom.success_count': roomTotals.successCount,
           'chatroom.partial_count': roomTotals.partialCount,
-          'chatroom.failure_count': roomTotals.failureCount
+          'chatroom.failure_count': roomTotals.failureCount,
+          'chatroom.cancelled_count': roomTotals.cancelledCount
         });
       }
       if (roomTotals?.failureCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_failed' }); // ERROR
@@ -192,7 +173,7 @@ class ConnectionManager {
       span.setAttribute('batch.count', batches.length);
       span.addEvent('chatrooms_split_into_batches');
 
-      const totals = { successCount: 0, partialCount: 0, failureCount: 0 };
+      const totals = { successCount: 0, partialCount: 0, failureCount: 0, cancelledCount: 0 };
       for (let i = 0; i < batches.length; i++) {
         if (this.closed) return;
         const batch = batches[i];
@@ -216,15 +197,18 @@ class ConnectionManager {
 
           const successCount = results.filter(r => r.status === 'fulfilled' && r.value === 'ready').length;
           const partialCount = results.filter(r => r.status === 'fulfilled' && r.value === 'partial').length;
-          const failureCount = results.filter(r => r.status === 'rejected').length;
+          const failureCount = results.filter(r => r.status === 'rejected' || r.value === 'failed').length;
+          const cancelledCount = results.filter(r => r.status === 'fulfilled' && r.value === 'cancelled').length;
           totals.successCount += successCount;
           totals.partialCount += partialCount;
           totals.failureCount += failureCount;
+          totals.cancelledCount += cancelledCount;
 
           batchSpan.setAttributes({
             'batch.success_count': successCount,
             'batch.partial_count': partialCount,
-            'batch.failure_count': failureCount
+            'batch.failure_count': failureCount,
+            'batch.cancelled_count': cancelledCount
           });
 
           if (failureCount > 0) {
@@ -257,7 +241,8 @@ class ConnectionManager {
       span.setAttributes({
         'chatroom.success_count': totals.successCount,
         'chatroom.partial_count': totals.partialCount,
-        'chatroom.failure_count': totals.failureCount
+        'chatroom.failure_count': totals.failureCount,
+        'chatroom.cancelled_count': totals.cancelledCount
       });
       if (totals.failureCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_failed' }); // ERROR
       else if (totals.partialCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_partial' }); // ERROR
@@ -313,13 +298,21 @@ class ConnectionManager {
         await kickRegistration;
       } catch (error) {
         registrationFailed = true;
-        recordStageOutcome(span, 'realtime_registration', true, { succeeded: false, error });
+        recordStageOutcome(span, 'realtime_registration', true, { result: 'failed', failure: { type: stageErrorType(error), status: stageHttpStatus(error) } });
         span.setAttribute('room_load.outcome', 'failed');
         span.setStatus({ code: 2, message: 'realtime_registration_failed' }); // ERROR
         throw error;
       }
-      recordStageOutcome(span, 'realtime_registration', true, { succeeded: true });
-      if (!this.isActiveRoom(chatroom)) return;
+      const realtimeState = this.kickRealtime.getConnectionStatus().rooms[String(chatroom.id)]?.state;
+      const realtimeFailed = realtimeState === 'failed';
+      recordStageOutcome(span, 'realtime_registration', true, realtimeFailed
+        ? { result: 'failed', failure: { type: 'request_failed' } } : { result: 'succeeded' });
+      if (!this.isActiveRoom(chatroom)) {
+        const outcome = realtimeFailed ? 'failed' : 'cancelled';
+        span.setAttribute('room_load.outcome', outcome);
+        if (realtimeFailed) span.setStatus({ code: 2, message: 'realtime_registration_failed' });
+        return outcome;
+      }
       span.addEvent('kick_realtime_room_registered');
 
       span.setAttributes({
@@ -329,28 +322,38 @@ class ConnectionManager {
       });
 
       let failedStages = 0;
+      let cancelledStages = 0;
+      const recordOptionalStage = (stage, outcome) => {
+        const result = recordStageOutcome(span, stage, false, outcome);
+        if (result === 'failed') failedStages += 1;
+        if (result === 'cancelled') cancelledStages += 1;
+        return result;
+      };
       // Fetch initial messages for this chatroom
       span.addEvent('initial_messages_fetch_start');
-      if (!recordStageOutcome(span, 'initial_messages', false, await this.fetchInitialMessages(chatroom))) failedStages += 1;
-      else span.addEvent('initial_messages_fetch_complete');
+      if (recordOptionalStage('initial_messages', await this.fetchInitialMessages(chatroom)) === 'succeeded') {
+        span.addEvent('initial_messages_fetch_complete');
+      }
 
       // Fetch initial chatroom info (including livestream status)
       span.addEvent('chatroom_info_fetch_start');
-      if (!recordStageOutcome(span, 'initial_chatroom_info', false, await this.fetchInitialChatroomInfo(chatroom))) failedStages += 1;
-      else span.addEvent('chatroom_info_fetch_complete');
+      if (recordOptionalStage('initial_chatroom_info', await this.fetchInitialChatroomInfo(chatroom)) === 'succeeded') {
+        span.addEvent('chatroom_info_fetch_complete');
+      }
       for (const [stage, outcome] of await this.fetchInitialUserAndPollInfo(chatroom)) {
-        if (!recordStageOutcome(span, stage, false, outcome)) failedStages += 1;
+        recordOptionalStage(stage, outcome);
       }
 
-      const outcome = failedStages > 0 ? 'partial' : 'ready';
+      const outcome = realtimeFailed ? 'failed' : cancelledStages > 0 ? 'cancelled' : failedStages > 0 ? 'partial' : 'ready';
       span.setAttributes({
         'room_load.outcome': outcome,
         'room_load.failed_stage_count': failedStages,
       });
       console.log(`[ConnectionManager] Added chatroom ${chatroom.id} (${chatroom.streamerData?.user?.username})`);
       span.addEvent('chatroom_added_successfully');
-      if (failedStages > 0) span.setStatus({ code: 2, message: 'room_load_partial' }); // ERROR
-      else span.setStatus({ code: 1 }); // SUCCESS
+      if (realtimeFailed) span.setStatus({ code: 2, message: 'realtime_registration_failed' }); // ERROR
+      else if (failedStages > 0) span.setStatus({ code: 2, message: 'room_load_partial' }); // ERROR
+      else if (outcome === 'ready') span.setStatus({ code: 1 }); // SUCCESS
       return outcome;
     } catch (error) {
       if (registrationFailed) throw error;
@@ -359,6 +362,8 @@ class ConnectionManager {
       span.setStatus({ code: 2, message: error.message }); // ERROR
       return undefined;
     } finally {
+      const realtimeState = this.kickRealtime.getConnectionStatus().rooms[String(chatroom.id)]?.state;
+      if (realtimeState) span.setAttribute('room_load.realtime_state', realtimeState);
       span.end();
     }
   }
@@ -675,12 +680,14 @@ class ConnectionManager {
   // Fetch initial messages for a chatroom
   async fetchInitialMessages(chatroom) {
     try {
-      const response = await window.app.kick.getInitialChatroomMessages(chatroom.streamerData.id);
-      if (!this.isActiveRoom(chatroom)) return { succeeded: true };
+      const settled = await window.app.kick.initialLoad.messages(chatroom.streamerData.id);
+      if (!this.isActiveRoom(chatroom)) return { result: 'cancelled' };
+      if (!settled.ok) return { result: 'failed', failure: settled.failure };
+      const response = settled.value;
 
       if (!response?.data?.data) {
         console.log(`[ConnectionManager] No initial messages data for chatroom ${chatroom.id}`);
-        return { succeeded: true };
+        return { result: 'succeeded' };
       }
 
       const data = response.data.data;
@@ -700,21 +707,23 @@ class ConnectionManager {
           console.log(`[ConnectionManager] Loaded ${data.messages.length} initial messages for chatroom ${chatroom.id}`);
         }
       }
-      return { succeeded: true };
+      return { result: 'succeeded' };
     } catch (error) {
       console.error(`[ConnectionManager] Error fetching initial messages for chatroom ${chatroom.id}:`, error);
-      return { succeeded: false, error };
+      return this.isActiveRoom(chatroom) ? { result: 'failed', failure: { type: 'request_failed' } } : { result: 'cancelled' };
     }
   }
 
   // Fetch initial chatroom info (including livestream status)
   async fetchInitialChatroomInfo(chatroom) {
     try {
-      const chatroomData = await window.app.kick.getChannelChatroomInfo(chatroom.streamerData.slug);
-      if (!this.isActiveRoom(chatroom)) return { succeeded: true };
+      const settled = await window.app.kick.initialLoad.chatroomInfo(chatroom.streamerData.slug);
+      if (!this.isActiveRoom(chatroom)) return { result: 'cancelled' };
+      if (!settled.ok) return { result: 'failed', failure: settled.failure };
+      const chatroomData = settled.value;
 
       if (!chatroomData) {
-        return { succeeded: true };
+        return { result: 'succeeded' };
       }
 
       // Use callbacks to avoid circular imports
@@ -726,10 +735,10 @@ class ConnectionManager {
         const isLive = chatroomData?.livestream?.is_live || false;
         this.storeCallbacks.handleStreamStatus?.(chatroom.id, chatroomData, isLive);
       }
-      return { succeeded: true };
+      return { result: 'succeeded' };
     } catch (error) {
       console.error(`[ConnectionManager] Error fetching initial chatroom info for chatroom ${chatroom.id}:`, error);
-      return { succeeded: false, error };
+      return this.isActiveRoom(chatroom) ? { result: 'failed', failure: { type: 'request_failed' } } : { result: 'cancelled' };
     }
   }
 
@@ -739,27 +748,38 @@ class ConnectionManager {
 
   async fetchInitialUserAndPollInfo(chatroom) {
     const stages = ['initial_user_info', 'initial_poll_info'];
-    if (!this.isActiveRoom(chatroom)) return stages.map((stage) => [stage, { succeeded: true }]);
-    const results = await Promise.allSettled([
+    if (!this.isActiveRoom(chatroom)) return stages.map((stage) => [stage, { result: 'cancelled' }]);
+    const results = await Promise.all([
       (async () => {
-        const response = await window.app.kick.getSelfChatroomInfo(chatroom.streamerData.slug);
-        if (this.isActiveRoom(chatroom) && response?.data) {
-          this.storeCallbacks?.setUserChatroomInfo?.(chatroom.id, response.data);
+        const settled = await window.app.kick.initialLoad.selfChatroomInfo(chatroom.streamerData.slug);
+        if (!this.isActiveRoom(chatroom)) return { result: 'cancelled' };
+        if (!settled.ok) return { result: 'failed', failure: settled.failure };
+        if (settled.value?.data) {
+          this.storeCallbacks?.setUserChatroomInfo?.(chatroom.id, settled.value.data);
         }
+        return { result: 'succeeded' };
       })(),
       (async () => {
-        const response = await window.app.kick.getInitialPollInfo(chatroom.streamerData.slug);
-        if (!this.isActiveRoom(chatroom)) return;
+        const settled = await window.app.kick.initialLoad.pollInfo(chatroom.streamerData.slug);
+        if (!this.isActiveRoom(chatroom)) return { result: 'cancelled' };
+        if (!settled.ok) return { result: 'failed', failure: settled.failure };
+        const response = settled.value;
         if (response?.data?.status?.code === 404) {
           this.storeCallbacks?.handlePollDelete?.(chatroom.id);
         } else if (response?.data?.status?.code === 200) {
           this.storeCallbacks?.handlePollUpdate?.(chatroom.id, response.data.data?.poll);
         }
+        return { result: 'succeeded' };
       })(),
-    ]);
-    return stages.map((stage, index) => [stage, results[index].status === 'fulfilled'
-      ? { succeeded: true }
-      : { succeeded: false, error: results[index].reason }]);
+    ].map(async (request) => {
+      try {
+        return await request;
+      } catch {
+        return this.isActiveRoom(chatroom)
+          ? { result: 'failed', failure: { type: 'request_failed' } } : { result: 'cancelled' };
+      }
+    }));
+    return stages.map((stage, index) => [stage, results[index]]);
   }
 
   // Cleanup method

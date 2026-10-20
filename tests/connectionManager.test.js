@@ -83,12 +83,12 @@ function createApp() {
     kick: {
       realtime,
       getEmotes: vi.fn(async (slug) => [{ name: `KickEmote-${slug}` }]),
-      getInitialChatroomMessages: vi.fn(async () => ({
-        data: { data: { messages: [{ id: 'initial-message' }] } },
-      })),
-      getChannelChatroomInfo: vi.fn(async (slug) => ({ chatroom: { slug } })),
-      getSelfChatroomInfo: vi.fn(async () => ({ data: { is_subscribed: false } })),
-      getInitialPollInfo: vi.fn(async () => ({ data: { status: { code: 404 } } })),
+      initialLoad: {
+        messages: vi.fn(async () => ({ ok: true, value: { data: { data: { messages: [{ id: 'initial-message' }] } } } })),
+        chatroomInfo: vi.fn(async (slug) => ({ ok: true, value: { chatroom: { slug } } })),
+        selfChatroomInfo: vi.fn(async () => ({ ok: true, value: { data: { is_subscribed: false } } })),
+        pollInfo: vi.fn(async () => ({ ok: true, value: { data: { status: { code: 404 } } } })),
+      },
     },
     stv: {
       getChannelEmotes: vi.fn(async (userId) => channelEmotes(userId - 1000)),
@@ -161,7 +161,7 @@ describe('ConnectionManager concurrent 7TV hydration', () => {
     expect(manager.getConnectionStatus().stv.chatrooms).toBe(1);
     const kickFetches = app.kick.getEmotes.mock.calls.length;
     const stvFetches = app.stv.getChannelEmotes.mock.calls.length;
-    app.kick.getInitialChatroomMessages.mockClear();
+    app.kick.initialLoad.messages.mockClear();
     const pending = deferred();
     app.kick.realtime.setRooms.mockImplementationOnce(() => pending.promise);
     const readdedRoom = room(2); // The provider adds a new object with no 7TV sets.
@@ -171,7 +171,7 @@ describe('ConnectionManager concurrent 7TV hydration', () => {
 
     expect(app.kick.getEmotes).toHaveBeenCalledTimes(kickFetches);
     expect(app.stv.getChannelEmotes).toHaveBeenCalledTimes(stvFetches);
-    expect(app.kick.getInitialChatroomMessages).not.toHaveBeenCalled();
+    expect(app.kick.initialLoad.messages).not.toHaveBeenCalled();
     expectChannelEvent(socket, 2);
 
     pending.resolve([]);
@@ -183,13 +183,13 @@ describe('ConnectionManager concurrent 7TV hydration', () => {
 
   it('registers provided 7TV IDs without waiting for Kick IPC while keeping initial fetches behind it', async () => {
     const socket = await initialize([room(1)]);
-    app.kick.getInitialChatroomMessages.mockClear();
+    app.kick.initialLoad.messages.mockClear();
     const pending = deferred();
     app.kick.realtime.setRooms.mockImplementationOnce(() => pending.promise);
     const adding = manager.addChatroom(room(2, channelEmotes(2)));
 
     expectChannelEvent(socket, 2);
-    expect(app.kick.getInitialChatroomMessages).not.toHaveBeenCalled();
+    expect(app.kick.initialLoad.messages).not.toHaveBeenCalled();
 
     pending.resolve([]);
     await adding;
@@ -198,7 +198,7 @@ describe('ConnectionManager concurrent 7TV hydration', () => {
 
   it.each(['remove', 'cleanup'])('does not restore a room after %s while its Kick registration is pending', async (action) => {
     const socket = await initialize([room(1)]);
-    app.kick.getInitialChatroomMessages.mockClear();
+    app.kick.initialLoad.messages.mockClear();
     const pending = deferred();
     app.kick.realtime.setRooms.mockImplementationOnce(() => pending.promise);
     const adding = manager.addChatroom(room(2, channelEmotes(2)));
@@ -212,7 +212,7 @@ describe('ConnectionManager concurrent 7TV hydration', () => {
     pending.resolve([]);
     await adding;
 
-    expect(app.kick.getInitialChatroomMessages).not.toHaveBeenCalled();
+    expect(app.kick.initialLoad.messages).not.toHaveBeenCalled();
     expect(app.kick.realtime.setRooms).toHaveBeenCalledTimes(callsAfterRemoval);
     if (action === 'remove') {
       expect(manager.getConnectionStatus().stv.chatrooms).toBe(1);
@@ -249,6 +249,63 @@ describe('ConnectionManager room-load stage telemetry', () => {
   const addChatroomSpan = () => spanExporter.getFinishedSpans()
     .find((span) => span.name === 'connection_manager.add_chatroom');
 
+  it('counts swallowed realtime IPC registration failure as failed rather than ready', async () => {
+    app.kick.realtime.setRooms.mockRejectedValue(new Error('IPC unavailable'));
+    await expect(manager.addChatroom(room(1))).resolves.toBe('failed');
+    const span = addChatroomSpan();
+    expect(span.attributes['room_load.stage.realtime_registration']).toBe('failed');
+    expect(span.attributes['room_load.outcome']).toBe('failed');
+    expect(span.attributes['room_load.realtime_state']).toBe('failed');
+    expect(callbacks.setInitialChatroomInfo).toHaveBeenCalled();
+    spanExporter.reset();
+    await manager.initializeChatroomsInBatches([room(1)]);
+    const batch = spanExporter.getFinishedSpans().find((entry) => entry.name === 'connection_manager.chatroom_batch_1');
+    expect(batch.attributes).toMatchObject({ 'batch.failure_count': 1, 'batch.success_count': 0 });
+  });
+
+  it('counts a room removed during initial messages as cancelled rather than successful', async () => {
+    const pending = deferred();
+    const started = deferred();
+    app.kick.initialLoad.messages.mockImplementationOnce(() => {
+      started.resolve();
+      return pending.promise;
+    });
+    const loadingRoom = room(1);
+    manager.chatrooms.set('1', loadingRoom);
+    const batching = manager.initializeChatroomsInBatches([loadingRoom]);
+    await started.promise;
+    await manager.removeChatroom(1);
+    pending.resolve({ ok: true, value: { data: { data: { messages: [] } } } });
+    const totals = await batching;
+    expect(totals).toMatchObject({ cancelledCount: 1, successCount: 0 });
+    const span = addChatroomSpan();
+    expect(span.attributes['room_load.stage.initial_messages']).toBe('cancelled');
+    expect(span.attributes['room_load.stage.initial_user_info']).toBe('cancelled');
+    expect(span.attributes['room_load.outcome']).toBe('cancelled');
+    expect(span.status.code).toBe(0);
+    expect(callbacks.addInitialChatroomMessages).not.toHaveBeenCalled();
+    const batch = spanExporter.getFinishedSpans().find((entry) => entry.name === 'connection_manager.chatroom_batch_1');
+    expect(batch.attributes).toMatchObject({ 'batch.cancelled_count': 1, 'batch.success_count': 0 });
+  });
+
+  it('returns cancelled when a replacement supersedes pending messages', async () => {
+    const pending = deferred();
+    const started = deferred();
+    app.kick.initialLoad.messages.mockImplementationOnce(() => {
+      started.resolve();
+      return pending.promise;
+    });
+    const adding = manager.addChatroom(room(1));
+    await started.promise;
+    manager.chatrooms.set('1', room(1));
+    pending.resolve({ ok: false, failure: { type: 'timeout' } });
+    await expect(adding).resolves.toBe('cancelled');
+    const span = addChatroomSpan();
+    expect(span.attributes['room_load.stage.initial_messages']).toBe('cancelled');
+    expect(span.attributes['room_load.outcome']).toBe('cancelled');
+    expect(span.events.some((event) => event.name === 'room_load_stage_failed')).toBe(false);
+  });
+
   it('marks a fully loaded room ready with every stage succeeded', async () => {
     await expect(manager.addChatroom(room(1))).resolves.toBe('ready');
 
@@ -263,9 +320,7 @@ describe('ConnectionManager room-load stage telemetry', () => {
   });
 
   it('attributes an initial-messages failure to its optional stage while the room still loads', async () => {
-    app.kick.getInitialChatroomMessages.mockRejectedValueOnce(
-      Object.assign(new Error('secret upstream detail'), { response: { status: 503 } }),
-    );
+    app.kick.initialLoad.messages.mockResolvedValueOnce({ ok: false, failure: { type: 'http_error', status: 503 } });
 
     await expect(manager.addChatroom(room(1))).resolves.toBe('partial');
 
@@ -289,7 +344,7 @@ describe('ConnectionManager room-load stage telemetry', () => {
   });
 
   it('attributes an initial chatroom-info failure to its optional stage without inventing an HTTP status', async () => {
-    app.kick.getChannelChatroomInfo.mockRejectedValueOnce(new Error('secret info detail'));
+    app.kick.initialLoad.chatroomInfo.mockResolvedValueOnce({ ok: false, failure: { type: 'request_failed' } });
 
     await expect(manager.addChatroom(room(1))).resolves.toBe('partial');
 
@@ -310,7 +365,7 @@ describe('ConnectionManager room-load stage telemetry', () => {
   });
 
   it('attributes a user-info failure to its own optional stage while poll info succeeds', async () => {
-    app.kick.getSelfChatroomInfo.mockRejectedValueOnce(new Error('secret user detail'));
+    app.kick.initialLoad.selfChatroomInfo.mockResolvedValueOnce({ ok: false, failure: { type: 'request_failed' } });
 
     await expect(manager.addChatroom(room(1))).resolves.toBe('partial');
 
@@ -329,9 +384,7 @@ describe('ConnectionManager room-load stage telemetry', () => {
   });
 
   it('attributes a poll failure to its own optional stage while user info succeeds', async () => {
-    app.kick.getInitialPollInfo.mockRejectedValueOnce(
-      Object.assign(new Error('secret poll detail'), { code: 'ETIMEDOUT' }),
-    );
+    app.kick.initialLoad.pollInfo.mockResolvedValueOnce({ ok: false, failure: { type: 'timeout' } });
 
     await expect(manager.addChatroom(room(1))).resolves.toBe('partial');
 
@@ -349,12 +402,12 @@ describe('ConnectionManager room-load stage telemetry', () => {
     expect(JSON.stringify({ attributes: span.attributes, events: span.events })).not.toContain('secret poll detail');
   });
 
-  it('keeps realtime registration required: its rejection propagates and is attributed to that stage', async () => {
+  it('propagates exceptional realtime onEvent setup rejection and attributes the required stage', async () => {
     app.kick.realtime.onEvent.mockImplementationOnce(() => { throw new Error('secret realtime detail'); });
 
     await expect(manager.addChatroom(room(1))).rejects.toThrow('secret realtime detail');
 
-    expect(app.kick.getInitialChatroomMessages).not.toHaveBeenCalled();
+    expect(app.kick.initialLoad.messages).not.toHaveBeenCalled();
     const span = addChatroomSpan();
     expect(span.attributes['room_load.stage.realtime_registration']).toBe('failed');
     expect(span.attributes['room_load.stage.initial_messages']).toBeUndefined();
@@ -375,9 +428,9 @@ describe('ConnectionManager room-load stage telemetry', () => {
     const partialRoom = room(2);
     manager.chatrooms.set('1', rejectedRoom);
     manager.chatrooms.set('2', partialRoom);
-    app.kick.getInitialChatroomMessages.mockImplementation(async (channelId) => {
-      if (channelId === partialRoom.streamerData.id) throw new Error('secret batch detail');
-      return { data: { data: { messages: [] } } };
+    app.kick.initialLoad.messages.mockImplementation(async (channelId) => {
+      if (channelId === partialRoom.streamerData.id) return { ok: false, failure: { type: 'request_failed' } };
+      return { ok: true, value: { data: { data: { messages: [] } } } };
     });
     app.kick.realtime.onEvent.mockImplementationOnce(() => { throw new Error('secret realtime detail'); });
 
