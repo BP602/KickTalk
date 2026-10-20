@@ -509,6 +509,8 @@ if (process.contextIsolated) {
           },
         },
         initialLoad: {
+          channelEmotes: (slug) => initialLoadResult(() => getKickEmotes(slug)),
+          channel7tvEmotes: (userId) => initialLoadResult(() => getChannelEmotes(userId)),
           messages: (channelID) => initialLoadResult(async () =>
             sanitizeAxiosResponse(await getInitialChatroomMessages(channelID))),
           chatroomInfo: (slug) => initialLoadResult(() => getChannelChatroomInfo(slug)),

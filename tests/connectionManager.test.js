@@ -82,16 +82,14 @@ function createApp() {
   return {
     kick: {
       realtime,
-      getEmotes: vi.fn(async (slug) => [{ name: `KickEmote-${slug}` }]),
       initialLoad: {
+        channelEmotes: vi.fn(async (slug) => ({ ok: true, value: [{ name: `KickEmote-${slug}` }] })),
+        channel7tvEmotes: vi.fn(async (userId) => ({ ok: true, value: channelEmotes(userId - 1000) })),
         messages: vi.fn(async () => ({ ok: true, value: { data: { data: { messages: [{ id: 'initial-message' }] } } } })),
         chatroomInfo: vi.fn(async (slug) => ({ ok: true, value: { chatroom: { slug } } })),
         selfChatroomInfo: vi.fn(async () => ({ ok: true, value: { data: { is_subscribed: false } } })),
         pollInfo: vi.fn(async () => ({ ok: true, value: { data: { status: { code: 404 } } } })),
       },
-    },
-    stv: {
-      getChannelEmotes: vi.fn(async (userId) => channelEmotes(userId - 1000)),
     },
   };
 }
@@ -159,8 +157,8 @@ describe('ConnectionManager concurrent 7TV hydration', () => {
     await manager.removeChatroom(2);
     expect(socket.readyState).toBe(SocketFixture.OPEN);
     expect(manager.getConnectionStatus().stv.chatrooms).toBe(1);
-    const kickFetches = app.kick.getEmotes.mock.calls.length;
-    const stvFetches = app.stv.getChannelEmotes.mock.calls.length;
+    const kickFetches = app.kick.initialLoad.channelEmotes.mock.calls.length;
+    const stvFetches = app.kick.initialLoad.channel7tvEmotes.mock.calls.length;
     app.kick.initialLoad.messages.mockClear();
     const pending = deferred();
     app.kick.realtime.setRooms.mockImplementationOnce(() => pending.promise);
@@ -169,8 +167,8 @@ describe('ConnectionManager concurrent 7TV hydration', () => {
     const hydrating = manager.fetchChatroomEmotes(readdedRoom);
     await hydrating;
 
-    expect(app.kick.getEmotes).toHaveBeenCalledTimes(kickFetches);
-    expect(app.stv.getChannelEmotes).toHaveBeenCalledTimes(stvFetches);
+    expect(app.kick.initialLoad.channelEmotes).toHaveBeenCalledTimes(kickFetches);
+    expect(app.kick.initialLoad.channel7tvEmotes).toHaveBeenCalledTimes(stvFetches);
     expect(app.kick.initialLoad.messages).not.toHaveBeenCalled();
     expectChannelEvent(socket, 2);
 
@@ -248,6 +246,115 @@ describe('ConnectionManager room-load stage telemetry', () => {
 
   const addChatroomSpan = () => spanExporter.getFinishedSpans()
     .find((span) => span.name === 'connection_manager.add_chatroom');
+
+  it('preserves public emote helper values, caches and callbacks across provider failures', async () => {
+    const activeRoom = room(1);
+    manager.chatrooms.set('1', activeRoom);
+    const kickValue = [{ name: 'SyntheticKick' }];
+    const stvValue = channelEmotes(1);
+    app.kick.initialLoad.channelEmotes.mockResolvedValueOnce({ ok: true, value: kickValue });
+    app.kick.initialLoad.channel7tvEmotes.mockResolvedValueOnce({ ok: true, value: stvValue });
+    await expect(manager.fetchChatroomEmotes(activeRoom)).resolves.toBe(kickValue);
+    await expect(manager.fetchChannel7TVEmotes(activeRoom)).resolves.toBe(stvValue);
+    await expect(manager.fetchChatroomEmotes(activeRoom)).resolves.toBe(kickValue);
+    expect(app.kick.initialLoad.channelEmotes).toHaveBeenCalledTimes(1);
+    expect(app.kick.initialLoad.channel7tvEmotes).toHaveBeenCalledTimes(1);
+    expect(callbacks.setKickEmotes).toHaveBeenCalledWith(1, kickValue);
+    expect(callbacks.updateChannel7TVEmotes).toHaveBeenCalledWith(1, stvValue);
+    await expect(manager.fetchChatroomEmotes(room(99))).resolves.toBeNull();
+    const otherRoom = room(2);
+    manager.chatrooms.set('2', otherRoom);
+    app.kick.initialLoad.channelEmotes.mockResolvedValueOnce({ ok: true, value: kickValue });
+    app.kick.initialLoad.channel7tvEmotes.mockResolvedValueOnce({ ok: false, failure: { type: 'timeout' } });
+    await expect(manager.fetchChatroomEmotes(otherRoom)).resolves.toBe(kickValue);
+    expect(callbacks.setKickEmotes).toHaveBeenCalledWith(2, kickValue);
+    const failedRoom = room(3);
+    manager.chatrooms.set('3', failedRoom);
+    app.kick.initialLoad.channelEmotes.mockResolvedValueOnce({ ok: false, failure: { type: 'request_failed' } });
+    await expect(manager.fetchChatroomEmotes(failedRoom)).resolves.toBeNull();
+    expect(app.kick.initialLoad.channel7tvEmotes).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['kick', '7tv'])('correlates %s emote failure without changing the ready room outcome', async (provider) => {
+    const bridge = provider === 'kick' ? 'channelEmotes' : 'channel7tvEmotes';
+    app.kick.initialLoad[bridge].mockResolvedValueOnce({ ok: false, failure: { type: 'http_error', status: 503 } });
+    await manager.initializeConnections([room(1), room(2)], {}, callbacks);
+    const spans = spanExporter.getFinishedSpans();
+    const initializeSpan = spans.find((span) => span.name === 'connection_manager.initialize');
+    const roomSpan = spans.find((span) => span.name === 'connection_manager.add_chatroom' && span.attributes['chatroom.id'] === 1);
+    const kickSpan = spans.find((span) => span.name === 'connection_manager.fetch_chatroom_emotes' && span.attributes['chatroom.id'] === 1);
+    const failureSpan = provider === 'kick' ? kickSpan : spans.find((span) =>
+      span.name === 'connection_manager.fetch_channel_7tv_emotes' && span.attributes['chatroom.id'] === 1);
+    const stage = provider === 'kick' ? 'initial_emotes' : 'initial_emotes_7tv';
+    expect(failureSpan.attributes[`room_load.stage.${stage}`]).toBe('failed');
+    expect(failureSpan.events.find((event) => event.name === 'room_load_stage_failed').attributes).toMatchObject({
+      'room_load.stage': stage, 'error.type': 'http_error', 'http.response.status_code': 503,
+    });
+    expect(kickSpan.spanContext().traceId).toBe(initializeSpan.spanContext().traceId);
+    expect(kickSpan.links[0].context.spanId).toBe(roomSpan.spanContext().spanId);
+    expect(roomSpan.attributes['room_load.outcome']).toBe('ready');
+    expect(initializeSpan.attributes['chatroom.emote_failure_count']).toBe(1);
+    expect(initializeSpan.status).toMatchObject({ code: 2, message: 'chatroom_emotes_partial' });
+    const batch = spans.find((span) => span.name === 'connection_manager.emote_batch_1');
+    const outer = spans.find((span) => span.name === 'connection_manager.batch_emote_fetch');
+    expect(batch.attributes).toMatchObject({ 'emote.batch.success_count': 1, 'emote.batch.failure_count': 1, 'emote.batch.cancelled_count': 0 });
+    expect(outer.attributes).toMatchObject({ 'emote.success_count': 1, 'emote.failure_count': 1, 'emote.cancelled_count': 0 });
+    expect(batch.status.code).toBe(2);
+    expect(outer.status.code).toBe(2);
+    for (const span of spans.filter((entry) => /emote/.test(entry.name))) {
+      expect(span.spanContext().traceId).toBe(initializeSpan.spanContext().traceId);
+    }
+  });
+
+  it('counts a room removed before emote work as cancelled rather than successful', async () => {
+    const pending = deferred();
+    const started = deferred();
+    app.kick.initialLoad.messages.mockImplementationOnce(() => {
+      started.resolve();
+      return pending.promise;
+    });
+    const initializing = manager.initializeConnections([room(1)], {}, callbacks);
+    await started.promise;
+    await manager.removeChatroom(1);
+    pending.resolve({ ok: true, value: null });
+    await initializing;
+    const spans = spanExporter.getFinishedSpans();
+    const outer = spans.find((span) => span.name === 'connection_manager.batch_emote_fetch');
+    const batch = spans.find((span) => span.name === 'connection_manager.emote_batch_1');
+    expect(outer.attributes).toMatchObject({ 'emote.success_count': 0, 'emote.failure_count': 0, 'emote.cancelled_count': 1 });
+    expect(batch.attributes).toMatchObject({ 'emote.batch.success_count': 0, 'emote.batch.cancelled_count': 1 });
+    expect(outer.status.code).toBe(0);
+    expect(batch.status.code).toBe(0);
+    const initializingSpan = spans.find((span) => span.name === 'connection_manager.initialize');
+    expect(initializingSpan.attributes['chatroom.emote_cancelled_count']).toBe(1);
+    expect(initializingSpan.status.code).toBe(0);
+  });
+
+  it.each(['remove', 'cleanup', 'replace', 'initialize'])('ends a pending room-load span promptly on %s and only once after settlement', async (action) => {
+    const pending = deferred();
+    const started = deferred();
+    app.kick.initialLoad.messages.mockImplementationOnce(() => {
+      started.resolve();
+      return pending.promise;
+    });
+    const previousRoom = room(1);
+    previousRoom.streamerData.slug = 'pending-room';
+    manager.chatrooms.set('1', previousRoom);
+    const batching = manager.initializeChatroomsInBatches([previousRoom]);
+    await started.promise;
+    if (action === 'remove') await manager.removeChatroom(1);
+    if (action === 'cleanup') manager.cleanup();
+    if (action === 'replace') await manager.addChatroom(room(1));
+    if (action === 'initialize') await manager.initializeConnections([room(1)], {}, callbacks);
+    const oldSpans = () => spanExporter.getFinishedSpans().filter((span) =>
+      span.name === 'connection_manager.add_chatroom' && span.attributes['chatroom.slug'] === 'pending-room');
+    expect(oldSpans()).toHaveLength(1);
+    expect(oldSpans()[0].attributes['room_load.outcome']).toBe('cancelled');
+    pending.resolve({ ok: true, value: null });
+    const totals = await batching;
+    expect(totals).toMatchObject({ cancelledCount: 1, successCount: 0 });
+    expect(oldSpans()).toHaveLength(1);
+  });
 
   it.each([
     ['fetchInitialChatroomInfo', 'chatroomInfo', 'initial chatroom info'],

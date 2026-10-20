@@ -38,6 +38,8 @@ class ConnectionManager {
   constructor() {
     this.kickRealtime = new KickRealtimeClient();
     this.chatrooms = new Map();
+    this.activeRoomLoads = new Map();
+    this.roomLoadSpanContexts = new Map();
     this.handlerCleanups = [];
     this.closed = false;
     this.stvWebSocket = new SharedStvWebSocket();
@@ -86,6 +88,7 @@ class ConnectionManager {
       span.addEvent('setup_event_handlers_complete');
 
       // Register every Kick room before starting optional 7TV work.
+      for (const load of this.activeRoomLoads.values()) load.finishCancelled();
       this.chatrooms = new Map(chatrooms.map((room) => [String(room.id), room]));
       await this.kickRealtime.setRooms(chatrooms);
       if (this.closed) return;
@@ -99,11 +102,15 @@ class ConnectionManager {
 
       // Batch fetch emotes
       span.addEvent('emote_fetching_start');
-      await this.batchFetchEmotes(chatrooms);
+      const emoteTotals = await this.batchFetchEmotes(chatrooms, otelTrace.setSpan(otelContext.active(), span));
       span.addEvent('emote_fetching_complete');
 
       console.log("[ConnectionManager] Initialization completed successfully");
       span.addEvent('initialization_completed');
+      span.setAttributes({
+        'chatroom.emote_failure_count': emoteTotals.failureCount,
+        'chatroom.emote_cancelled_count': emoteTotals.cancelledCount
+      });
       if (roomTotals) {
         span.setAttributes({
           'chatroom.success_count': roomTotals.successCount,
@@ -114,7 +121,8 @@ class ConnectionManager {
       }
       if (roomTotals?.failureCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_failed' }); // ERROR
       else if (roomTotals?.partialCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_partial' }); // ERROR
-      else if (roomTotals?.cancelledCount === 0) span.setStatus({ code: 1 }); // SUCCESS
+      else if (emoteTotals.failureCount > 0) span.setStatus({ code: 2, message: 'chatroom_emotes_partial' }); // ERROR
+      else if (roomTotals?.cancelledCount === 0 && emoteTotals.cancelledCount === 0) span.setStatus({ code: 1 }); // SUCCESS
     } catch (error) {
       console.error("[ConnectionManager] Error during initialization:", error);
       span.recordException(error);
@@ -259,6 +267,8 @@ class ConnectionManager {
 
   async addChatroom(chatroom, parentContext) {
     if (this.closed) return;
+    const previousRoom = this.chatrooms.get(String(chatroom.id));
+    if (previousRoom && previousRoom !== chatroom) this.activeRoomLoads.get(previousRoom)?.finishCancelled();
     this.chatrooms.set(String(chatroom.id), chatroom);
     const kickRegistration = this.kickRealtime.addChatroom(chatroom);
 
@@ -291,26 +301,49 @@ class ConnectionManager {
         'chatroom.kick_channel_id': chatroom.streamerData.id
       }
     }, parentContext);
+    const roomSpanContext = span.spanContext?.();
+    if (roomSpanContext) this.roomLoadSpanContexts.set(String(chatroom.id), roomSpanContext);
+    else this.roomLoadSpanContexts.delete(String(chatroom.id));
+    const remainingStages = new Set(['realtime_registration', 'initial_messages', 'initial_chatroom_info', 'initial_user_info', 'initial_poll_info']);
+    const load = {
+      finished: false,
+      finishCancelled: () => {
+        if (load.finished) return;
+        for (const stage of remainingStages) recordStageOutcome(span, stage, stage === 'realtime_registration', { result: 'cancelled' });
+        span.setAttribute('room_load.outcome', 'cancelled');
+        load.finished = true;
+        span.end();
+        if (this.activeRoomLoads.get(chatroom) === load) this.activeRoomLoads.delete(chatroom);
+      },
+    };
+    this.activeRoomLoads.set(chatroom, load);
+    const recordRoomStage = (stage, required, outcome) => {
+      if (load.finished) return outcome.result;
+      remainingStages.delete(stage);
+      return recordStageOutcome(span, stage, required, outcome);
+    };
     let registrationFailed = false;
 
     try {
       try {
         await kickRegistration;
+        if (load.finished) return 'cancelled';
       } catch (error) {
+        if (load.finished) return 'cancelled';
         registrationFailed = true;
-        recordStageOutcome(span, 'realtime_registration', true, { result: 'failed', failure: { type: stageErrorType(error), status: stageHttpStatus(error) } });
+        recordRoomStage('realtime_registration', true, { result: 'failed', failure: { type: stageErrorType(error), status: stageHttpStatus(error) } });
         span.setAttribute('room_load.outcome', 'failed');
         span.setStatus({ code: 2, message: 'realtime_registration_failed' }); // ERROR
         throw error;
       }
       if (!this.isActiveRoom(chatroom)) {
-        recordStageOutcome(span, 'realtime_registration', true, { result: 'cancelled' });
+        recordRoomStage('realtime_registration', true, { result: 'cancelled' });
         span.setAttribute('room_load.outcome', 'cancelled');
         return 'cancelled';
       }
       const realtimeState = this.kickRealtime.getConnectionStatus().rooms[String(chatroom.id)]?.state;
       let realtimeFailed = realtimeState === 'failed';
-      recordStageOutcome(span, 'realtime_registration', true, realtimeFailed
+      recordRoomStage('realtime_registration', true, realtimeFailed
         ? { result: 'failed', failure: { type: 'request_failed' } } : { result: 'succeeded' });
       span.addEvent('kick_realtime_room_registered');
 
@@ -323,30 +356,31 @@ class ConnectionManager {
       let failedStages = 0;
       let cancelledStages = 0;
       const recordOptionalStage = (stage, outcome) => {
-        const result = recordStageOutcome(span, stage, false, outcome);
+        const result = recordRoomStage(stage, false, outcome);
         if (result === 'failed') failedStages += 1;
         if (result === 'cancelled') cancelledStages += 1;
         return result;
       };
       // Fetch initial messages for this chatroom
       span.addEvent('initial_messages_fetch_start');
-      if (recordOptionalStage('initial_messages', await this.fetchInitialMessages(chatroom)) === 'succeeded') {
+      if (recordOptionalStage('initial_messages', await this.fetchInitialMessages(chatroom)) === 'succeeded' && !load.finished) {
         span.addEvent('initial_messages_fetch_complete');
       }
 
       // Fetch initial chatroom info (including livestream status)
-      span.addEvent('chatroom_info_fetch_start');
-      if (recordOptionalStage('initial_chatroom_info', await this.fetchInitialChatroomInfo(chatroom)) === 'succeeded') {
+      if (!load.finished) span.addEvent('chatroom_info_fetch_start');
+      if (recordOptionalStage('initial_chatroom_info', await this.fetchInitialChatroomInfo(chatroom)) === 'succeeded' && !load.finished) {
         span.addEvent('chatroom_info_fetch_complete');
       }
       for (const [stage, outcome] of await this.fetchInitialUserAndPollInfo(chatroom)) {
         recordOptionalStage(stage, outcome);
       }
+      if (load.finished) return 'cancelled';
 
       if (this.isActiveRoom(chatroom) && !realtimeFailed
         && this.kickRealtime.getConnectionStatus().rooms[String(chatroom.id)]?.state === 'failed') {
         realtimeFailed = true;
-        recordStageOutcome(span, 'realtime_registration', true, { result: 'failed', failure: { type: 'request_failed' } });
+        recordRoomStage('realtime_registration', true, { result: 'failed', failure: { type: 'request_failed' } });
       }
       const outcome = realtimeFailed ? 'failed' : cancelledStages > 0 ? 'cancelled' : failedStages > 0 ? 'partial' : 'ready';
       span.setAttributes({
@@ -360,36 +394,45 @@ class ConnectionManager {
       else if (outcome === 'ready') span.setStatus({ code: 1 }); // SUCCESS
       return outcome;
     } catch (error) {
+      if (load.finished) return 'cancelled';
       if (registrationFailed) throw error;
       console.error(`[ConnectionManager] Error adding chatroom ${chatroom.id}:`, error);
       span.recordException(error);
       span.setStatus({ code: 2, message: error.message }); // ERROR
       return undefined;
     } finally {
-      if (this.isActiveRoom(chatroom)) {
-        const realtimeState = this.kickRealtime.getConnectionStatus().rooms[String(chatroom.id)]?.state;
-        if (realtimeState) span.setAttribute('room_load.realtime_state', realtimeState);
+      if (!load.finished) {
+        if (this.isActiveRoom(chatroom)) {
+          const realtimeState = this.kickRealtime.getConnectionStatus().rooms[String(chatroom.id)]?.state;
+          if (realtimeState) span.setAttribute('room_load.realtime_state', realtimeState);
+        }
+        load.finished = true;
+        span.end();
+        if (this.activeRoomLoads.get(chatroom) === load) this.activeRoomLoads.delete(chatroom);
       }
-      span.end();
     }
   }
 
   async removeChatroom(chatroomId) {
+    this.activeRoomLoads.get(this.chatrooms.get(String(chatroomId)))?.finishCancelled();
     this.chatrooms.delete(String(chatroomId));
+    this.roomLoadSpanContexts.delete(String(chatroomId));
     const update = this.kickRealtime.removeChatroom(chatroomId);
     this.stvWebSocket.removeChatroom(chatroomId);
     await update;
     console.log(`[ConnectionManager] Removed chatroom ${chatroomId}`);
   }
 
-  async batchFetchEmotes(chatrooms) {
+  async batchFetchEmotes(chatrooms, parentContext) {
     const span = tracer.startSpan('connection_manager.batch_emote_fetch', {
       attributes: {
         'emote.chatroom_count': chatrooms.length,
         'emote.batch_size': this.config.maxConcurrentEmoteFetches,
         'emote.delay_ms': 100
       }
-    });
+    }, parentContext);
+    const emoteParentContext = otelTrace.setSpan(otelContext.active(), span);
+    const totals = { successCount: 0, failureCount: 0, cancelledCount: 0 };
 
     console.log("[ConnectionManager] Starting batch emote fetching...");
     span.addEvent('batch_emote_fetch_started');
@@ -397,13 +440,13 @@ class ConnectionManager {
     try {
       // Fetch global 7TV emotes first (cached)
       span.addEvent('global_7tv_emotes_fetch_start');
-      await this.fetchGlobalStvEmotes();
+      await this.fetchGlobalStvEmotes(emoteParentContext);
       span.addEvent('global_7tv_emotes_fetch_complete');
 
       // Batch fetch channel-specific emotes
       span.addEvent('channel_emotes_batch_preparation_start');
       const emoteFetchPromises = chatrooms.map(chatroom =>
-        this.fetchChatroomEmotes(chatroom)
+        this.fetchChatroomEmotesOutcome(chatroom, emoteParentContext)
       );
 
       // Process in batches to avoid overwhelming the APIs
@@ -420,17 +463,22 @@ class ConnectionManager {
             'emote.batch.total': emoteBatches.length,
             'emote.batch.promise_count': batch.length
           }
-        });
+        }, emoteParentContext);
 
         try {
           const results = await Promise.allSettled(batch);
           
-          const successCount = results.filter(r => r.status === 'fulfilled').length;
-          const failureCount = results.filter(r => r.status === 'rejected').length;
+          const successCount = results.filter(r => r.status === 'fulfilled' && r.value.result === 'succeeded').length;
+          const failureCount = results.filter(r => r.status === 'rejected' || r.value.result === 'failed').length;
+          const cancelledCount = results.filter(r => r.status === 'fulfilled' && r.value.result === 'cancelled').length;
+          totals.successCount += successCount;
+          totals.failureCount += failureCount;
+          totals.cancelledCount += cancelledCount;
           
           batchSpan.setAttributes({
             'emote.batch.success_count': successCount,
-            'emote.batch.failure_count': failureCount
+            'emote.batch.failure_count': failureCount,
+            'emote.batch.cancelled_count': cancelledCount
           });
 
           if (failureCount > 0) {
@@ -443,7 +491,8 @@ class ConnectionManager {
             batchSpan.addEvent('emote_batch_delay_applied');
           }
 
-          batchSpan.setStatus({ code: 1 }); // SUCCESS
+          if (failureCount > 0) batchSpan.setStatus({ code: 2, message: 'emote_batch_failed' });
+          else if (cancelledCount === 0) batchSpan.setStatus({ code: 1 }); // SUCCESS
         } catch (error) {
           batchSpan.recordException(error);
           batchSpan.setStatus({ code: 2, message: error.message }); // ERROR
@@ -455,7 +504,14 @@ class ConnectionManager {
 
       console.log("[ConnectionManager] Batch emote fetching completed");
       span.addEvent('batch_emote_fetch_completed');
-      span.setStatus({ code: 1 }); // SUCCESS
+      span.setAttributes({
+        'emote.success_count': totals.successCount,
+        'emote.failure_count': totals.failureCount,
+        'emote.cancelled_count': totals.cancelledCount
+      });
+      if (totals.failureCount > 0) span.setStatus({ code: 2, message: 'emote_fetch_failed' });
+      else if (totals.cancelledCount === 0) span.setStatus({ code: 1 }); // SUCCESS
+      return totals;
     } catch (error) {
       span.recordException(error);
       span.setStatus({ code: 2, message: error.message }); // ERROR
@@ -465,14 +521,14 @@ class ConnectionManager {
     }
   }
 
-  async fetchGlobalStvEmotes() {
+  async fetchGlobalStvEmotes(parentContext) {
     const span = tracer.startSpan('connection_manager.fetch_global_7tv_emotes', {
       attributes: {
         'emote.type': 'global',
         'emote.provider': '7tv',
         'cache.available': !!this.globalStvEmotesCache
       }
-    });
+    }, parentContext);
 
     if (this.globalStvEmotesCache) {
       console.log("[ConnectionManager] Using cached global 7TV emotes");
@@ -503,9 +559,14 @@ class ConnectionManager {
     }
   }
 
-  async fetchChatroomEmotes(chatroom) {
-    if (!this.isActiveRoom(chatroom)) return null;
+  async fetchChatroomEmotes(chatroom, parentContext) {
+    return (await this.fetchChatroomEmotesOutcome(chatroom, parentContext)).value;
+  }
+
+  async fetchChatroomEmotesOutcome(chatroom, parentContext) {
+    if (!this.isActiveRoom(chatroom)) return { value: null, result: 'cancelled' };
     const cacheKey = `${chatroom.streamerData?.slug}`;
+    const retainedContext = this.roomLoadSpanContexts.get(String(chatroom.id));
     
     const span = tracer.startSpan('connection_manager.fetch_chatroom_emotes', {
       attributes: {
@@ -516,20 +577,23 @@ class ConnectionManager {
         'chatroom.username': chatroom.streamerData?.user?.username,
         'cache.key': cacheKey,
         'cache.available': this.emoteCache.has(cacheKey)
-      }
-    });
+      },
+      ...(retainedContext ? { links: [{ context: retainedContext }] } : {})
+    }, parentContext);
+    const channelParentContext = otelTrace.setSpan(otelContext.active(), span);
 
     if (this.emoteCache.has(cacheKey)) {
       console.log(`[ConnectionManager] Using cached emotes for ${chatroom.streamerData?.user?.username}`);
       span.addEvent('cache_hit');
+      recordStageOutcome(span, 'initial_emotes', false, { result: 'succeeded' });
       span.setStatus({ code: 1 }); // SUCCESS
       span.end();
 
-      await this.fetchChannel7TVEmotes(chatroom);
+      const channelOutcome = await this.fetchChannel7TVEmotesOutcome(chatroom, channelParentContext);
       if (this.isActiveRoom(chatroom)) {
         this.storeCallbacks?.setKickEmotes?.(chatroom.id, this.emoteCache.get(cacheKey));
       }
-      return this.emoteCache.get(cacheKey);
+      return { value: this.emoteCache.get(cacheKey), result: channelOutcome.result };
     }
 
     try {
@@ -537,8 +601,17 @@ class ConnectionManager {
       span.addEvent('api_fetch_start');
 
       // Fetch Kick emotes
-      const kickEmotes = await window.app.kick.getEmotes(chatroom.streamerData?.slug);
-      if (!this.isActiveRoom(chatroom)) return null;
+      const settled = await window.app.kick.initialLoad.channelEmotes(chatroom.streamerData?.slug);
+      if (!this.isActiveRoom(chatroom)) {
+        recordStageOutcome(span, 'initial_emotes', false, { result: 'cancelled' });
+        return { value: null, result: 'cancelled' };
+      }
+      if (!settled.ok) {
+        recordStageOutcome(span, 'initial_emotes', false, { result: 'failed', failure: settled.failure });
+        span.setStatus({ code: 2, message: 'initial_emotes_failed' });
+        return { value: null, result: 'failed' };
+      }
+      const kickEmotes = settled.value;
       span.addEvent('api_fetch_complete');
 
       // Cache the result
@@ -548,25 +621,32 @@ class ConnectionManager {
       span.setAttributes({
         'emote.count': Array.isArray(kickEmotes) ? kickEmotes.length : 0
       });
+      recordStageOutcome(span, 'initial_emotes', false, { result: 'succeeded' });
       span.setStatus({ code: 1 }); // SUCCESS
 
-      await this.fetchChannel7TVEmotes(chatroom);
+      const channelOutcome = await this.fetchChannel7TVEmotesOutcome(chatroom, channelParentContext);
       if (this.isActiveRoom(chatroom)) this.storeCallbacks?.setKickEmotes?.(chatroom.id, kickEmotes);
 
-      return kickEmotes;
+      return { value: kickEmotes, result: channelOutcome.result };
     } catch (error) {
       console.error(`[ConnectionManager] Error fetching emotes for ${chatroom.streamerData?.user?.username}:`, error);
+      const result = this.isActiveRoom(chatroom) ? 'failed' : 'cancelled';
+      recordStageOutcome(span, 'initial_emotes', false, { result, failure: { type: 'request_failed' } });
       span.recordException(error);
       span.setStatus({ code: 2, message: error.message }); // ERROR
-      return null;
+      return { value: null, result };
     } finally {
       span.end();
     }
   }
 
-  async fetchChannel7TVEmotes(chatroom) {
+  async fetchChannel7TVEmotes(chatroom, parentContext) {
+    return (await this.fetchChannel7TVEmotesOutcome(chatroom, parentContext)).value;
+  }
+
+  async fetchChannel7TVEmotesOutcome(chatroom, parentContext) {
     if (!this.isActiveRoom(chatroom) || !chatroom?.streamerData?.user_id) {
-      return null;
+      return { value: null, result: 'cancelled' };
     }
 
     const cacheKey = `${chatroom.streamerData.user_id}`;
@@ -581,7 +661,7 @@ class ConnectionManager {
         'cache.key': cacheKey,
         'cache.available': this.channelStvEmoteCache.has(cacheKey)
       }
-    });
+    }, parentContext);
 
     const useCached = this.channelStvEmoteCache.has(cacheKey);
     if (useCached) {
@@ -589,15 +669,25 @@ class ConnectionManager {
       const cached = this.channelStvEmoteCache.get(cacheKey) || [];
       this.storeCallbacks?.updateChannel7TVEmotes?.(chatroom.id, cached);
       this.syncSharedStvChatroom(chatroom, cached);
+      recordStageOutcome(span, 'initial_emotes_7tv', false, { result: 'succeeded' });
       span.setStatus({ code: 1 });
       span.end();
-      return cached;
+      return { value: cached, result: 'succeeded' };
     }
 
     try {
       span.addEvent('api_fetch_start');
-      const channel7TVEmotes = await window.app.stv.getChannelEmotes(chatroom.streamerData.user_id);
-      if (!this.isActiveRoom(chatroom)) return null;
+      const settled = await window.app.kick.initialLoad.channel7tvEmotes(chatroom.streamerData.user_id);
+      if (!this.isActiveRoom(chatroom)) {
+        recordStageOutcome(span, 'initial_emotes_7tv', false, { result: 'cancelled' });
+        return { value: null, result: 'cancelled' };
+      }
+      if (!settled.ok) {
+        recordStageOutcome(span, 'initial_emotes_7tv', false, { result: 'failed', failure: settled.failure });
+        span.setStatus({ code: 2, message: 'initial_emotes_7tv_failed' });
+        return { value: null, result: 'failed' };
+      }
+      const channel7TVEmotes = settled.value;
       span.addEvent('api_fetch_complete');
 
       if (channel7TVEmotes) {
@@ -612,13 +702,16 @@ class ConnectionManager {
         });
       }
 
+      recordStageOutcome(span, 'initial_emotes_7tv', false, { result: 'succeeded' });
       span.setStatus({ code: 1 });
-      return channel7TVEmotes;
+      return { value: channel7TVEmotes, result: 'succeeded' };
     } catch (error) {
       console.error(`[ConnectionManager] Error fetching 7TV emotes for ${chatroom.streamerData?.user?.username}:`, error);
+      const result = this.isActiveRoom(chatroom) ? 'failed' : 'cancelled';
+      recordStageOutcome(span, 'initial_emotes_7tv', false, { result, failure: { type: 'request_failed' } });
       span.recordException(error);
       span.setStatus({ code: 2, message: error.message });
-      return null;
+      return { value: null, result };
     } finally {
       span.end();
     }
@@ -803,8 +896,10 @@ class ConnectionManager {
   // Cleanup method
   cleanup() {
     console.log("[ConnectionManager] Cleaning up connections...");
+    for (const load of this.activeRoomLoads.values()) load.finishCancelled();
     this.closed = true;
     this.chatrooms.clear();
+    this.roomLoadSpanContexts.clear();
     this.handlerCleanups.forEach((cleanup) => cleanup());
     this.handlerCleanups = [];
     this.kickRealtime.close();

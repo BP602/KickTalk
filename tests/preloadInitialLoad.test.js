@@ -1,19 +1,21 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const fixtures = vi.hoisted(() => ({ expose: vi.fn(), messages: vi.fn() }));
+const fixtures = vi.hoisted(() => ({
+  expose: vi.fn(), messages: vi.fn(), selfChatroomInfo: vi.fn(), pollInfo: vi.fn(), tokens: {},
+}));
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld: fixtures.expose },
   ipcRenderer: { invoke: vi.fn(async () => null), on: vi.fn(), send: vi.fn(), removeListener: vi.fn() },
   shell: {}, session: {},
 }));
 vi.mock('@electron-toolkit/preload', () => ({ electronAPI: {} }));
-vi.mock('electron-store', () => ({ default: class { get() { return undefined; } clear() {} } }));
+vi.mock('electron-store', () => ({ default: class { get(key) { return fixtures.tokens[key]; } clear() {} } }));
 vi.mock('../utils/services/kick/kickAPI', () => ({
   sendMessageToChannel: vi.fn(), sendReplyToChannel: vi.fn(), getChannelInfo: vi.fn(),
-  getChannelChatroomInfo: vi.fn(), getKickEmotes: vi.fn(), getSelfInfo: vi.fn(),
-  getUserChatroomInfo: vi.fn(), getSelfChatroomInfo: vi.fn(), getSilencedUsers: vi.fn(),
-  getLinkThumbnail: vi.fn(), getInitialChatroomMessages: fixtures.messages, getInitialPollInfo: vi.fn(),
+  getChannelChatroomInfo: vi.fn(), getKickEmotes: vi.fn(), getSelfInfo: vi.fn(async () => ({ data: { id: 123 } })),
+  getUserChatroomInfo: vi.fn(), getSelfChatroomInfo: fixtures.selfChatroomInfo, getSilencedUsers: vi.fn(async () => ({ status: 200, data: [] })),
+  getLinkThumbnail: vi.fn(), getInitialChatroomMessages: fixtures.messages, getInitialPollInfo: fixtures.pollInfo,
   getSubmitPollVote: vi.fn(), getChatroomViewers: vi.fn(), getBanUser: vi.fn(),
   getUnbanUser: vi.fn(), getTimeoutUser: vi.fn(), getDeleteMessage: vi.fn(),
   getSilenceUser: vi.fn(), getUnsilenceUser: vi.fn(), getPinMessage: vi.fn(),
@@ -22,16 +24,22 @@ vi.mock('../utils/services/kick/kickAPI', () => ({
 vi.mock('../utils/services/seventv/stvAPI', () => ({ getUserStvProfile: vi.fn(), getChannelEmotes: vi.fn() }));
 
 let kick;
-beforeEach(async () => {
+const loadPreload = async (tokens = {}) => {
   vi.resetModules();
+  fixtures.tokens = tokens;
   fixtures.expose.mockClear();
-  fixtures.messages.mockReset();
   vi.stubGlobal('localStorage', { clear: vi.fn(), getItem: vi.fn(), setItem: vi.fn() });
   vi.stubGlobal('window', {});
   vi.stubGlobal('document', { addEventListener: vi.fn() });
   vi.stubGlobal('process', { ...process, contextIsolated: true });
   await import('../src/preload/index.js');
   kick = fixtures.expose.mock.calls.find(([name]) => name === 'app')?.[1]?.kick;
+};
+beforeEach(async () => {
+  fixtures.messages.mockReset();
+  fixtures.selfChatroomInfo.mockReset();
+  fixtures.pollInfo.mockReset();
+  await loadPreload();
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -74,5 +82,59 @@ describe('preload initial-load structured results', () => {
     await expect(kick.initialLoad.pollInfo('synthetic')).resolves.toEqual({
       ok: true, value: await kick.getInitialPollInfo('synthetic'),
     });
+  });
+
+  it.each(['kick', '7tv'])('preserves direct %s emote values and classifies failures at the preload seam', async (provider) => {
+    const services = provider === 'kick'
+      ? await import('../utils/services/kick/kickAPI')
+      : await import('../utils/services/seventv/stvAPI');
+    const service = provider === 'kick' ? services.getKickEmotes : services.getChannelEmotes;
+    const method = provider === 'kick' ? 'channelEmotes' : 'channel7tvEmotes';
+    const input = provider === 'kick' ? 'synthetic-room' : 1001;
+    const value = [{ id: 'synthetic-emote', name: 'Emote' }];
+    service.mockReset();
+    service.mockResolvedValueOnce(value);
+    await expect(kick.initialLoad[method](input)).resolves.toEqual({ ok: true, value });
+    expect(service).toHaveBeenLastCalledWith(input);
+    service.mockRejectedValueOnce({ response: { status: 503, headers: { authorization: 'secret' } } });
+    await expect(kick.initialLoad[method](input)).resolves.toEqual({
+      ok: false, failure: { type: 'http_error', status: 503 },
+    });
+  });
+
+  it.each([
+    ['selfChatroomInfo', 'selfChatroomInfo'],
+    ['pollInfo', 'pollInfo'],
+  ])('passes imported credentials to authenticated %s and sanitizes its success', async (method, fixture) => {
+    await loadPreload({ SESSION_TOKEN: 'synthetic-token', KICK_SESSION: 'synthetic-session' });
+    const response = {
+      status: 200,
+      data: { data: { id: 501 } },
+      headers: { authorization: 'discard' },
+      config: { private: 'discard' },
+    };
+    fixtures[fixture].mockResolvedValueOnce(response);
+
+    await expect(kick.initialLoad[method]('synthetic-room')).resolves.toEqual({
+      ok: true, value: { status: 200, data: response.data },
+    });
+    expect(fixtures[fixture]).toHaveBeenCalledExactlyOnceWith(
+      'synthetic-room', 'synthetic-token', 'synthetic-session',
+    );
+  });
+
+  it.each([
+    ['selfChatroomInfo', 'selfChatroomInfo'],
+    ['pollInfo', 'pollInfo'],
+  ])('classifies authenticated %s HTTP rejection before crossing contextBridge', async (method, fixture) => {
+    await loadPreload({ SESSION_TOKEN: 'synthetic-token', KICK_SESSION: 'synthetic-session' });
+    fixtures[fixture].mockRejectedValueOnce({ response: { status: 503 } });
+
+    await expect(kick.initialLoad[method]('synthetic-room')).resolves.toEqual({
+      ok: false, failure: { type: 'http_error', status: 503 },
+    });
+    expect(fixtures[fixture]).toHaveBeenCalledExactlyOnceWith(
+      'synthetic-room', 'synthetic-token', 'synthetic-session',
+    );
   });
 });
