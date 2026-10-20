@@ -114,7 +114,7 @@ class ConnectionManager {
       }
       if (roomTotals?.failureCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_failed' }); // ERROR
       else if (roomTotals?.partialCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_partial' }); // ERROR
-      else span.setStatus({ code: 1 }); // SUCCESS
+      else if (roomTotals?.cancelledCount === 0) span.setStatus({ code: 1 }); // SUCCESS
     } catch (error) {
       console.error("[ConnectionManager] Error during initialization:", error);
       span.recordException(error);
@@ -226,7 +226,7 @@ class ConnectionManager {
 
           if (failureCount > 0) batchSpan.setStatus({ code: 2, message: 'chatroom_batch_failed' }); // ERROR
           else if (partialCount > 0) batchSpan.setStatus({ code: 2, message: 'chatroom_batch_partial' }); // ERROR
-          else batchSpan.setStatus({ code: 1 }); // SUCCESS
+          else if (cancelledCount === 0) batchSpan.setStatus({ code: 1 }); // SUCCESS
         } catch (error) {
           batchSpan.recordException(error);
           batchSpan.setStatus({ code: 2, message: error.message }); // ERROR
@@ -246,7 +246,7 @@ class ConnectionManager {
       });
       if (totals.failureCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_failed' }); // ERROR
       else if (totals.partialCount > 0) span.setStatus({ code: 2, message: 'chatroom_batches_partial' }); // ERROR
-      else span.setStatus({ code: 1 }); // SUCCESS
+      else if (totals.cancelledCount === 0) span.setStatus({ code: 1 }); // SUCCESS
       return totals;
     } catch (error) {
       span.recordException(error);
@@ -303,16 +303,15 @@ class ConnectionManager {
         span.setStatus({ code: 2, message: 'realtime_registration_failed' }); // ERROR
         throw error;
       }
+      if (!this.isActiveRoom(chatroom)) {
+        recordStageOutcome(span, 'realtime_registration', true, { result: 'cancelled' });
+        span.setAttribute('room_load.outcome', 'cancelled');
+        return 'cancelled';
+      }
       const realtimeState = this.kickRealtime.getConnectionStatus().rooms[String(chatroom.id)]?.state;
-      const realtimeFailed = realtimeState === 'failed';
+      let realtimeFailed = realtimeState === 'failed';
       recordStageOutcome(span, 'realtime_registration', true, realtimeFailed
         ? { result: 'failed', failure: { type: 'request_failed' } } : { result: 'succeeded' });
-      if (!this.isActiveRoom(chatroom)) {
-        const outcome = realtimeFailed ? 'failed' : 'cancelled';
-        span.setAttribute('room_load.outcome', outcome);
-        if (realtimeFailed) span.setStatus({ code: 2, message: 'realtime_registration_failed' });
-        return outcome;
-      }
       span.addEvent('kick_realtime_room_registered');
 
       span.setAttributes({
@@ -344,6 +343,11 @@ class ConnectionManager {
         recordOptionalStage(stage, outcome);
       }
 
+      if (this.isActiveRoom(chatroom) && !realtimeFailed
+        && this.kickRealtime.getConnectionStatus().rooms[String(chatroom.id)]?.state === 'failed') {
+        realtimeFailed = true;
+        recordStageOutcome(span, 'realtime_registration', true, { result: 'failed', failure: { type: 'request_failed' } });
+      }
       const outcome = realtimeFailed ? 'failed' : cancelledStages > 0 ? 'cancelled' : failedStages > 0 ? 'partial' : 'ready';
       span.setAttributes({
         'room_load.outcome': outcome,
@@ -362,8 +366,10 @@ class ConnectionManager {
       span.setStatus({ code: 2, message: error.message }); // ERROR
       return undefined;
     } finally {
-      const realtimeState = this.kickRealtime.getConnectionStatus().rooms[String(chatroom.id)]?.state;
-      if (realtimeState) span.setAttribute('room_load.realtime_state', realtimeState);
+      if (this.isActiveRoom(chatroom)) {
+        const realtimeState = this.kickRealtime.getConnectionStatus().rooms[String(chatroom.id)]?.state;
+        if (realtimeState) span.setAttribute('room_load.realtime_state', realtimeState);
+      }
       span.end();
     }
   }
@@ -682,7 +688,13 @@ class ConnectionManager {
     try {
       const settled = await window.app.kick.initialLoad.messages(chatroom.streamerData.id);
       if (!this.isActiveRoom(chatroom)) return { result: 'cancelled' };
-      if (!settled.ok) return { result: 'failed', failure: settled.failure };
+      if (!settled.ok) {
+        const { type, status } = settled.failure;
+        console.error(`[ConnectionManager] Error fetching initial messages for chatroom ${chatroom.id}:`, {
+          type, ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}),
+        });
+        return { result: 'failed', failure: settled.failure };
+      }
       const response = settled.value;
 
       if (!response?.data?.data) {
@@ -719,7 +731,13 @@ class ConnectionManager {
     try {
       const settled = await window.app.kick.initialLoad.chatroomInfo(chatroom.streamerData.slug);
       if (!this.isActiveRoom(chatroom)) return { result: 'cancelled' };
-      if (!settled.ok) return { result: 'failed', failure: settled.failure };
+      if (!settled.ok) {
+        const { type, status } = settled.failure;
+        console.error(`[ConnectionManager] Error fetching initial chatroom info for chatroom ${chatroom.id}:`, {
+          type, ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}),
+        });
+        return { result: 'failed', failure: settled.failure };
+      }
       const chatroomData = settled.value;
 
       if (!chatroomData) {

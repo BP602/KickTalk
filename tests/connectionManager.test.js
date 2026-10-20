@@ -249,18 +249,106 @@ describe('ConnectionManager room-load stage telemetry', () => {
   const addChatroomSpan = () => spanExporter.getFinishedSpans()
     .find((span) => span.name === 'connection_manager.add_chatroom');
 
+  it.each([
+    ['fetchInitialChatroomInfo', 'chatroomInfo', 'initial chatroom info'],
+    ['fetchInitialMessages', 'messages', 'initial messages'],
+  ])('keeps standalone %s failures visible without throwing or exposing raw data', async (helper, bridge, label) => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const activeRoom = room(1);
+    manager.chatrooms.set('1', activeRoom);
+    app.kick.initialLoad[bridge].mockResolvedValueOnce({
+      ok: false, failure: { type: 'http_error', status: 503, detail: 'secret diagnostic payload' },
+    });
+    try {
+      await expect(manager[helper](activeRoom)).resolves.toMatchObject({
+        result: 'failed', failure: { type: 'http_error', status: 503 },
+      });
+      expect(diagnostic).toHaveBeenCalledExactlyOnceWith(
+        `[ConnectionManager] Error fetching ${label} for chatroom 1:`,
+        { type: 'http_error', status: 503 },
+      );
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('secret diagnostic payload');
+    } finally {
+      diagnostic.mockRestore();
+    }
+  });
+
+  it('leaves cancelled-only initialize, outer-batch and batch spans unset', async () => {
+    const pending = deferred();
+    const started = deferred();
+    app.kick.initialLoad.messages.mockImplementationOnce(() => {
+      started.resolve();
+      return pending.promise;
+    });
+    const initializing = manager.initializeConnections([room(1)], {}, callbacks);
+    await started.promise;
+    await manager.removeChatroom(1);
+    pending.resolve({ ok: true, value: null });
+    await initializing;
+    for (const name of ['connection_manager.initialize', 'connection_manager.chatroom_batches', 'connection_manager.chatroom_batch_1']) {
+      const span = spanExporter.getFinishedSpans().find((entry) => entry.name === name);
+      expect(span.status.code).toBe(0);
+      expect(span.attributes[name === 'connection_manager.chatroom_batch_1' ? 'batch.cancelled_count' : 'chatroom.cancelled_count']).toBe(1);
+    }
+  });
+
   it('counts swallowed realtime IPC registration failure as failed rather than ready', async () => {
-    app.kick.realtime.setRooms.mockRejectedValue(new Error('IPC unavailable'));
+    app.kick.realtime.setRooms.mockRejectedValue(new Error('secret realtime IPC detail'));
     await expect(manager.addChatroom(room(1))).resolves.toBe('failed');
     const span = addChatroomSpan();
     expect(span.attributes['room_load.stage.realtime_registration']).toBe('failed');
     expect(span.attributes['room_load.outcome']).toBe('failed');
     expect(span.attributes['room_load.realtime_state']).toBe('failed');
+    expect(JSON.stringify({ attributes: span.attributes, events: span.events, status: span.status }))
+      .not.toContain('secret realtime IPC detail');
     expect(callbacks.setInitialChatroomInfo).toHaveBeenCalled();
     spanExporter.reset();
     await manager.initializeChatroomsInBatches([room(1)]);
     const batch = spanExporter.getFinishedSpans().find((entry) => entry.name === 'connection_manager.chatroom_batch_1');
     expect(batch.attributes).toMatchObject({ 'batch.failure_count': 1, 'batch.success_count': 0 });
+  });
+
+  it('counts terminal realtime failure during optional fetches as failed', async () => {
+    const pending = deferred();
+    const started = deferred();
+    app.kick.initialLoad.messages.mockImplementationOnce(() => {
+      started.resolve();
+      return pending.promise;
+    });
+    const loadingRoom = room(1);
+    manager.chatrooms.set('1', loadingRoom);
+    const batching = manager.initializeChatroomsInBatches([loadingRoom]);
+    await started.promise;
+    const deliver = app.kick.realtime.onEvent.mock.calls[0][0];
+    deliver({ kind: 'state', chatroomId: 1, state: 'failed', attempt: 1, reason: 'Realtime unavailable' });
+    pending.resolve({ ok: true, value: { data: { data: { messages: [] } } } });
+    const totals = await batching;
+    const span = addChatroomSpan();
+    expect(span.attributes['room_load.outcome']).toBe('failed');
+    expect(span.attributes['room_load.stage.realtime_registration']).toBe('failed');
+    expect(span.attributes['room_load.realtime_state']).toBe('failed');
+    expect(span.status.code).toBe(2);
+    expect(totals).toMatchObject({ failureCount: 1, successCount: 0 });
+    const batch = spanExporter.getFinishedSpans().find((entry) => entry.name === 'connection_manager.chatroom_batch_1');
+    expect(batch.attributes).toMatchObject({ 'batch.failure_count': 1, 'batch.success_count': 0 });
+  });
+
+  it('does not borrow replacement realtime failure after old registration settles', async () => {
+    const pending = deferred();
+    app.kick.realtime.setRooms.mockImplementationOnce(() => pending.promise);
+    const previousRoom = room(1);
+    previousRoom.streamerData.slug = 'previous-room';
+    const previousLoad = manager.addChatroom(previousRoom);
+    await manager.removeChatroom(1);
+    app.kick.realtime.setRooms.mockRejectedValueOnce(new Error('replacement IPC failure'));
+    await expect(manager.addChatroom(room(1))).resolves.toBe('failed');
+    pending.resolve([]);
+    await expect(previousLoad).resolves.toBe('cancelled');
+    const span = spanExporter.getFinishedSpans().find((entry) => entry.attributes['chatroom.slug'] === 'previous-room');
+    expect(span.attributes['room_load.outcome']).toBe('cancelled');
+    expect(span.attributes['room_load.stage.realtime_registration']).toBe('cancelled');
+    expect(span.attributes).not.toHaveProperty('room_load.realtime_state');
+    expect(span.events.some((event) => event.name === 'room_load_stage_failed')).toBe(false);
   });
 
   it('counts a room removed during initial messages as cancelled rather than successful', async () => {
@@ -286,6 +374,10 @@ describe('ConnectionManager room-load stage telemetry', () => {
     expect(callbacks.addInitialChatroomMessages).not.toHaveBeenCalled();
     const batch = spanExporter.getFinishedSpans().find((entry) => entry.name === 'connection_manager.chatroom_batch_1');
     expect(batch.attributes).toMatchObject({ 'batch.cancelled_count': 1, 'batch.success_count': 0 });
+    expect(batch.status.code).not.toBe(1);
+    const outer = spanExporter.getFinishedSpans().find((entry) => entry.name === 'connection_manager.chatroom_batches');
+    expect(outer.attributes['chatroom.cancelled_count']).toBe(1);
+    expect(outer.status.code).not.toBe(1);
   });
 
   it('returns cancelled when a replacement supersedes pending messages', async () => {
@@ -295,12 +387,17 @@ describe('ConnectionManager room-load stage telemetry', () => {
       started.resolve();
       return pending.promise;
     });
-    const adding = manager.addChatroom(room(1));
+    const previousRoom = room(1);
+    previousRoom.streamerData.slug = 'previous-room';
+    const adding = manager.addChatroom(previousRoom);
     await started.promise;
-    manager.chatrooms.set('1', room(1));
+    await manager.removeChatroom(1);
+    app.kick.realtime.setRooms.mockRejectedValueOnce(new Error('replacement IPC failure'));
+    await expect(manager.addChatroom(room(1))).resolves.toBe('failed');
     pending.resolve({ ok: false, failure: { type: 'timeout' } });
     await expect(adding).resolves.toBe('cancelled');
-    const span = addChatroomSpan();
+    const span = spanExporter.getFinishedSpans().find((entry) => entry.attributes['chatroom.slug'] === 'previous-room');
+    expect(span.attributes).not.toHaveProperty('room_load.realtime_state');
     expect(span.attributes['room_load.stage.initial_messages']).toBe('cancelled');
     expect(span.attributes['room_load.outcome']).toBe('cancelled');
     expect(span.events.some((event) => event.name === 'room_load_stage_failed')).toBe(false);
@@ -339,8 +436,6 @@ describe('ConnectionManager room-load stage telemetry', () => {
       'error.type': 'http_error',
       'http.response.status_code': 503,
     });
-    expect(JSON.stringify({ attributes: span.attributes, events: span.events, status: span.status }))
-      .not.toContain('secret upstream detail');
   });
 
   it('attributes an initial chatroom-info failure to its optional stage without inventing an HTTP status', async () => {
@@ -360,8 +455,6 @@ describe('ConnectionManager room-load stage telemetry', () => {
       'error.type': 'request_failed',
     });
     expect(failure.attributes).not.toHaveProperty('http.response.status_code');
-    expect(JSON.stringify({ attributes: span.attributes, events: span.events, status: span.status }))
-      .not.toContain('secret info detail');
   });
 
   it('attributes a user-info failure to its own optional stage while poll info succeeds', async () => {
@@ -380,7 +473,6 @@ describe('ConnectionManager room-load stage telemetry', () => {
       'room_load.stage_required': false,
       'error.type': 'request_failed',
     });
-    expect(JSON.stringify({ attributes: span.attributes, events: span.events })).not.toContain('secret user detail');
   });
 
   it('attributes a poll failure to its own optional stage while user info succeeds', async () => {
@@ -399,7 +491,6 @@ describe('ConnectionManager room-load stage telemetry', () => {
       'error.type': 'timeout',
     });
     expect(failure.attributes).not.toHaveProperty('http.response.status_code');
-    expect(JSON.stringify({ attributes: span.attributes, events: span.events })).not.toContain('secret poll detail');
   });
 
   it('propagates exceptional realtime onEvent setup rejection and attributes the required stage', async () => {

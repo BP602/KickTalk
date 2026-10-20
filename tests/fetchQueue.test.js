@@ -28,9 +28,8 @@ it.each([
   { status: 201 },
   { data: { status: { code: 503 } } },
   { status: { code: 404 } },
-])('records only the exact supplied integer HTTP status in %j', async (body) => {
+])('does not mistake a body-carried code for HTTP transport status in %j', async (body) => {
   getChannelInfo.mockResolvedValueOnce(body);
   await expect(queueChannelFetch('synthetic-channel')).resolves.toBe(body);
-  const status = Number.isInteger(body.status) ? body.status : body.data?.status?.code ?? body.status.code;
-  expect(recordAPIRequest).toHaveBeenCalledExactlyOnceWith('kick_get_channel_info', 'GET', status, expect.any(Number));
+  expect(recordAPIRequest).not.toHaveBeenCalled();
 });
