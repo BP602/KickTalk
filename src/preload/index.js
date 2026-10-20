@@ -33,7 +33,7 @@ import {
   getUpdateTitle,
   getClearChatroom,
 } from "../../utils/services/kick/kickAPI";
-import { getUserStvProfile, getChannelEmotes } from "../../utils/services/seventv/stvAPI";
+import { getUserStvProfile, getChannelEmotes, getChannelEmotesResult } from "../../utils/services/seventv/stvAPI";
 
 import { CHAT_ERROR_CODES } from "../../utils/constants";
 import Store from "electron-store";
@@ -510,7 +510,20 @@ if (process.contextIsolated) {
         },
         initialLoad: {
           channelEmotes: (slug) => initialLoadResult(() => getKickEmotes(slug)),
-          channel7tvEmotes: (userId) => initialLoadResult(() => getChannelEmotes(userId)),
+          channel7tvEmotes: async (userId) => {
+            let emotes;
+            let hasProducerFailure = false;
+            const result = await initialLoadResult(async () => {
+              const produced = await getChannelEmotesResult(userId);
+              emotes = produced.emotes;
+              if (produced.failure) {
+                hasProducerFailure = true;
+                throw produced.failure.error ?? { response: { status: produced.failure.status } };
+              }
+              return emotes;
+            });
+            return hasProducerFailure ? { ...result, value: emotes } : result;
+          },
           messages: (channelID) => initialLoadResult(async () =>
             sanitizeAxiosResponse(await getInitialChatroomMessages(channelID))),
           chatroomInfo: (slug) => initialLoadResult(() => getChannelChatroomInfo(slug)),

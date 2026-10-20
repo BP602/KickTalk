@@ -5,16 +5,19 @@ const getPersonalEmoteSet = async (userId) => {
   return response.data;
 };
 
-const getChannelEmotes = async (channelId) => {
+const getChannelEmotesResult = async (channelId) => {
   console.log("[7tv Emotes] Fetching channel emotes for", channelId);
   let formattedGlobalEmotes;
+  let phase = "global";
 
   // Try to fetch channel emotes
   try {
     const globalResponse = await axios.get(`https://7tv.io/v3/emote-sets/global`);
 
     if (globalResponse.status !== 200) {
-      throw new Error(`[7TV Emotes] Error while fetching Global Emotes. Status: ${globalResponse.status}`);
+      const error = new Error(`[7TV Emotes] Error while fetching Global Emotes. Status: ${globalResponse.status}`);
+      error.response = { status: globalResponse.status };
+      throw error;
     }
 
     const emoteGlobalData = globalResponse?.data;
@@ -48,12 +51,17 @@ const getChannelEmotes = async (channelId) => {
     }
 
     // [7TV] Fetch channel emotes
+    phase = "channel";
     const channelResponse = await axios.get(`https://7tv.io/v3/users/kick/${channelId}`);
-    if (channelResponse?.status !== 200 || !channelResponse?.data?.emote_set?.emotes) return formattedGlobalEmotes;
+    // Only a rejected channel 404 means no linked account; resolved non-200s are failures.
+    if (channelResponse?.status !== 200) {
+      return { emotes: formattedGlobalEmotes, failure: { status: channelResponse?.status } };
+    }
+    if (!channelResponse?.data?.emote_set?.emotes) return { emotes: formattedGlobalEmotes };
 
     const emoteSetData = channelResponse.data?.emote_set;
     const emotes = emoteSetData?.emotes;
-    if (!emotes) return formattedGlobalEmotes;
+    if (!emotes) return { emotes: formattedGlobalEmotes };
 
     const emoteChannelData = emotes?.map((emote) => {
       return {
@@ -90,12 +98,16 @@ const getChannelEmotes = async (channelId) => {
 
     console.log("[7TV Emotes] Channel Formatted Sets:", channelFormattedSets);
 
-    return channelFormattedSets;
+    return { emotes: channelFormattedSets };
   } catch (error) {
     console.error("[7TV Emotes] Error fetching channel emotes:", error.message);
-    return formattedGlobalEmotes || [];
+    const emotes = formattedGlobalEmotes || [];
+    if (phase === "channel" && error.response?.status === 404) return { emotes };
+    return { emotes, failure: { error } };
   }
 };
+
+const getChannelEmotes = async (channelId) => (await getChannelEmotesResult(channelId)).emotes;
 
 const sendUserPresence = async (stvId, userId) => {
   try {
@@ -250,4 +262,4 @@ const getUserStvProfile = async (platformId) => {
   }
 };
 
-export { getChannelEmotes, sendUserPresence, getUserStvProfile };
+export { getChannelEmotes, getChannelEmotesResult, sendUserPresence, getUserStvProfile };

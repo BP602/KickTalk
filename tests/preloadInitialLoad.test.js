@@ -21,7 +21,9 @@ vi.mock('../utils/services/kick/kickAPI', () => ({
   getSilenceUser: vi.fn(), getUnsilenceUser: vi.fn(), getPinMessage: vi.fn(),
   getUnpinMessage: vi.fn(), getUpdateTitle: vi.fn(), getClearChatroom: vi.fn(),
 }));
-vi.mock('../utils/services/seventv/stvAPI', () => ({ getUserStvProfile: vi.fn(), getChannelEmotes: vi.fn() }));
+vi.mock('../utils/services/seventv/stvAPI', () => ({
+  getUserStvProfile: vi.fn(), getChannelEmotes: vi.fn(), getChannelEmotesResult: vi.fn(),
+}));
 
 let kick;
 const loadPreload = async (tokens = {}) => {
@@ -88,18 +90,34 @@ describe('preload initial-load structured results', () => {
     const services = provider === 'kick'
       ? await import('../utils/services/kick/kickAPI')
       : await import('../utils/services/seventv/stvAPI');
-    const service = provider === 'kick' ? services.getKickEmotes : services.getChannelEmotes;
+    const service = provider === 'kick' ? services.getKickEmotes : services.getChannelEmotesResult;
     const method = provider === 'kick' ? 'channelEmotes' : 'channel7tvEmotes';
     const input = provider === 'kick' ? 'synthetic-room' : 1001;
     const value = [{ id: 'synthetic-emote', name: 'Emote' }];
     service.mockReset();
-    service.mockResolvedValueOnce(value);
+    service.mockResolvedValueOnce(provider === 'kick' ? value : { emotes: value });
     await expect(kick.initialLoad[method](input)).resolves.toEqual({ ok: true, value });
     expect(service).toHaveBeenLastCalledWith(input);
     service.mockRejectedValueOnce({ response: { status: 503, headers: { authorization: 'secret' } } });
     await expect(kick.initialLoad[method](input)).resolves.toEqual({
       ok: false, failure: { type: 'http_error', status: 503 },
     });
+  });
+
+  it.each([
+    [{ error: { response: { status: 500, data: { private: 'secret' } }, config: { token: 'secret' } } }, { type: 'http_error', status: 500 }],
+    [{ status: 503 }, { type: 'http_error', status: 503 }],
+    [{ status: 404 }, { type: 'http_error', status: 404 }],
+    [{ error: { code: 'ETIMEDOUT' } }, { type: 'timeout' }],
+    [{ status: '503' }, { type: 'request_failed' }],
+  ])('preserves 7TV fallback sets but exposes only the classified producer failure', async (failure, classified) => {
+    const services = await import('../utils/services/seventv/stvAPI');
+    const value = [{ setInfo: { id: 'global' }, type: 'global', emotes: [] }];
+    services.getChannelEmotesResult.mockResolvedValueOnce({ emotes: value, failure });
+    const result = await kick.initialLoad.channel7tvEmotes(1001);
+    expect(result).toEqual({ ok: false, failure: classified, value });
+    expect(result.value).toBe(value);
+    expect(JSON.stringify(result)).not.toContain('secret');
   });
 
   it.each([
