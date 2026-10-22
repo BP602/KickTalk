@@ -4,6 +4,8 @@ import useChatStore from "../../providers/ChatProvider";
 import Message from "./Message";
 import { MouseScroll } from "@phosphor-icons/react";
 import { DEFAULT_SCROLL_SEEK_VELOCITY } from "@utils/constants";
+import { isHighlightedMessage, isOwnMessage } from "../../utils/messageIdentity";
+import { computeMarkerBuckets, markerTrackStyle } from "../../utils/messageMarkers";
 
 const DONATOR_BADGE = Object.freeze([
   {
@@ -72,6 +74,8 @@ const MessagesHandler = memo(
     const [silencedUserIds, setSilencedUserIds] = useState(new Set());
     const [atBottom, setAtBottom] = useState(true);
     const [isPaused, setIsPaused] = useState(false);
+    const [railHeight, setRailHeight] = useState(0);
+    const currentUser = useChatStore((state) => state.currentUser);
 
     const eventVisibility = settings?.chatrooms?.eventVisibility;
     const showModActions = settings?.chatrooms?.showModActions !== false;
@@ -196,6 +200,45 @@ const MessagesHandler = memo(
       () => (scrollSeekConfiguration ? { ScrollSeekPlaceholder } : {}),
       [scrollSeekConfiguration],
     );
+
+    // Scrollbar markers share Message.jsx's highlight rule (mention ticks)
+    // and the store identity (own ticks), recomputed only when the visible
+    // list or identity inputs change — no scroll subscriptions. Positions
+    // are index-based; see utils/messageMarkers for the approximation note.
+    const markerBuckets = useMemo(() => {
+      if (!filteredMessages.length) return [];
+
+      const entries = [];
+      filteredMessages.forEach((message, index) => {
+        if (isHighlightedMessage(message, { username, userId, notifications: settings?.notifications })) {
+          entries.push({ index, kind: "mention" });
+        }
+        if (isOwnMessage(message, currentUser)) {
+          entries.push({ index, kind: "own" });
+        }
+      });
+
+      return computeMarkerBuckets(entries, filteredMessages.length, railHeight);
+    }, [filteredMessages, username, userId, settings?.notifications, currentUser, railHeight]);
+
+    const mentionColor = settings?.notifications?.backgroundRgba;
+    const scrollbarMarkerStyle = useMemo(
+      () => markerTrackStyle(markerBuckets, { mentionColor }),
+      [markerBuckets, mentionColor],
+    );
+
+    useEffect(() => {
+      const el = chatContainerRef.current;
+      if (!el) return;
+
+      const updateRailHeight = () => setRailHeight(el.clientHeight);
+      updateRailHeight();
+
+      if (typeof ResizeObserver === "undefined") return;
+      const observer = new ResizeObserver(updateRailHeight);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, []);
 
     useEffect(() => {
       if (filteredMessages.length > 0 && !isPaused) {
@@ -325,6 +368,7 @@ const MessagesHandler = memo(
       <div className="chatContainer" style={{ height: "100%", flex: 1 }} ref={chatContainerRef} data-chatroom-id={chatroomId}>
         <Virtuoso
           ref={virtuosoRef}
+          className="chatMessageScroller"
           data={filteredMessages}
           itemContent={itemContent}
           computeItemKey={computeItemKey}
@@ -341,6 +385,7 @@ const MessagesHandler = memo(
             height: "100%",
             width: "100%",
             flex: 1,
+            ...scrollbarMarkerStyle,
           }}
         />
 

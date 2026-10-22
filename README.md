@@ -284,6 +284,12 @@ The renderer sends `{ chatroomId, streamerName, streamTitle }` over `liveNotific
 npm run test:live
 ```
 
+### Chat scrollbar markers
+
+Each chat pane marks highlighted messages and your own messages in the native scrollbar track, beneath the thumb. Highlight markers reuse the message-row highlight rule and your configured highlight color at 70% opacity. Own-message markers use the signed-in user's identity and the theme's muted tertiary text color at 45% opacity. Single-category marks span the track; positions containing both categories split into two halves. No scrollbar means no visible marks.
+
+Markers cover the pane's retained, filtered history, including rows outside the viewport. Trimming a message removes its marker and repositions the remaining marks. Positions are approximated by message index and grouped into 5px track cells; variable-height rows can differ from their exact scroll offsets. Markers do not intercept scrolling or provide click-to-jump.
+
 ### Build
 
 ```bash

@@ -2,7 +2,7 @@ import "@assets/styles/components/Chat/Message.scss";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useShallow } from "zustand/shallow";
-import { createMentionRegex } from "@utils/regex";
+import { isHighlightedMessage } from "../../utils/messageIdentity";
 
 import useChatStore from "../../providers/ChatProvider";
 import useCosmeticsStore from "../../providers/CosmeticsProvider";
@@ -262,49 +262,28 @@ const MessageComponent = ({
     [allStvEmotes, chatroomId, chatroomName, message, settings, subscriberBadges, userChatroomInfo, username],
   );
 
-  const mentionRegex = useMemo(() => createMentionRegex(username), [username]);
-
-  const shouldHighlightMessage = useMemo(() => {
-    if (type === "dialog") {
-      return false;
-    }
-
-    if (message?.sender?.slug === username) {
-      return false;
-    }
-
-    if (settings?.notifications?.background) {
-      if (message?.metadata?.original_sender?.id == userId && message?.sender?.id != userId) {
-        return true;
-      }
-    }
-
-    if (settings?.notifications?.background && mentionRegex) {
-      const content = message?.content?.toLowerCase() || "";
-      if (mentionRegex.test(content)) {
-        return true;
-      }
-    }
-
-    if (settings?.notifications?.background && settings?.notifications?.phrases?.length) {
-      return settings.notifications.phrases.some((phrase) =>
-        message?.content?.toLowerCase().includes(phrase.toLowerCase()),
-      );
-    }
-
-    return false;
-  }, [
-    mentionRegex,
-    message?.content,
-    message?.metadata?.original_sender?.id,
-    message?.sender?.id,
-    message?.sender?.slug,
-    settings?.notifications?.background,
-    settings?.notifications?.phrases,
-    type,
-    userId,
-    username,
-  ]);
+  const shouldHighlightMessage = useMemo(
+    () =>
+      isHighlightedMessage(message, {
+        username,
+        userId,
+        notifications: settings?.notifications,
+        type,
+      }),
+    [
+      message,
+      message?.content,
+      message?.metadata?.original_sender?.id,
+      message?.sender?.id,
+      message?.sender?.slug,
+      settings?.notifications,
+      settings?.notifications?.background,
+      settings?.notifications?.phrases,
+      type,
+      userId,
+      username,
+    ],
+  );
 
   const messageContent = (
     <div

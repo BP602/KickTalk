@@ -821,6 +821,16 @@
   }
 }
 
+/** [Native Scrollbar Markers] **/
+// Track backgrounds paint below the native thumb and disappear with the
+// scrollbar itself. The track remains transparent between marker ticks.
+.chatMessageScroller::-webkit-scrollbar-track {
+  background-image: var(--scroll-marker-image, none);
+  background-size: var(--scroll-marker-size, auto);
+  background-position: var(--scroll-marker-position, 0 0);
+  background-repeat: no-repeat;
+}
+
 @keyframes scrollToBottomBtn {
   0% {
     transform: translateY(10px);
