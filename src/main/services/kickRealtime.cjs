@@ -7,6 +7,18 @@ const WebSocket = require('ws');
 const API_BASE = 'https://web.kick.com';
 const isId = (value) => Number.isSafeInteger(value) && value > 0;
 const isLoopback = (hostname) => ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
+const failureClassification = (error) => {
+  if (error.reason?.includes('subscription')) return 'subscription';
+  if (error.reason === 'realtime_retry_exhausted') return 'retry_exhausted';
+  if (error.reason?.includes('auth') || error.reason?.includes('identity')) return 'authentication';
+  if (error.reason === 'realtime_http_error') return 'http';
+  if (error.reason === 'realtime_network_error') return 'network';
+  if (error.reason === 'realtime_server_denied') return 'gateway_denied';
+  if (error.code >= 1000 && error.code < 2000) return 'socket_close';
+  if (error.reason === 'realtime_server_disconnected') return 'gateway_disconnect';
+  if (error.reason === 'realtime_connection_lost' || error.reason === 'realtime_transport_error') return 'transport_error';
+  return 'setup';
+};
 // Node EventEmitter treats an unhandled `error` event as a throw. Disposed SDK
 // objects can emit from already-queued callbacks, so retain an inert handler.
 const silenceEmitter = (emitter) => {
@@ -84,6 +96,9 @@ class KickRealtimeController {
     this.channelTokenFlights = new Map();
     this.stopped = false;
     this.terminalFailure = null;
+    this.gatewayConnected = false;
+    this.recoveryEpisode = null;
+    this.recoveryEpisodes = 0;
   }
 
   getSnapshot() {
@@ -117,6 +132,7 @@ class KickRealtimeController {
     }
     if (!desired.size) {
       this._teardown();
+      this.recoveryEpisode = null;
       this.stopped = false;
       this.terminalFailure = null;
       return this.getSnapshot();
@@ -132,6 +148,7 @@ class KickRealtimeController {
     if (!this.rooms.size) return this.getSnapshot();
     // A shared fatal connection requires a new client for all desired rooms.
     this._teardown();
+    this.recoveryEpisode = null;
     this.privateFailures.clear();
     this.stopped = false;
     this.terminalFailure = null;
@@ -143,6 +160,7 @@ class KickRealtimeController {
   close() {
     for (const id of this.rooms.keys()) this._state(id, 'disconnected', 0);
     this._teardown();
+    this.recoveryEpisode = null;
     this.rooms.clear();
     this.states.clear();
     this.recent.clear();
@@ -165,7 +183,8 @@ class KickRealtimeController {
         previous.reason === reason && previous.code === code) return;
     this.states.set(chatroomId, record);
     this.emit({ ...record });
-    this._record({ ...record });
+    this._record({ ...record, ...(reason && { classification: failureClassification({ reason, code }) }) });
+    this._health();
   }
 
   _record(record) {
@@ -173,6 +192,14 @@ class KickRealtimeController {
       if (typeof this.telemetry === 'function') this.telemetry(record);
       else this.telemetry?.record?.(record);
     } catch { /* Diagnostics must not alter the connection lifecycle. */ }
+  }
+
+  _health() {
+    let readyRooms = 0;
+    if (this.gatewayConnected) {
+      for (const state of this.states.values()) if (state.state === 'connected') readyRooms++;
+    }
+    this._record({ kind: 'health', gatewayConnected: this.gatewayConnected, readyRooms });
   }
 
   async _request(path, body, generation, signal) {
@@ -305,12 +332,33 @@ class KickRealtimeController {
         }
         const token = await this._token(generation);
         if (generation !== this.generation || !this.rooms.size) return;
+        const controller = this;
+        const Transport = this.WebSocket;
+        class ObservedWebSocket extends Transport {
+          constructor(...args) {
+            super(...args);
+            for (const name of ['open', 'close', 'error']) {
+              this.addEventListener(name, (event) => {
+                if (generation !== controller.generation) return;
+                controller._record({ kind: 'transport', state: `native_${name}`,
+                  ...(Number.isInteger(event.code) && { code: event.code }),
+                  ...(name !== 'open' && { classification: name === 'error' ? 'transport_error' : 'socket_close' }) });
+              });
+            }
+          }
+        }
         const client = new Centrifuge(url.toString(), {
-          websocket: this.WebSocket, token, getToken: () => this._token(generation),
+          websocket: ObservedWebSocket, token, getToken: () => this._token(generation),
           minReconnectDelay: this.minReconnectDelay, maxReconnectDelay: this.maxReconnectDelay,
         });
         this.client = client;
         client.on('error', () => {});
+        client.on('connected', () => {
+          if (generation !== this.generation) return;
+          this.gatewayConnected = true;
+          this._record({ kind: 'transport', state: 'gateway_ack' });
+          this._health();
+        });
         let firstConnecting = true;
         client.on('connecting', (context) => {
           if (firstConnecting) { firstConnecting = false; return; }
@@ -439,7 +487,14 @@ class KickRealtimeController {
       this._record({ kind: 'subscription', channel, state: 'connected' });
       for (const id of entry.roomIds) {
         if (entry.private) this._clearPrivateWarning(id, channel);
-        if (channel === `chatrooms.${id}.v2`) this._state(id, 'connected', 0);
+        if (channel === `chatrooms.${id}.v2`) {
+          this._record({ kind: 'transport', state: 'primary_ack', chatroomId: id });
+          this._state(id, 'connected', 0);
+        }
+        if (channel === `chatrooms.${id}.v2` && this.recoveryEpisode) {
+          this._record({ kind: 'recovery', state: 'ready', episode: this.recoveryEpisode.id });
+          this.recoveryEpisode = null;
+        }
       }
     });
     subscription.on('subscribing', (context) => {
@@ -488,6 +543,10 @@ class KickRealtimeController {
 
   _subscriptionFailure(channel, entry, code) {
     if (entry.private) this._cancelChannelToken(channel);
+    if (entry.private && !entry.failed) {
+      this._record({ kind: 'warning', state: 'private_subscription_failed', channel,
+        reason: 'realtime_private_subscription_denied', code, classification: 'subscription' });
+    }
     entry.failed = true;
     entry.failureCode = code;
     for (const id of entry.roomIds) {
@@ -595,13 +654,29 @@ class KickRealtimeController {
     for (const [id, attempt] of next) this._state(id, 'reconnecting', attempt, error.reason, error.code);
     const attempt = Math.max(...next.values());
     const delay = Math.min(this.maxReconnectDelay, this.minReconnectDelay * (2 ** Math.max(0, attempt - 2)));
+    const classification = failureClassification(error);
+    if (!this.recoveryEpisode) {
+      this.recoveryEpisode = { id: ++this.recoveryEpisodes };
+      this._record({ kind: 'recovery', state: 'episode', episode: this.recoveryEpisode.id,
+        reason: error.reason, code: error.code, classification });
+    }
+    const episode = this.recoveryEpisode.id;
+    this._record({ kind: 'recovery', state: 'scheduled', episode, attempt, delayMs: delay,
+      reason: error.reason, code: error.code, classification });
     this.timer = setTimeout(() => {
       this.timer = null;
-      if (!this.stopped && this.rooms.size) void this._start();
+      if (!this.stopped && this.rooms.size) {
+        this._record({ kind: 'recovery', state: 'attempt', episode, attempt,
+          reason: error.reason, code: error.code, classification });
+        void this._start();
+      }
     }, delay);
   }
 
   _teardown() {
+    if (this.client || this.starting || this.timer) this._record({ kind: 'transport', state: 'teardown' });
+    this.gatewayConnected = false;
+    this._health();
     this.generation++;
     clearTimeout(this.timer);
     this.timer = null;

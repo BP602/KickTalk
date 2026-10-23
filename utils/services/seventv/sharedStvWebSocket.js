@@ -190,7 +190,7 @@ class SharedStvWebSocket extends EventTarget {
     };
 
     this.chat.onclose = (event) => {
-      console.log(`[Shared7TV]: WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`);
+      console.log(`[Shared7TV]: WebSocket closed. Code: ${event.code}`);
       this.connectionState = 'disconnected';
       this.subscribedEvents.clear();
       this.userEventSubscribed = false;
@@ -199,26 +199,25 @@ class SharedStvWebSocket extends EventTarget {
       if (this.connectionSpan) {
         this.connectionSpan.addEvent('websocket_connection_closed', {
           close_code: event.code,
-          close_reason: event.reason || 'Unknown',
+          close_reason: 'socket_close',
           was_clean: event.wasClean,
           connection_state: 'disconnected'
         });
         this.connectionSpan.setAttributes({
           'connection.success': false,
           'connection.close_code': event.code,
-          'connection.close_reason': event.reason || 'Connection closed',
+          'connection.close_reason': 'socket_close',
           'connection.was_clean': event.wasClean,
           'connection.state': 'disconnected'
         });
-        this.connectionSpan.setStatus({ code: 2, message: `Connection closed: ${event.reason || 'Unknown'}` }); // ERROR
+        this.connectionSpan.setStatus({ code: 2, message: 'socket_close' }); // ERROR
         this.connectionSpan.end();
         this.connectionSpan = null;
       }
 
-      // Telemetry: mark disconnected and maybe reconnection
+      // 7TV's dedicated health metric owns physical socket state.
       try {
         for (const [chatroomId] of this.chatrooms) {
-          window.app?.telemetry?.recordWebSocketConnection?.(chatroomId, null, false, `stv_${chatroomId}`);
           if (this.shouldReconnect) {
             window.app?.telemetry?.recordReconnection?.(chatroomId, 'stv_ws_close');
           }
@@ -260,12 +259,6 @@ class SharedStvWebSocket extends EventTarget {
         this.connectionSpan = null;
       }
 
-      // Telemetry: mark connected for all chatrooms
-      try {
-        for (const [chatroomId] of this.chatrooms) {
-          window.app?.telemetry?.recordWebSocketConnection?.(chatroomId, null, true, `stv_${chatroomId}`);
-        }
-      } catch (_) {}
 
       await this.delay(1000);
 

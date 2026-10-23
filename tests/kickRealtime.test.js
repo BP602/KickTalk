@@ -3,8 +3,35 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import WebSocket, { WebSocketServer } from 'ws';
+import { metrics as otelMetrics } from '@opentelemetry/api';
+import { MeterProvider, MetricReader, AggregationTemporality } from '@opentelemetry/sdk-metrics';
+import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+
+class CollectingMetricReader extends MetricReader {
+  constructor() { super({ aggregationTemporalitySelector: () => AggregationTemporality.CUMULATIVE }); }
+  async onForceFlush() {}
+  async onShutdown() {}
+}
+const metricReader = new CollectingMetricReader();
+otelMetrics.setGlobalMeterProvider(new MeterProvider({ readers: [metricReader] }));
+async function metricPoints(name) {
+  const { resourceMetrics } = await metricReader.collect();
+  return resourceMetrics.scopeMetrics.flatMap((scope) => scope.metrics)
+    .find((metric) => metric.descriptor.name === name)?.dataPoints ?? [];
+}
 
 const { KickRealtimeController } = createRequire(import.meta.url)('../src/main/services/kickRealtime.cjs');
+const { createKickRealtimeTelemetry } = createRequire(import.meta.url)('../src/main/services/kickRealtimeTelemetry.cjs');
+const { MetricsHelper } = createRequire(import.meta.url)('../src/telemetry/metrics.js');
+const spanExporter = new InMemorySpanExporter();
+const tracerProvider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(spanExporter)] });
+let telemetryEnabled = true;
+const recordTelemetry = createKickRealtimeTelemetry({
+  tracer: tracerProvider.getTracer('realtime-test'), isEnabled: () => telemetryEnabled,
+});
+async function metricTotal(name) {
+  return (await metricPoints(name)).reduce((sum, point) => sum + point.value, 0);
+}
 
 const ROOM_A = { chatroomId: 101, channelId: 501, streamerName: 'fixture-a' };
 const ROOM_B = { chatroomId: 102, channelId: 501, streamerName: 'fixture-b' };
@@ -65,7 +92,7 @@ async function createFixture() {
   const channelTokens = new Map();
   const connectionTokens = [];
   const subscriptionTtls = new Map();
-  const options = { authStatus: 200, discoveryStatus: 200, ttl: null, ping: 0 };
+  const options = { authStatus: 200, discoveryStatus: 200, ttl: null, ping: 0, holdConnect: false };
   let httpHandler = null;
   let subscribeHandler = null;
   let connectError = null;
@@ -162,6 +189,14 @@ async function createFixture() {
     send(connection, { id: command.id, refresh: { expires: true, ttl: 30 } });
   }
 
+  function acknowledgeConnection(connection, command) {
+    send(connection, { id: command.id, connect: {
+      client: `fixture-client-${connections.length}`, version: '6.9.7',
+      ping: options.ping, pong: true,
+      ...(options.ttl === null ? {} : { expires: true, ttl: options.ttl }),
+    } });
+  }
+
   ws.on('connection', (socket) => {
     const connection = {
       socket,
@@ -188,17 +223,10 @@ async function createFixture() {
           if (command.connect) {
             if (connectError) {
               send(connection, { id: command.id, error: connectError });
+            } else if (options.holdConnect) {
+              connection.pendingConnect = command;
             } else {
-              send(connection, {
-                id: command.id,
-                connect: {
-                  client: `fixture-client-${connections.length}`,
-                  version: '6.9.7',
-                  ping: options.ping,
-                  pong: true,
-                  ...(options.ttl === null ? {} : { expires: true, ttl: options.ttl }),
-                },
-              });
+              acknowledgeConnection(connection, command);
             }
           } else if (command.subscribe) {
             const channel = command.subscribe.channel;
@@ -281,6 +309,13 @@ async function createFixture() {
     set subscribeHandler(handler) { subscribeHandler = handler; },
     set connectError(error) { connectError = error; },
     set holdRefresh(value) { holdRefresh = value; },
+    releaseGateway() {
+      options.holdConnect = false;
+      for (const connection of connections) {
+        if (connection.pendingConnect) acknowledgeConnection(connection, connection.pendingConnect);
+        connection.pendingConnect = null;
+      }
+    },
     authRequests: () => requests.filter((entry) => entry.path === AUTH_PATH),
     channelAuthRequests: (channel) => requests.filter((entry) => entry.path === CHANNEL_AUTH_PATH
       && (channel === undefined || entry.body?.channel === channel)),
@@ -357,12 +392,15 @@ describe('KickRealtimeController with the real Centrifugo wire protocol', () => 
     fixture = await createFixture();
     events = [];
     session = {};
+    telemetryEnabled = true;
+    spanExporter.reset();
     controller = new KickRealtimeController({
       fetchImpl: fixture.fetchImpl,
       WebSocketImpl: fixture.WebSocketImpl,
       apiBaseUrl: fixture.baseUrl,
       getSession: async () => session,
       emit: (event) => events.push(event),
+      telemetry: recordTelemetry,
       maxAttempts: 3,
       minReconnectDelay: 10,
       maxReconnectDelay: 20,
@@ -382,6 +420,179 @@ describe('KickRealtimeController with the real Centrifugo wire protocol', () => 
   const publications = (roomId) => events.filter((event) => event.kind === 'publication' && event.chatroomId === roomId);
   const latestState = (roomId) => stateEvents(roomId).at(-1);
   const waitConnected = async (roomId) => until(() => latestState(roomId)?.state === 'connected', `room ${roomId} primary readiness`);
+
+  it('exports one ready shared Kick socket, not zero or one per room alias', async () => {
+    fixture.heldChannels.add(PRIMARY_A);
+    await controller.setRooms([ROOM_A, ROOM_B]);
+    await waitConnected(102);
+    await until(() => fixture.connections[0]?.pending.has(PRIMARY_A), 'held primary ACK');
+    const points = await metricPoints('kicktalk_websocket_connections_active');
+    expect(points.reduce((sum, point) => sum + point.value, 0)).toBe(1);
+  });
+
+  it('exports explicit zeros until gateway and primary ACKs, then clears room removal and teardown idempotently', async () => {
+    fixture.options.holdConnect = true;
+    fixture.heldChannels.add(PRIMARY_A);
+    fixture.heldChannels.add(PRIMARY_B);
+    await controller.setRooms([ROOM_A, ROOM_B]);
+    await until(() => fixture.connections[0]?.pendingConnect, 'held gateway ACK after native open');
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(0);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(0);
+    expect(spanExporter.getFinishedSpans().some((span) => span.attributes['kick.realtime.state'] === 'native_open')).toBe(true);
+    fixture.releaseGateway();
+    await until(() => fixture.connections[0]?.pending.has(PRIMARY_A), 'aliases ACKed but primary held');
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(0);
+    fixture.releaseSubscription(PRIMARY_A);
+    await waitConnected(101);
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(1);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(1);
+    fixture.releaseSubscription(PRIMARY_B);
+    await waitConnected(102);
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(1);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(2);
+    await controller.setRooms([ROOM_B]);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(1);
+    await controller.setRooms([]);
+    await controller.setRooms([]);
+    controller.close();
+    controller.close();
+    expect(await metricPoints('kicktalk_websocket_connections_active')).toEqual([
+      expect.objectContaining({ value: 0, attributes: { transport: 'kick', connection_kind: 'shared_socket' } }),
+    ]);
+    expect(await metricPoints('kicktalk_realtime_rooms_ready')).toEqual([
+      expect.objectContaining({ value: 0, attributes: { transport: 'kick', connection_kind: 'primary_room' } }),
+    ]);
+  });
+
+  it('separates private warnings from primary terminal failures without exposing private identity or errors', async () => {
+    session = { token: 'SECRET_SESSION_TOKEN', session: 'SECRET_CSRF', userId: 987654321 };
+    fixture.subscribeErrors.set('private-userfeed.987654321', { code: 103, message: 'SECRET_PRIVATE_ERROR' });
+    const warnings = await metricTotal('kicktalk_realtime_private_subscription_warnings_total');
+    const terminal = await metricTotal('kicktalk_realtime_terminal_failures_total');
+    await controller.setRooms([ROOM_A, ROOM_B]);
+    await waitConnected(101);
+    await waitConnected(102);
+    await until(() => latestState(101)?.reason === 'realtime_private_subscription_denied', 'private warning');
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(1);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(2);
+    expect(await metricTotal('kicktalk_realtime_private_subscription_warnings_total') - warnings).toBe(1);
+    expect(await metricTotal('kicktalk_realtime_terminal_failures_total') - terminal).toBe(0);
+    await controller.setRooms([ROOM_A, ROOM_B]);
+    expect(await metricTotal('kicktalk_realtime_private_subscription_warnings_total') - warnings).toBe(1);
+    const attributes = spanExporter.getFinishedSpans().map((span) => span.attributes);
+    expect(attributes.some((value) => value['kick.realtime.channel_kind'] === 'private_userfeed')).toBe(true);
+    for (const secret of ['987654321', 'SECRET_', 'private-userfeed.', 'kick.realtime.channel"']) {
+      expect(JSON.stringify(attributes)).not.toContain(secret);
+    }
+    fixture.subscribeErrors.set(PRIMARY_A, { code: 103, message: 'SECRET_PRIMARY_ERROR' });
+    await controller.retry();
+    await until(() => latestState(101)?.state === 'failed', 'primary rejection');
+    await waitConnected(102);
+    expect(await metricTotal('kicktalk_realtime_terminal_failures_total') - terminal).toBe(1);
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(1);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(1);
+    await controller.setRooms([ROOM_A]);
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(0);
+  });
+
+  it('never reports readiness for rejected gateway ACKs and counts only one terminal room transition', async () => {
+    fixture.connectError = { code: 103, message: 'SECRET_GATEWAY_DENIAL' };
+    const terminal = await metricTotal('kicktalk_realtime_terminal_failures_total');
+    const errors = await metricTotal('kicktalk_connection_errors_total');
+    await controller.setRooms([ROOM_A]);
+    await until(() => latestState(101)?.state === 'failed', 'gateway rejection');
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(0);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(0);
+    expect(await metricTotal('kicktalk_realtime_terminal_failures_total') - terminal).toBe(1);
+    expect(await metricTotal('kicktalk_connection_errors_total')).toBe(errors);
+    expect(JSON.stringify(spanExporter.getFinishedSpans().map((span) => span.attributes))).not.toContain('SECRET_GATEWAY_DENIAL');
+  });
+
+  it('tracks disabled lifecycle without recording traces and re-enables with current zeros', async () => {
+    await controller.setRooms([ROOM_A]);
+    await waitConnected(101);
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(1);
+    telemetryEnabled = false;
+    spanExporter.reset();
+    fixture.heldChannels.add(PRIMARY_A);
+    await controller.retry();
+    await until(() => fixture.connections.at(-1)?.pending.has(PRIMARY_A), 'disabled replacement primary ACK');
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(0);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(0);
+    fixture.releaseSubscription(PRIMARY_A);
+    await waitConnected(101);
+    telemetryEnabled = true;
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(1);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(1);
+    telemetryEnabled = false;
+    controller.close();
+    controller.close();
+    expect(spanExporter.getFinishedSpans()).toEqual([]);
+    telemetryEnabled = true;
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(0);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(0);
+    await controller.setRooms([ROOM_A]);
+    await waitConnected(101);
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(1);
+    session = {};
+    controller.close(); // The main logout path uses the same close boundary.
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(0);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(0);
+  });
+
+  it('counts a shared recovery episode once and each actual retry with bounded delay and causes', async () => {
+    const episodes = await metricTotal('kicktalk_realtime_reconnect_episodes_total');
+    const attempts = await metricTotal('kicktalk_realtime_reconnect_attempts_total');
+    const terminal = await metricTotal('kicktalk_realtime_terminal_failures_total');
+    await controller.setRooms([ROOM_A, ROOM_B]);
+    await waitConnected(101);
+    await waitConnected(102);
+    fixture.options.authStatus = 503;
+    fixture.closeSocket(fixture.connections[0], 1011, 'SECRET_SOCKET_REASON');
+    await until(() => latestState(101)?.state === 'failed', 'retry exhaustion');
+    expect(await metricTotal('kicktalk_realtime_reconnect_episodes_total') - episodes).toBe(1);
+    expect(await metricTotal('kicktalk_realtime_reconnect_attempts_total') - attempts).toBe(3);
+    expect(await metricTotal('kicktalk_realtime_terminal_failures_total') - terminal).toBe(2);
+    const spans = spanExporter.getFinishedSpans();
+    expect(spans.filter((span) => span.name === 'kick.realtime.recovery' && span.attributes['kick.realtime.state'] === 'scheduled')
+      .map((span) => span.attributes['kick.realtime.delay_ms'])).toEqual([10, 10, 20]);
+    expect(JSON.stringify(spans.map((span) => span.attributes))).not.toContain('SECRET_SOCKET_REASON');
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(0);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(0);
+  });
+
+  it('starts a fresh logical recovery episode only after the prior primary readiness recovers', async () => {
+    const episodes = await metricTotal('kicktalk_realtime_reconnect_episodes_total');
+    const attempts = await metricTotal('kicktalk_realtime_reconnect_attempts_total');
+    await controller.setRooms([ROOM_A, ROOM_B]);
+    await waitConnected(101);
+    await waitConnected(102);
+    for (let count = 2; count <= 3; count++) {
+      fixture.closeSocket(fixture.connections.at(-1), 1001, 'SECRET_CLOSE_REASON');
+      await until(() => fixture.connections.length === count, 'replacement shared socket');
+      await waitConnected(101);
+      await waitConnected(102);
+      expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(1);
+      expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(2);
+    }
+    expect(await metricTotal('kicktalk_realtime_reconnect_episodes_total') - episodes).toBe(2);
+    expect(await metricTotal('kicktalk_realtime_reconnect_attempts_total') - attempts).toBe(2);
+    expect(spanExporter.getFinishedSpans().filter((span) => span.attributes['kick.realtime.state'] === 'ready')
+      .map((span) => span.attributes['kick.realtime.episode'])).toEqual([1, 2]);
+  });
+
+  it('labels retained renderer 7TV error and retry notifications separately from Kick', async () => {
+    const errors = await metricTotal('kicktalk_connection_errors_total');
+    const retries = await metricTotal('kicktalk_websocket_reconnections_total');
+    MetricsHelper.recordConnectionError('stv_ws_error', 101);
+    MetricsHelper.recordReconnection(101, 'stv_ws_close');
+    expect(await metricTotal('kicktalk_connection_errors_total') - errors).toBe(1);
+    expect(await metricTotal('kicktalk_websocket_reconnections_total') - retries).toBe(1);
+    expect((await metricPoints('kicktalk_connection_errors_total')).every((point) => point.attributes.transport === 'seventv')).toBe(true);
+    expect((await metricPoints('kicktalk_websocket_reconnections_total')).every((point) => point.attributes.transport === 'seventv')).toBe(true);
+    expect(await metricTotal('kicktalk_websocket_connections_active')).toBe(0);
+    expect(await metricTotal('kicktalk_realtime_rooms_ready')).toBe(0);
+  });
 
   it('stays connecting after native open and other ACKs until the primary room subscription is ready', async () => {
     fixture.heldChannels.add(PRIMARY_A);

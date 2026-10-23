@@ -625,8 +625,6 @@ if (process.contextIsolated) {
           ipcRenderer.invoke("telemetry:recordRendererMemory", memory),
         recordDomNodeCount: (count) =>
           ipcRenderer.invoke("telemetry:recordDomNodeCount", count),
-        recordWebSocketConnection: (chatroomId, streamerId, connected, streamerName) =>
-          ipcRenderer.invoke("telemetry:recordWebSocketConnection", { chatroomId, streamerId, connected, streamerName }),
         recordConnectionError: (chatroomId, errorType) =>
           ipcRenderer.invoke("telemetry:recordConnectionError", { chatroomId, errorType }),
         recordMessageReceived: (chatroomId, messageType, senderId, streamerName) =>

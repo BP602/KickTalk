@@ -48,9 +48,9 @@ try {
 
 const { app, shell, BrowserWindow, ipcMain, screen, session, Tray, Menu, dialog, Notification } = require("electron");
 import { KickRealtimeController } from "./services/kickRealtime.cjs";
+import { createKickRealtimeTelemetry } from "./services/kickRealtimeTelemetry.cjs";
 import { createRealtimeSessionProvider } from "./services/kickRealtimeSession.cjs";
 import { createLiveNotifier } from "./services/liveNotification.cjs";
-const { trace } = require("@opentelemetry/api");
 const { pathToFileURL } = require("node:url");
 const appVersion = app.getVersion();
 // Resource detection happens during SDK startup, not after it.
@@ -220,8 +220,6 @@ try {
     recordMessageReceived: metricsModule.MetricsHelper?.recordMessageReceived || (() => {}),
     recordRendererMemory: metricsModule.MetricsHelper?.recordRendererMemory || (() => {}),
     recordDomNodeCount: metricsModule.MetricsHelper?.recordDomNodeCount || (() => {}),
-    incrementWebSocketConnections: metricsModule.MetricsHelper?.incrementWebSocketConnections || (() => {}),
-    decrementWebSocketConnections: metricsModule.MetricsHelper?.decrementWebSocketConnections || (() => {}),
     recordConnectionError: metricsModule.MetricsHelper?.recordConnectionError || (() => {}),
     recordReconnection: metricsModule.MetricsHelper?.recordReconnection || (() => {}),
     recordChatroomSwitch: metricsModule.MetricsHelper?.recordChatroomSwitch || (() => {}),
@@ -268,8 +266,6 @@ try {
     recordMessageReceived: () => {},
     recordRendererMemory: () => {},
     recordDomNodeCount: () => {},
-    incrementWebSocketConnections: () => {},
-    decrementWebSocketConnections: () => {},
     recordConnectionError: () => {},
     recordReconnection: () => {},
     recordChatroomSwitch: () => {},
@@ -374,21 +370,7 @@ const kickRealtime = new KickRealtimeController({
       mainWindow.webContents.send("kick:realtime:event", event);
     }
   },
-  telemetry: (event) => {
-    if (!isTelemetryEnabled()) return;
-    const attributes = {
-      ...(event.chatroomId !== undefined && { "kick.realtime.room_id": event.chatroomId }),
-      "kick.realtime.state": event.state,
-      ...(event.attempt !== undefined && { "kick.realtime.attempt": event.attempt }),
-      ...(event.reason && { "kick.realtime.reason": event.reason }),
-      ...(event.code !== undefined && { "kick.realtime.code": event.code }),
-      ...(event.channel && { "kick.realtime.channel": event.channel }),
-    };
-    const span = trace.getTracer("kicktalk.realtime").startSpan(`kick.realtime.${event.kind}`, { attributes });
-    span.end();
-    if (event.state === "failed") metrics.recordConnectionError(event.reason || "realtime_failed", event.chatroomId);
-    if (event.state === "reconnecting") metrics.recordReconnection(event.chatroomId, event.reason);
-  },
+  telemetry: createKickRealtimeTelemetry({ isEnabled: isTelemetryEnabled }),
 });
 
 const requireMainRendererSender = (event) => {
@@ -1784,15 +1766,6 @@ ipcMain.handle("telemetry:recordDomNodeCount", (e, count) => {
   }
 });
 
-ipcMain.handle("telemetry:recordWebSocketConnection", (e, { chatroomId, streamerId, connected, streamerName }) => {
-  if (isTelemetryEnabled()) {
-    if (connected) {
-      metrics.incrementWebSocketConnections(chatroomId, streamerId, streamerName);
-    } else {
-      metrics.decrementWebSocketConnections(chatroomId, streamerId, streamerName);
-    }
-  }
-});
 
 ipcMain.handle("telemetry:recordConnectionError", (e, { chatroomId, errorType }) => {
   if (isTelemetryEnabled()) {

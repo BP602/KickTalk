@@ -209,6 +209,21 @@ Verification on 2026-10-13: Cloud main/renderer roundtrips preserved 251.3/250.3
 
 This fixes the earlier pre-end renderer export that collapsed durations to 1 ms and dropped events. It does not repair Kick's dead Pusher transport, change WebSocket metric semantics, add log export, or upgrade OpenTelemetry packages. Cloud metrics remain disabled by the current private config; local OTLP metrics were exercised. Authentication, sending and cross-platform packaging were not tested.
 
+#### Realtime connection diagnostics
+
+Kick connection metrics come from the main-process controller, not renderer socket notifications. `kicktalk_websocket_connections_active` counts the shared Kick socket only after gateway acknowledgment and at least one primary room subscription acknowledgment. `kicktalk_realtime_rooms_ready` counts ready primary rooms on that gateway. Two ready rooms therefore report one socket and two rooms. Both gauges publish explicit zeros after disconnect, final-room removal or teardown; 7TV retains its independent health metrics.
+
+Kick recovery uses `kicktalk_realtime_reconnect_episodes_total`, `kicktalk_realtime_reconnect_attempts_total` and `kicktalk_realtime_reconnect_delay_seconds`. Scheduled retries and attempts actually started are distinct. `kicktalk_realtime_terminal_failures_total` counts room transitions to failure; `kicktalk_realtime_private_subscription_warnings_total` counts failed private subscriptions without marking healthy public rooms unavailable. The older generic connection-error/reconnection counters now carry `transport=seventv` and count renderer notifications, not physical sockets.
+
+Search Tempo for `{ name =~ "kick[.]realtime[.].*" }`. Spans distinguish native socket open, gateway acknowledgment, subscription acknowledgment, recovery scheduling/attempts and terminal room state. Attributes include room ID where applicable, recovery episode/attempt, scheduled delay, safe reason/classification and numeric code. Private channels are reduced to categories such as `private_userfeed`; credentials, raw private channel IDs and server-provided reason text are excluded.
+
+In the local Prometheus datasource, query `kicktalk_websocket_connections_active_ratio{transport="kick"}` and `kicktalk_realtime_rooms_ready_ratio{transport="kick"}`. The `_ratio` suffix comes from the collector's translation of unit `1`. Filter by the current app/service instance when comparing runs.
+
+The controlled loopback HTTP/WebSocket smoke used the actual controller, telemetry adapter, SDK and local LGTM. Fresh Prometheus samples verified held gateway/primary acknowledgments at `0/0`, one ready room at `1/1`, two rooms on one socket at `1/2`, private-feed warnings, reconnect recovery, terminal rejection, removal and repeated teardown. Tempo readback verified retry delays of 1000, 1000 and 2000 ms, transient/terminal codes and absence of synthetic secrets. No live account or send was used.
+
+Startup with telemetry disabled skips SDK initialization. A built Electron smoke with a fresh opted-out profile and no external network route observed zero OTLP requests during startup and shutdown. Connection state is tracked across disabled transitions so later collection reflects current readiness. Runtime opt-out does not shut down an already-started SDK; retained cumulative data can still be exported. This existing consent-lifecycle limitation is outside the connection-accounting change.
+
+
 ### Kick realtime transport cutover
 
 The `fix/kick-realtime` branch replaces the rejected hosted Pusher connection with Kick's current Centrifugo transport. Main owns one `centrifuge@5.7.4` client, discovers its gateway and obtains connection/private-channel JWTs. The preload bridge exposes only desired rooms, explicit retry and normalized state/publication events. The old shared/per-room Pusher modules and obsolete replay script are removed; 7TV remains independent.

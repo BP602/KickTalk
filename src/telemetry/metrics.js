@@ -10,21 +10,13 @@ const { performanceBudgetMonitor } = require('./performance-budget');
 const pkg = require('../../package.json');
 const meter = metrics.getMeter('kicktalk', pkg.version);
 
-// Connection Metrics - Track active connections in a Map for accurate counting
-const activeConnections = new Map();
-
-const websocketConnections = meter.createObservableGauge('kicktalk_websocket_connections_active', {
-  description: 'Number of active WebSocket connections',
-  unit: '1'
-});
-
 const websocketReconnections = meter.createCounter('kicktalk_websocket_reconnections_total', {
-  description: 'Total number of WebSocket reconnection attempts',
+  description: 'Total number of renderer 7TV reconnection notifications',
   unit: '1'
 });
 
 const connectionErrors = meter.createCounter('kicktalk_connection_errors_total', {
-  description: 'Total number of connection errors',
+  description: 'Total number of renderer 7TV connection error notifications',
   unit: '1'
 });
 
@@ -211,21 +203,6 @@ domNodeCount.addCallback((observableResult) => {
   observableResult.observe(currentDomNodeCount);
 });
 
-// Active WebSocket connections callback
-websocketConnections.addCallback((observableResult) => {
-  // Group connections by unique attribute sets and count them
-  const connectionCounts = new Map();
-  
-  for (const [_, attributes] of activeConnections) {
-    const key = JSON.stringify(attributes);
-    connectionCounts.set(key, (connectionCounts.get(key) || 0) + 1);
-  }
-  
-  for (const [attributesJson, count] of connectionCounts) {
-    const attributes = JSON.parse(attributesJson);
-    observableResult.observe(count, attributes);
-  }
-});
 
 // GC monitoring setup
 try {
@@ -255,34 +232,16 @@ try {
 //   - OTEL_EXPORTER_OTLP_HEADERS (e.g., Authorization=Basic base64(InstanceID:APITOKEN))
 //   - OTEL_SERVICE_NAME, OTEL_RESOURCE_ATTRIBUTES, etc.
 const MetricsHelper = {
-  // Connection metrics
-  incrementWebSocketConnections(chatroomId, streamerId, streamerName = null) {
-    const attributes = {
-      chatroom_id: chatroomId,
-      streamer_id: streamerId
-    };
-    if (streamerName) attributes.streamer_name = streamerName;
-    
-    const connectionKey = `${chatroomId}_${streamerId}`;
-    activeConnections.set(connectionKey, attributes);
-    console.log(`[Metrics] WebSocket INCREMENT for ${streamerName || 'unknown'} (${chatroomId}) - Active: ${activeConnections.size}`);
-  },
-
-  decrementWebSocketConnections(chatroomId, streamerId, streamerName = null) {
-    const connectionKey = `${chatroomId}_${streamerId}`;
-    const removed = activeConnections.delete(connectionKey);
-    console.log(`[Metrics] WebSocket DECREMENT for ${streamerName || 'unknown'} (${chatroomId}) - Removed: ${removed} - Active: ${activeConnections.size}`);
-  },
-
   recordReconnection(chatroomId, reason = 'unknown') {
     websocketReconnections.add(1, {
+      transport: 'seventv',
       chatroom_id: chatroomId,
       reason
     });
   },
 
   recordConnectionError(errorType, chatroomId = null) {
-    const attributes = { error_type: errorType };
+    const attributes = { transport: 'seventv', error_type: errorType };
     if (chatroomId) attributes.chatroom_id = chatroomId;
     
     connectionErrors.add(1, attributes);
@@ -639,7 +598,6 @@ const MetricsHelper = {
 module.exports = {
   meter,
   metrics: {
-    websocketConnections,
     websocketReconnections,
     connectionErrors,
     messagesSent,
