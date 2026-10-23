@@ -161,6 +161,7 @@ class SharedStvWebSocket extends EventTarget {
     this.chat.onerror = (event) => {
       console.log(`[Shared7TV]: WebSocket error:`, event);
       this.connectionState = 'disconnected';
+      this.publishConnectionHealth();
       this.handleConnectionError();
 
       // Complete the connection span with error
@@ -192,6 +193,7 @@ class SharedStvWebSocket extends EventTarget {
     this.chat.onclose = (event) => {
       console.log(`[Shared7TV]: WebSocket closed. Code: ${event.code}`);
       this.connectionState = 'disconnected';
+      this.publishConnectionHealth();
       this.subscribedEvents.clear();
       this.userEventSubscribed = false;
 
@@ -215,7 +217,7 @@ class SharedStvWebSocket extends EventTarget {
         this.connectionSpan = null;
       }
 
-      // 7TV's dedicated health metric owns physical socket state.
+      // Telemetry: record reconnection intent for all chatrooms
       try {
         for (const [chatroomId] of this.chatrooms) {
           if (this.shouldReconnect) {
@@ -242,6 +244,7 @@ class SharedStvWebSocket extends EventTarget {
     this.chat.onopen = async () => {
       console.log(`[Shared7TV]: Connection opened successfully`);
       this.connectionState = 'connected';
+      this.publishConnectionHealth();
       this.reconnectAttempts = 0;
 
       // Complete the connection span successfully
@@ -660,6 +663,7 @@ class SharedStvWebSocket extends EventTarget {
     console.log(`[Shared7TV]: Closing shared connection`);
     this.shouldReconnect = false;
     this.connectionState = 'disconnected';
+    this.publishConnectionHealth();
 
     if (this.chat) {
       try {
@@ -677,6 +681,17 @@ class SharedStvWebSocket extends EventTarget {
     } else {
       console.log(`[Shared7TV]: No active connection to close`);
     }
+  }
+
+  // One physical socket serves every chatroom, so health is reported once per socket.
+  publishConnectionHealth() {
+    try {
+      window.app?.telemetry?.recordSevenTVConnectionHealth?.(
+        this.chatrooms.size,
+        this.connectionState === 'connected' ? 1 : 0,
+        this.connectionState,
+      );
+    } catch (_) {}
   }
 
   // Get connection status

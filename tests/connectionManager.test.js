@@ -826,3 +826,30 @@ describe('ConnectionManager room-load stage telemetry', () => {
     }
   });
 });
+
+describe('7TV connection health', () => {
+  const published = (health) => health.mock.calls.map(([, connections, state]) => [connections, state]);
+
+  it('reports one connection per physical socket and zero after a drop and after teardown', async () => {
+    const health = vi.fn();
+    app.telemetry = { recordSevenTVConnectionHealth: health };
+
+    const socket = await initialize([room(1), room(2)]);
+    expect(published(health)).toEqual([[1, 'connected']]);
+    expect(health).toHaveBeenLastCalledWith(2, 1, 'connected');
+
+    socket.close();
+    expect(published(health).at(-1)).toEqual([0, 'disconnected']);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(SocketFixture.instances).toHaveLength(2);
+    const reopening = SocketFixture.instances[1].open();
+    await vi.advanceTimersByTimeAsync(1000);
+    await reopening;
+    expect(published(health).at(-1)).toEqual([1, 'connected']);
+
+    manager.cleanup();
+    expect(published(health).at(-1)).toEqual([0, 'disconnected']);
+    expect(published(health).filter(([connections]) => connections > 1)).toEqual([]);
+  });
+});
