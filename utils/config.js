@@ -204,6 +204,10 @@ const schema = {
         type: "boolean",
         default: false,
       },
+      kickLowLatency: {
+        type: "boolean",
+        default: true,
+      },
       quality: {
         type: "string",
         enum: ["best", "worst", "audio_only", "1080p60", "1080p", "720p60", "720p", "480p", "360p", "160p"],
@@ -211,18 +215,19 @@ const schema = {
       },
       player: {
         type: "string",
-        default: "",
+        default: "mpv",
       },
       customArgs: {
         type: "string",
-        default: "--hls-live-edge 2 --hls-segment-stream-data --stream-segment-threads 5",
+        default: "--player-args=\"--cache=no --speed=1.01\"",
       },
     },
     default: {
       enabled: false,
+      kickLowLatency: true,
       quality: "best",
-      player: "",
-      customArgs: "--hls-live-edge 2 --hls-segment-stream-data --stream-segment-threads 5",
+      player: "mpv",
+      customArgs: "--player-args=\"--cache=no --speed=1.01\"",
     },
   },
   zoomFactor: {

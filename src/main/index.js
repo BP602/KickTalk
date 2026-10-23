@@ -51,6 +51,7 @@ import { KickRealtimeController } from "./services/kickRealtime.cjs";
 import { createKickRealtimeTelemetry } from "./services/kickRealtimeTelemetry.cjs";
 import { createRealtimeSessionProvider } from "./services/kickRealtimeSession.cjs";
 import { createLiveNotifier } from "./services/liveNotification.cjs";
+import { buildStreamlinkArgs } from "./services/streamlinkArgs.cjs";
 const { pathToFileURL } = require("node:url");
 const appVersion = app.getVersion();
 // Resource detection happens during SDK startup, not after it.
@@ -2302,8 +2303,9 @@ const launchStreamlink = async (username) => {
   const streamlinkSettings = store.get("streamlink", {
     enabled: false,
     quality: "best",
-    player: "",
-    customArgs: ""
+    player: "mpv",
+    kickLowLatency: true,
+    customArgs: '--player-args="--cache=no --speed=1.01"'
   });
 
   // Check if Streamlink is enabled
@@ -2319,22 +2321,9 @@ const launchStreamlink = async (username) => {
 
   const streamUrl = `https://kick.com/${username}`;
   const userQuality = streamlinkSettings.quality || "best";
-  
   // Helper function to attempt launch with a specific quality
   const attemptLaunch = (quality, isFallback = false) => {
-    // Build arguments array
-    let args = [streamUrl, quality];
-
-    // Add player argument if specified
-    if (streamlinkSettings.player && streamlinkSettings.player.trim()) {
-      args.push("--player", streamlinkSettings.player.trim());
-    }
-
-    // Parse and add custom arguments
-    if (streamlinkSettings.customArgs && streamlinkSettings.customArgs.trim()) {
-      const customArgs = streamlinkSettings.customArgs.trim().split(/\s+/);
-      args = args.concat(customArgs);
-    }
+    const args = buildStreamlinkArgs(streamUrl, quality, streamlinkSettings);
 
     console.log(`[Streamlink]: Attempting launch with quality "${quality}": ${streamlinkPath} ${args.join(" ")}`);
 

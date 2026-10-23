@@ -1070,6 +1070,39 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
         </div>
 
         <div className="settingsItem">
+          <div
+            className={clsx("settingSwitchItem", {
+              active: settingsData?.streamlink?.enabled && (settingsData?.streamlink?.kickLowLatency ?? true),
+            })}>
+            <div className="settingsItemTitleWithInfo">
+              <label className="settingsItemTitle" htmlFor="streamlink-kick-low-latency">Kick Low Latency</label>
+              <Tooltip delayDuration={100}>
+                <TooltipTrigger asChild>
+                  <button className="settingsInfoIcon">
+                    <InfoIcon size={14} weight="fill" aria-label="About Kick Low Latency" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Enable Kick low-latency mode on the next stream launch. On by default. This toggle controls --kick-low-latency, including any saved copies in Custom Arguments.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <Switch
+              id="streamlink-kick-low-latency"
+              checked={settingsData?.streamlink?.kickLowLatency ?? true}
+              disabled={!settingsData?.streamlink?.enabled}
+              onCheckedChange={(checked) =>
+                onChange("streamlink", {
+                  ...settingsData?.streamlink,
+                  kickLowLatency: checked,
+                })
+              }
+            />
+          </div>
+        </div>
+
+        <div className="settingsItem">
           <div className={clsx("settingNumericItem")}> 
             <div className="settingsItemTitleWithInfo">
               <span className="settingsItemTitle">Streamlink Path</span>
@@ -1216,15 +1249,15 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Specify the media player command (e.g., "vlc", "mpv", "/usr/bin/vlc"). Leave empty to use Streamlink's automatic player detection.</p>
+                  <p>Specify the media player command (default: "mpv"; e.g., "vlc", "/usr/bin/vlc"). Leave empty to use Streamlink's automatic player detection.</p>
                 </TooltipContent>
               </Tooltip>
             </div>
 
             <input
               type="text"
-              placeholder="Empty uses auto-detect (e.g., vlc, mpv)"
-              value={settingsData?.streamlink?.player || ""}
+              placeholder="Default: mpv (empty uses auto-detect)"
+              value={settingsData?.streamlink?.player ?? "mpv"}
               disabled={!settingsData?.streamlink?.enabled}
               onChange={(e) =>
                 onChange("streamlink", {
@@ -1252,15 +1285,15 @@ const ExternalPlayersSection = ({ settingsData, onChange }) => {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Additional Streamlink arguments. Default includes optimized low-latency settings for minimal stream delay. Advanced users can modify or add more arguments.</p>
+                  <p>Additional Streamlink arguments, including player options via --player-args. Defaults to --player-args="--cache=no --speed=1.01" for mpv. Use the Kick Low Latency toggle for --kick-low-latency; it takes precedence over saved copies here. Leave empty to add no custom arguments.</p>
                 </TooltipContent>
               </Tooltip>
             </div>
 
             <input
               type="text"
-              placeholder="Default: --hls-live-edge 2 --hls-segment-stream-data --stream-segment-threads 5"
-              value={settingsData?.streamlink?.customArgs || ""}
+              placeholder={'Default: --player-args="--cache=no --speed=1.01" (low latency uses toggle)'}
+              value={settingsData?.streamlink?.customArgs ?? '--player-args="--cache=no --speed=1.01"'}
               disabled={!settingsData?.streamlink?.enabled}
               onChange={(e) =>
                 onChange("streamlink", {

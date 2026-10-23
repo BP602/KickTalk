@@ -22,7 +22,7 @@ The selected zoom is saved and restored after startup and page reloads.
 
 ## External player defaults
 
-Enable Streamlink in **Settings > External Players** after installing Streamlink and mpv. Fresh settings use this command:
+Enable Streamlink in **Settings > External Players** after installing Streamlink and mpv. Streamlink integration is off by default; the separate Kick Low Latency switch is on by default. Fresh settings use this command:
 
 ```bash
 streamlink "https://kick.com/CHANNEL" best \
@@ -31,11 +31,15 @@ streamlink "https://kick.com/CHANNEL" best \
   --player-args="--cache=no --speed=1.01"
 ```
 
-Saved settings are not overwritten. For an existing profile, select quality `best`, set Player Command to `mpv`, and set Custom Arguments to `--kick-low-latency --player-args="--cache=no --speed=1.01"` to use these defaults. An empty Player Command uses Streamlink's player auto-detection; empty Custom Arguments adds no options.
+Kick Low Latency controls the standalone `--kick-low-latency` flag on every launch. When on, it adds the flag once; when off, it omits the flag even if Custom Arguments contains saved copies. Profiles without a saved toggle use the on default. Saved Custom Arguments are not rewritten.
+
+Player options stay in Custom Arguments via `--player-args`. To use the fresh defaults in an existing profile, select quality `best`, set Player Command to `mpv`, set Custom Arguments to `--player-args="--cache=no --speed=1.01"`, and turn on Kick Low Latency. An empty Player Command uses Streamlink's player auto-detection; empty Custom Arguments adds no custom options and does not change the toggle.
+
+Settings changes apply to the next stream launch, not a player already running. Saved player commands and custom arguments, including explicitly cleared fields, are preserved across Settings reloads.
 
 Custom Arguments supports single/double-quoted values and escaped spaces or quotes. Values are passed directly to Streamlink without a shell; variables and command substitutions are not expanded. Unmatched quotes produce an error before launch.
 
-Run `npx vitest run tests/streamlinkArgs.test.js` for quote/escape regressions. The Linux production smoke exercised the real launch IPC with Streamlink 8.4.0's `--can-handle-url https://kick.com/4HEAD` check, plus fresh defaults, saved customizations and empty values across Settings reload. Live playback and Windows/macOS were not tested.
+Run `npx vitest run tests/streamlinkArgs.test.js` for argument parsing and low-latency toggle regressions.
 
 ## Restart baseline
 
