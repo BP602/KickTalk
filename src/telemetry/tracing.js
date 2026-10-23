@@ -8,22 +8,32 @@ try {
   require('dotenv').config();
 } catch {}
 
+// Explicit binding keeps the copied runtime bootstrap and bundled main on the
+// same authoritative health state; this file owns no second singleton.
+module.exports = function initializeTracing({ telemetryHealth, createConsentExporter }) {
+let telemetryStore;
+const isExportEnabled = () => {
+  try { return telemetryStore?.get('telemetry', { enabled: false })?.enabled === true; }
+  catch { return false; }
+};
+telemetryHealth.setEnabledGetter(isExportEnabled);
+
 // Check if telemetry is enabled in user settings
 let telemetryEnabled = false;
 try {
   const StoreMod = require('electron-store');
   const ElectronStore = StoreMod && StoreMod.default ? StoreMod.default : StoreMod;
-  const store = new ElectronStore();
-  const telemetrySettings = store.get('telemetry', { enabled: false });
+  telemetryStore = new ElectronStore();
+  const telemetrySettings = telemetryStore.get('telemetry', { enabled: false });
   telemetryEnabled = telemetrySettings.enabled === true;
   
   if (!telemetryEnabled) {
     console.log('[Telemetry] Telemetry disabled by user settings, skipping initialization');
-    module.exports = null;
+    return null;
   }
 } catch (error) {
   console.warn('[Telemetry] Could not check user settings:', error.message);
-  module.exports = null;
+  return null;
 }
 
 // Only proceed with telemetry setup if enabled
@@ -74,11 +84,11 @@ if (telemetryEnabled) {
     __otelReady = false;
   }
 
-  (async () => {
+  return (async () => {
    try {
     if (!__otelReady) {
-    module.exports = null;
-    return;
+    telemetryHealth.configure('main', { configured: false, reason: 'configuration_invalid' });
+    return null;
   }
    if (process.env.OTEL_DIAG_LOG_LEVEL) {
      const level = DiagLogLevel[process.env.OTEL_DIAG_LOG_LEVEL.toUpperCase()] ?? DiagLogLevel.INFO;
@@ -120,9 +130,9 @@ if (telemetryEnabled) {
           ])
         }),
         new View({
-          instrumentName: 'kicktalk_message_send_duration_seconds',
+          instrumentName: 'kicktalk_message_send_transition_duration_seconds',
           aggregation: new ExplicitBucketHistogramAggregation([
-            0.01, 0.05, 0.1, 0.5, 1, 2, 5
+            0.01, 0.05, 0.1, 0.5, 1, 2, 5, 30, 60
           ])
         }),
         new View({
@@ -171,9 +181,38 @@ if (telemetryEnabled) {
     })
   ];
   console.log('[Telemetry] Using manual HTTP instrumentation');
+    // NodeSDK creates environment-selected metric readers internally. Gate their
+    // public exporter boundary (all supported OTLP protocols), not a private SDK
+    // field or just the UI flag, so existing readers/intervals remain unchanged.
+    for (const moduleName of [
+      '@opentelemetry/exporter-metrics-otlp-http',
+      '@opentelemetry/exporter-metrics-otlp-proto',
+      '@opentelemetry/exporter-metrics-otlp-grpc'
+    ]) {
+      const { OTLPMetricExporter } = safeRequire(moduleName);
+      if (Object.hasOwn(OTLPMetricExporter.prototype, '__kickTalkConsentGate')) continue;
+      const originalExport = OTLPMetricExporter.prototype.export;
+      Object.defineProperty(OTLPMetricExporter.prototype, '__kickTalkConsentGate', { value: true });
+      OTLPMetricExporter.prototype.export = function (data, callback) {
+        if (!telemetryHealth.isEnabled()) { callback({ code: 0 }); return; }
+        return originalExport.call(this, data, callback);
+      };
+    }
+
+    const classifyTraceResult = (result) => {
+      if (result.code === 0) return 'none';
+      if (Number.isInteger(result.error?.code) && result.error.code >= 400 ||
+          result.error?.message === 'Export failed with retryable status') return 'receiver_rejected';
+      if (['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT', 'EHOSTUNREACH'].includes(result.error?.code) ||
+          /timeout/i.test(result.error?.message || '')) return 'receiver_unavailable';
+      return 'export_error';
+    };
 
     const sdk = new NodeSDK({
-      traceExporter: new OTLPTraceExporter(),
+      traceExporter: createConsentExporter(new OTLPTraceExporter(), {
+        isEnabled: () => telemetryHealth.isEnabled(),
+        onResult: result => telemetryHealth.recordResult('main', classifyTraceResult(result))
+      }),
       // The installed NodeSDK configures supported metric readers from OTEL_*.
       ...(histogramViews ? { views: histogramViews } : {}),
       instrumentations,
@@ -184,6 +223,7 @@ if (telemetryEnabled) {
      if (startResult && typeof startResult.then === 'function') {
        await startResult;
      }
+     telemetryHealth.configure('main', { configured: true });
 
      const shutdown = async () => {
        try { await sdk.shutdown(); } catch {}
@@ -192,10 +232,12 @@ if (telemetryEnabled) {
      process.on('SIGINT', shutdown);
      process.on('exit', shutdown);
 
-     module.exports = sdk;
+     return sdk;
    } catch (e) {
+     telemetryHealth.configure('main', { configured: false, reason: 'configuration_invalid' });
      console.error('[OTEL]: NodeSDK bootstrap failed:', e?.stack || e?.message || e);
-     module.exports = null;
+     return null;
    }
   })();
 }
+};

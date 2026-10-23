@@ -52,6 +52,8 @@ import { createKickRealtimeTelemetry } from "./services/kickRealtimeTelemetry.cj
 import { createRealtimeSessionProvider } from "./services/kickRealtimeSession.cjs";
 import { createLiveNotifier } from "./services/liveNotification.cjs";
 import { buildStreamlinkArgs } from "./services/streamlinkArgs.cjs";
+import { CHAT_ERROR_CODES } from "../../utils/constants";
+import { telemetryHealth, createConsentExporter } from "./services/telemetryHealth.cjs";
 const { pathToFileURL } = require("node:url");
 const appVersion = app.getVersion();
 // Resource detection happens during SDK startup, not after it.
@@ -91,12 +93,18 @@ const getOtelRelayConfig = () => {
   }
   return { url, headers };
 };
+const configurationReason = (error) => error?.message === 'missing_endpoint'
+  ? 'configuration_missing' : 'configuration_invalid';
+
 
 // Validate the effective destination before starting any exporter.
 try {
   getOtelRelayConfig();
-  require('../telemetry/tracing.js');
+  require('../telemetry/tracing.js')({ telemetryHealth, createConsentExporter });
 } catch (error) {
+  const reason = configurationReason(error);
+  telemetryHealth.configure('main', { configured: false, reason });
+  telemetryHealth.configure('renderer', { configured: false, reason });
   console.warn('[Telemetry] Invalid OTLP configuration, skipping initialization:', error.message);
 }
 
@@ -164,8 +172,8 @@ try {
   // Override the telemetry enabled check with our main process version
   isTelemetryEnabled = checkTelemetrySettings;
 
-  // NodeSDK starts unconditionally at process start; we keep isTelemetryEnabled
-  // for future conditional behavior if needed.
+  // Initialization still occurs only at startup; runtime consent gates exporters.
+  telemetryHealth.setEnabledGetter(checkTelemetrySettings);
 } catch (error) {
   console.warn('[Telemetry]: Telemetry module skipped:', error.message);
 }
@@ -214,8 +222,7 @@ try {
   metrics = {
     incrementOpenWindows: metricsModule.MetricsHelper?.incrementOpenWindows || (() => {}),
     decrementOpenWindows: metricsModule.MetricsHelper?.decrementOpenWindows || (() => {}),
-    recordMessageSent: metricsModule.MetricsHelper?.recordMessageSent || (() => {}),
-    recordMessageSendDuration: metricsModule.MetricsHelper?.recordMessageSendDuration || (() => {}),
+    recordSendOutcome: metricsModule.MetricsHelper?.recordSendOutcome || (() => {}),
     // API metrics
     recordAPIRequest: metricsModule.MetricsHelper?.recordAPIRequest || (() => {}),
     recordMessageReceived: metricsModule.MetricsHelper?.recordMessageReceived || (() => {}),
@@ -260,8 +267,7 @@ try {
   metrics = {
     incrementOpenWindows: () => {},
     decrementOpenWindows: () => {},
-    recordMessageSent: () => {},
-    recordMessageSendDuration: () => {},
+    recordSendOutcome: () => {},
     // API metrics no-op
     recordAPIRequest: () => {},
     recordMessageReceived: () => {},
@@ -745,7 +751,8 @@ ipcMain.handle("store:get", async (e, { key }) => {
  * A2: Provide OTLP config to renderer via preload bridge (no secrets bundled)
  * Uses MAIN_VITE_* mapped to OTEL_* at startup to build traces endpoint + headers.
  */
-ipcMain.handle("otel:get-config", async () => {
+ipcMain.handle("otel:get-config", async (event) => {
+  requireMainRendererSender(event);
   try {
     console.log('[OTEL Config] Renderer requesting telemetry config');
     
@@ -760,8 +767,9 @@ ipcMain.handle("otel:get-config", async () => {
       appVersion
     };
   } catch (e) {
-    console.error('[OTEL Config] Error:', e.message);
-    return { ok: false, reason: e?.message || "unknown_error" };
+    const reason = configurationReason(e);
+    telemetryHealth.configure('renderer', { configured: false, reason });
+    return { ok: false, reason };
   }
 });
 
@@ -769,10 +777,20 @@ ipcMain.handle("otel:get-config", async () => {
  * IPC relay for renderer OTLP export (simplified)
  * CORS prevents renderer from directly accessing Grafana Cloud, so we relay via main process
  */
-ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
+ipcMain.handle("otel:trace-export-json", async (event, exportJson) => {
+  requireMainRendererSender(event);
+  if (!checkTelemetrySettings()) return { ok: false, reason: 'disabled' };
+  if (!Array.isArray(exportJson?.resourceSpans) || !exportJson.resourceSpans.length) {
+    return { ok: false, reason: 'export_error' };
+  }
+  try { getOtelRelayConfig(); }
+  catch (error) {
+    const reason = configurationReason(error);
+    telemetryHealth.configure('renderer', { configured: false, reason });
+    return { ok: false, reason };
+  }
   const requestId = genRequestId();
   const startedAt = Date.now();
-  
   try {
     if (shouldLogDebug()) {
       console.log(`[OTEL IPC Relay][${requestId}] Received trace export from renderer`);
@@ -802,16 +820,9 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
 
     const result = await new Promise((resolve, reject) => {
       const req = transport.request(options, (res) => {
-        const chunks = [];
-        res.on("data", (chunk) => chunks.push(chunk));
+        res.resume();
         res.on("end", () => {
-          const ms = Date.now() - startedAt;
-          const responseBody = Buffer.concat(chunks).toString("utf8");
-          
-          if (shouldLogDebug()) {
-            console.log(`[OTEL IPC Relay][${requestId}] ← ${res.statusCode} (${ms}ms)`);
-          }
-          resolve({ statusCode: res.statusCode || 0, responseBody });
+          resolve({ statusCode: res.statusCode || 0 });
         });
       });
       
@@ -834,131 +845,153 @@ ipcMain.handle("otel:trace-export-json", async (_e, exportJson) => {
       console.log(`[OTEL IPC Relay][${requestId}] Result: ${success ? 'success' : 'failed'}`);
     }
 
-    return { ok: success, status: result.statusCode, requestId };
-  } catch (e) {
-    console.error(`[OTEL IPC Relay][${requestId}] Failed:`, e.message);
-    return { ok: false, reason: e.message, requestId };
+    const reason = success ? 'none' : 'receiver_rejected';
+    telemetryHealth.recordResult('renderer', reason);
+    return { ok: success, status: result.statusCode, reason };
+  } catch {
+    telemetryHealth.recordResult('renderer', 'receiver_unavailable');
+    return { ok: false, reason: 'receiver_unavailable' };
   }
 });
 
-/**
- * Grafana Tempo trace verification - query traces from Grafana Cloud
- * Uses environment variables: MAIN_VITE_GRAFANA_TEMPO_QUERY_URL, MAIN_VITE_GRAFANA_TEMPO_QUERY_USER, MAIN_VITE_GRAFANA_TEMPO_QUERY_TOKEN
- */
-ipcMain.handle("telemetry:readTrace", async (_e, traceId) => {
-  const requestId = genRequestId();
-  const startedAt = Date.now();
-  
+const validTraceId = value => typeof value === 'string' && /^[0-9a-f]{32}$/.test(value) && !/^0+$/.test(value);
+const validSpanId = value => typeof value === 'string' && /^[0-9a-f]{16}$/.test(value) && !/^0+$/.test(value);
+
+// Settings may inspect health and explicitly run a diagnostic, but cannot emit
+// metrics or relay arbitrary exports. Both windows must be their real top frame.
+const requireTelemetryHealthSender = (event) => {
+  if (mainWindow && event.sender === mainWindow.webContents) {
+    requireMainRendererSender(event);
+    return;
+  }
+  if (!settingsDialog || settingsDialog.isDestroyed() ||
+      event.sender !== settingsDialog.webContents || event.senderFrame !== settingsDialog.webContents.mainFrame) {
+    throw new Error('Invalid telemetry health sender');
+  }
+  const actual = new URL(event.senderFrame.url);
+  const expected = isDev && process.env.ELECTRON_RENDERER_URL
+    ? new URL(`${process.env.ELECTRON_RENDERER_URL.replace(/\/$/, '')}/settings.html`)
+    : pathToFileURL(join(__dirname, '../renderer/settings.html'));
+  if (actual.protocol !== expected.protocol || actual.origin !== expected.origin || actual.pathname !== expected.pathname) {
+    throw new Error('Invalid telemetry health sender');
+  }
+};
+
+telemetryHealth.subscribe(snapshot => {
+  for (const window of [mainWindow, settingsDialog]) {
+    if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.send('telemetry:health-changed', snapshot);
+    }
+  }
+});
+ipcMain.handle('telemetry:get-health', event => {
+  requireTelemetryHealthSender(event);
+  return telemetryHealth.snapshot();
+});
+ipcMain.handle('telemetry:renderer-state', (event, state) => {
+  requireMainRendererSender(event);
+  const reason = ['configuration_missing', 'configuration_invalid', 'restart_required'].includes(state?.reason)
+    ? state.reason : 'configuration_invalid';
+  telemetryHealth.configure('renderer', {
+    enabled: state?.enabled === true,
+    configured: state?.ready === true,
+    reason
+  });
+});
+ipcMain.handle('telemetry:renderer-export-failed', event => {
+  requireMainRendererSender(event);
+  telemetryHealth.recordResult('renderer', 'export_error');
+});
+
+// Readback is manual, bounded, and distinct from OTLP receiver acceptance.
+const readTempoTrace = async (traceId) => {
+  if (!checkTelemetrySettings() || !validTraceId(traceId)) return { success: false };
   try {
-    console.log(`[Grafana Read][${requestId}] Reading trace ${traceId} from Grafana Cloud`);
-    
     const env = process.env;
     const queryUrl = env.MAIN_VITE_GRAFANA_TEMPO_QUERY_URL || env.GRAFANA_TEMPO_QUERY_URL;
     const queryUser = env.MAIN_VITE_GRAFANA_TEMPO_QUERY_USER || env.GRAFANA_TEMPO_QUERY_USER;
     const queryToken = env.MAIN_VITE_GRAFANA_TEMPO_QUERY_TOKEN || env.GRAFANA_TEMPO_QUERY_TOKEN;
-    
-    if (!queryUrl || !queryUser || !queryToken) {
-      console.warn(`[Grafana Read][${requestId}] Missing Grafana Tempo configuration`);
-      return { 
-        success: false, 
-        reason: "missing_grafana_config",
-        message: "Grafana Tempo query URL, user, or token not configured",
-        requestId 
-      };
-    }
-
-    // Build Grafana Tempo API URL for trace lookup
-    const tempoApiUrl = `${queryUrl.replace(/\/$/, '')}/api/traces/${traceId}`;
-    
-    // Create Basic Auth header (user:token)
-    const authString = Buffer.from(`${queryUser}:${queryToken}`).toString('base64');
-    
-    const https = require("https");
-    const url = new URL(tempoApiUrl);
-
-    const options = {
-      method: "GET",
-      hostname: url.hostname,
-      port: url.port || 443,
-      path: url.pathname + (url.search || ""),
-      headers: {
-        "Authorization": `Basic ${authString}`,
-        "Accept": "application/json",
-        "User-Agent": "KickTalk/1.0"
-      },
-      timeout: 15000,
-    };
-
-    console.log(`[Grafana Read][${requestId}] → GET ${url.hostname}${options.path}`);
-
-    const result = await new Promise((resolve, reject) => {
-      const req = https.request(options, (res) => {
+    if (!queryUrl) return { success: false };
+    const url = new URL(queryUrl);
+    const loopback = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname);
+    if (url.protocol !== 'https:' && !(loopback && url.protocol === 'http:')) return { success: false };
+    if (!loopback && (!queryUser || !queryToken)) return { success: false };
+    url.pathname = `${url.pathname.replace(/\/$/, '')}/api/traces/${traceId}`;
+    const headers = { Accept: 'application/json' };
+    if (queryUser && queryToken) headers.Authorization = `Basic ${Buffer.from(`${queryUser}:${queryToken}`).toString('base64')}`;
+    return await new Promise(resolve => {
+      const transport = require(url.protocol === 'http:' ? 'http' : 'https');
+      const req = transport.request({
+        method: 'GET',
+        hostname: url.hostname.replace(/^\[|\]$/g, ''),
+        port: url.port || (url.protocol === 'http:' ? 80 : 443),
+        path: url.pathname + url.search,
+        headers
+      }, res => {
         const chunks = [];
-        res.on("data", (chunk) => chunks.push(chunk));
-        res.on("end", () => {
-          const ms = Date.now() - startedAt;
-          const responseBody = Buffer.concat(chunks).toString("utf8");
-          
-          console.log(`[Grafana Read][${requestId}] ← ${res.statusCode} (${ms}ms)`);
-          
-          let parsedData = null;
+        let bytes = 0;
+        res.on('data', chunk => {
+          bytes += chunk.length;
+          if (bytes > 2 * 1024 * 1024) { req.destroy(); resolve({ success: false }); return; }
+          chunks.push(chunk);
+        });
+        res.on('error', () => resolve({ success: false }));
+        res.on('end', () => {
           try {
-            parsedData = JSON.parse(responseBody);
-          } catch (parseError) {
-            console.warn(`[Grafana Read][${requestId}] Failed to parse JSON response:`, parseError.message);
-          }
-          
-          resolve({ 
-            statusCode: res.statusCode || 0, 
-            responseBody,
-            parsedData,
-            headers: res.headers 
-          });
+            const success = res.statusCode >= 200 && res.statusCode < 300;
+            resolve(success ? { success: true, data: JSON.parse(Buffer.concat(chunks).toString('utf8')) } : { success: false });
+          } catch { resolve({ success: false }); }
         });
       });
-      
-      req.on("error", (err) => {
-        console.error(`[Grafana Read][${requestId}] Error:`, err.message);
-        reject(err);
-      });
-
-      req.setTimeout(15000, () => {
-        req.destroy();
-        reject(new Error('timeout'));
-      });
-      
+      req.on('error', () => resolve({ success: false }));
+      req.setTimeout(5000, () => { req.destroy(); resolve({ success: false }); });
       req.end();
     });
+  } catch { return { success: false }; }
+};
+ipcMain.handle('telemetry:readTrace', (event, traceId) => {
+  requireMainRendererSender(event);
+  return readTempoTrace(traceId);
+});
 
-    const success = result.statusCode >= 200 && result.statusCode < 300;
-    console.log(`[Grafana Read][${requestId}] Result: ${success ? 'success' : 'failed'}`);
-
-    return { 
-      success, 
-      status: result.statusCode, 
-      data: result.parsedData,
-      requestId,
-      traceId,
-      queryUrl: tempoApiUrl,
-      message: success ? 
-        `✅ Trace ${traceId} found in Grafana` :
-        `❌ Trace ${traceId} not found: ${result.statusCode}`
-    };
-  } catch (e) {
-    const ms = Date.now() - startedAt;
-    console.error(`[Grafana Read][${requestId}] Failed (${ms}ms):`, e.message);
-    return { 
-      success: false, 
-      reason: e.message, 
-      requestId,
-      traceId,
-      message: `❌ Failed to query Grafana: ${e.message}`
-    };
-  }
+let diagnosticRun = null;
+const runTelemetryDiagnostic = async () => {
+  const notRun = { traceId: null, receiver: 'not_run', readback: 'not_run' };
+  if (!checkTelemetrySettings() || !mainWindow || mainWindow.isDestroyed() ||
+      telemetryHealth.snapshot().renderer.state === 'not_configured') return notRun;
+  try {
+    const result = await mainWindow.webContents.executeJavaScript('window.emitRendererTestSpan?.() ?? null');
+    const traceId = validTraceId(result?.traceId) ? result.traceId : null;
+    const receiver = ['accepted', 'rejected', 'unavailable', 'not_run'].includes(result?.receiver)
+      ? result.receiver : 'not_run';
+    if (!traceId || receiver !== 'accepted') return { traceId, receiver, readback: 'not_run' };
+    if (process.env.MAIN_VITE_GRAFANA_TEMPO_QUERY_URL || process.env.GRAFANA_TEMPO_QUERY_URL) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+    const readResult = await readTempoTrace(traceId);
+    const resources = readResult.data?.batches || readResult.data?.resourceSpans;
+    const spans = (Array.isArray(resources) ? resources : []).flatMap(resource => {
+      const scopes = resource?.scopeSpans || resource?.instrumentationLibrarySpans;
+      return (Array.isArray(scopes) ? scopes : []).flatMap(scope => Array.isArray(scope?.spans) ? scope.spans : []);
+    });
+    const spanId = validSpanId(result.spanId) ? result.spanId : null;
+    const spanIdBase64 = spanId ? Buffer.from(spanId, 'hex').toString('base64') : null;
+    const traceIdBase64 = Buffer.from(traceId, 'hex').toString('base64');
+    const found = readResult.success && spanId && spans.some(span =>
+      (span?.spanId === spanId || span?.spanId === spanIdBase64) &&
+      (span?.traceId === traceId || span?.traceId === traceIdBase64));
+    return { traceId, receiver, readback: found ? 'available' : 'unavailable' };
+  } catch { return { traceId: null, receiver: 'unavailable', readback: 'not_run' }; }
+};
+ipcMain.handle('telemetry:run-diagnostic', event => {
+  requireTelemetryHealthSender(event);
+  if (!diagnosticRun) diagnosticRun = runTelemetryDiagnostic().finally(() => { diagnosticRun = null; });
+  return diagnosticRun;
 });
 
 ipcMain.handle("store:set", (e, { key, value }) => {
   const result = store.set(key, value);
+  if (key === 'telemetry' || key === 'telemetry.enabled') telemetryHealth.notify();
 
   // Broadcast to all windows
   BrowserWindow.getAllWindows().forEach((window) => {
@@ -1737,12 +1770,39 @@ ipcMain.handle("get-app-info", () => {
 });
 
 // Telemetry handlers
-ipcMain.handle("telemetry:recordMessageSent", (e, { chatroomId, messageType = 'regular', duration = null, success = true, streamerName = null }) => {
-  if (isTelemetryEnabled()) {
-    metrics.recordMessageSent(chatroomId, messageType, streamerName);
-    if (duration !== null) {
-      metrics.recordMessageSendDuration(duration, chatroomId, success);
+ipcMain.handle("telemetry:recordSendOutcome", (event, payload) => {
+  // The reply-thread dialog is our own window with its own chat store and the same preload.
+  const fromReplyThread = typeof replyThreadDialog !== 'undefined' && replyThreadDialog &&
+    !replyThreadDialog.isDestroyed() && event.sender === replyThreadDialog.webContents &&
+    event.senderFrame === replyThreadDialog.webContents.mainFrame;
+  if (!fromReplyThread) requireMainRendererSender(event);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new TypeError('Invalid send outcome');
+  }
+  for (const key of Object.keys(payload)) {
+    if (key !== 'outcome' && key !== 'messageType' && key !== 'duration' && key !== 'cause') {
+      throw new TypeError('Invalid send outcome field');
     }
+  }
+  const { outcome, messageType, duration, cause } = payload;
+  switch (outcome) {
+    case 'attempted':
+    case 'api_accepted':
+    case 'rejected':
+    case 'confirmed':
+    case 'unconfirmed':
+      break;
+    default:
+      throw new TypeError('Invalid send outcome');
+  }
+  if ((messageType !== 'regular' && messageType !== 'reply') ||
+      typeof duration !== 'number' || !Number.isFinite(duration) || duration < 0 ||
+      (cause !== undefined && (typeof cause !== 'string' ||
+        (!Object.hasOwn(CHAT_ERROR_CODES, cause) && cause !== 'SEND_TIMEOUT' && cause !== 'UNKNOWN_SEND_ERROR')))) {
+    throw new TypeError('Invalid send outcome payload');
+  }
+  if (isTelemetryEnabled()) {
+    metrics.recordSendOutcome({ outcome, messageType, duration, ...(cause === undefined ? {} : { cause }) });
   }
 });
 

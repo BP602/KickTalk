@@ -113,9 +113,75 @@ const checkSendResponse = (response, span) => {
   }
 };
 
-// Optimistic sends awaiting their request; `confirmed` flips when the echo or an
-// explicit confirmation replaces the row, independent of row visibility.
-const sendsInFlight = new Map();
+// Private per-action state follows row copies, without retaining removed rows in a registry.
+const SEND_LIFECYCLE = Symbol('sendLifecycle');
+
+const recordSendOutcome = (lifecycle, outcome, cause) => {
+  if (!lifecycle || lifecycle.outcomes.has(outcome)) return;
+  lifecycle.outcomes.add(outcome);
+  const elapsed = (Date.now() - lifecycle.startTime) / 1000;
+  const duration = outcome === 'attempted' || !Number.isFinite(elapsed) ? 0 : Math.max(0, elapsed);
+  try {
+    const pending = window.app?.telemetry?.recordSendOutcome?.({
+      outcome, messageType: lifecycle.messageType, duration,
+      ...(cause ? { cause } : {}),
+    });
+    // Telemetry must never surface as an unhandled rejection.
+    pending?.catch?.(() => {});
+  } catch {}
+};
+
+const beginSend = (chatroomId, content, operation, sendContext) => {
+  const operationId = generateTempId();
+  sendContext.operationId = operationId;
+  const opSpan = startSpan(`chat.${operation}`, {
+    'chat.id': chatroomId,
+    'message.length': (content || '').trim().length,
+    'message.operation_id': operationId,
+  }, sendContext.parentSpan);
+  try { sendContext.parentSpan?.setAttribute?.('message.operation_id', operationId); } catch {}
+  const lifecycle = {
+    operation, operationId, opSpan, sendContext, startTime: Date.now(),
+    messageType: operation === 'send' ? 'regular' : 'reply',
+    outcomes: new Set(), confirmed: false, timeoutId: undefined,
+  };
+  recordSendOutcome(lifecycle, 'attempted');
+  return lifecycle;
+};
+
+const correlateOptimisticSend = (message, lifecycle) => {
+  message[SEND_LIFECYCLE] = lifecycle;
+  lifecycle.tempId = message.tempId;
+  lifecycle.sendContext.tempId = message.tempId;
+  try {
+    lifecycle.opSpan?.setAttribute?.('message.temp_id', message.tempId);
+    lifecycle.opSpan?.addEvent?.('optimistic.add', { 'message.temp_id': message.tempId });
+    lifecycle.sendContext.parentSpan?.setAttribute?.('message.temp_id', message.tempId);
+  } catch {}
+};
+
+const cancelConfirmationTimeout = (message) => {
+  const lifecycle = message?.[SEND_LIFECYCLE];
+  if (lifecycle) {
+    clearTimeout(lifecycle.timeoutId);
+    lifecycle.timeoutId = undefined;
+  }
+};
+
+const confirmSend = (message) => {
+  const lifecycle = message?.[SEND_LIFECYCLE];
+  if (!lifecycle || lifecycle.confirmed) return;
+  lifecycle.confirmed = true;
+  cancelConfirmationTimeout(message);
+  recordSendOutcome(lifecycle, 'confirmed');
+  const span = startSpan(`chat.${lifecycle.operation}.confirmed`, {
+    'chat.id': message.chatroom_id,
+    'message.operation_id': lifecycle.operationId,
+    'message.temp_id': lifecycle.tempId,
+    'message.delivery': 'confirmed',
+  }, lifecycle.opSpan);
+  endSpanOk(span);
+};
 
 // chatroom id -> last livestream id announced as "went live", so repeated events stay silent
 const announcedLivestreams = new Map();
@@ -147,26 +213,32 @@ const markSendFailed = (get, chatroomId, tempId, reason) => {
   return true;
 };
 
-const recordConfirmationTimeout = (get, chatroomId, tempId, operation, opSpan) => {
+const recordConfirmationTimeout = (get, chatroomId, tempId, lifecycle) => {
+  lifecycle.timeoutId = undefined;
   const row = get().messages[chatroomId]?.find(message => message.tempId === tempId);
   if (!row?.isOptimistic || row.state !== MESSAGE_STATES.OPTIMISTIC) return;
   const failure = getChatSendFailure({ code: 'SEND_TIMEOUT' });
   if (!markSendFailed(get, chatroomId, tempId, failure.reason)) return;
+  recordSendOutcome(lifecycle, 'unconfirmed', failure.code);
   // The request operation may already be ended; its context still parents this timeout.
-  const span = startSpan(`chat.${operation}.confirmation_timeout`, {
+  const span = startSpan(`chat.${lifecycle.operation}.confirmation_timeout`, {
     'chat.id': chatroomId,
     'message.temp_id': tempId,
+    'message.operation_id': lifecycle.operationId,
     'message.delivery': 'unconfirmed',
-  }, opSpan);
+  }, lifecycle.opSpan);
   endSendSpanError(span, failure);
 };
 
-const handleSendFailure = (error, { get, chatroomId, optimisticMessage, operation, opSpan, startTime, streamerName }) => {
+const handleSendFailure = (error, { get, chatroomId, optimisticMessage, lifecycle }) => {
   const failure = getChatSendFailure(error);
   const tempId = optimisticMessage?.tempId;
+  const { operation, opSpan, sendContext } = lifecycle;
+  sendContext.failure = failure;
+  recordSendOutcome(lifecycle, 'rejected', failure.code);
   // Only an echo/confirmation counts as delivery. A row that vanished (history
   // eviction, room removal) is still a genuine request failure.
-  const confirmed = sendsInFlight.get(tempId)?.confirmed === true;
+  const confirmed = lifecycle.confirmed;
   if (optimisticMessage && confirmed) {
     try { opSpan?.addEvent?.('send.failure_ignored', { 'error.type': failure.code, 'message.temp_id': tempId }); } catch {}
     endSpanOk(opSpan);
@@ -174,8 +246,6 @@ const handleSendFailure = (error, { get, chatroomId, optimisticMessage, operatio
   }
   if (optimisticMessage) markSendFailed(get, chatroomId, tempId, failure.reason);
   endSendSpanError(opSpan, failure);
-  const duration = (Date.now() - startTime) / 1000;
-  window.app?.telemetry?.recordMessageSent?.(chatroomId, operation === 'send' ? 'regular' : 'reply', duration, false, streamerName);
   window.app?.telemetry?.recordError?.(failure.reason, {
     'chatroom.id': chatroomId,
     'message.operation': operation,
@@ -558,6 +628,7 @@ const useChatStore = create((set, get) => ({
       });
       window.__chatMessageBatch = {};
     }
+    Object.values(get().messages).forEach(messages => messages.forEach(cancelConfirmationTimeout));
   },
 
   // Clean up connection manager
@@ -640,19 +711,15 @@ const useChatStore = create((set, get) => ({
     }
   },
 
-  sendMessage: async (chatroomId, content) => {
-    const opSpan = startSpan('chat.send', {
-      'chat.id': chatroomId,
-      'message.length': (content || '').trim().length
-    });
-    const startTime = Date.now();
+  sendMessage: async (chatroomId, content, sendContext = {}) => {
+    const lifecycle = beginSend(chatroomId, content, 'send', sendContext);
+    const { opSpan } = lifecycle;
     const chatroom = get().chatrooms.find(room => room.id === chatroomId);
     const streamerName = chatroom?.streamerData?.user?.username || chatroom?.username || `chatroom_${chatroomId}`;
     try { opSpan?.setAttribute?.('streamer.name', streamerName); } catch {}
     console.log(`[Telemetry] sendMessage - chatroomId: ${chatroomId}, streamerName: ${streamerName}`);
     
     let optimisticMessage;
-    let timeoutId;
     try {
       const message = content.trim();
       console.info("Sending message to chatroom:", chatroomId);
@@ -667,17 +734,13 @@ const useChatStore = create((set, get) => ({
 
       // Create and immediately add optimistic message (should be instant now!)
       optimisticMessage = createOptimisticMessage(chatroomId, message, currentUser);
-      sendsInFlight.set(optimisticMessage.tempId, { confirmed: false });
-      get().addMessage(chatroomId, optimisticMessage);
-      try {
-        opSpan?.setAttribute?.('message.temp_id', optimisticMessage.tempId);
-        opSpan?.addEvent?.('optimistic.add', { 'message.temp_id': optimisticMessage.tempId });
-      } catch {}
+      correlateOptimisticSend(optimisticMessage, lifecycle);
 
       // Set timeout to mark message as failed if not confirmed within 30 seconds
-      timeoutId = setTimeout(() => {
-        recordConfirmationTimeout(get, chatroomId, optimisticMessage.tempId, 'send', opSpan);
+      lifecycle.timeoutId = setTimeout(() => {
+        recordConfirmationTimeout(get, chatroomId, optimisticMessage.tempId, lifecycle);
       }, 30000);
+      get().addMessage(chatroomId, optimisticMessage);
 
       // Send message to server
       const apiStartTime = Date.now();
@@ -689,12 +752,14 @@ const useChatStore = create((set, get) => ({
         'url.full': url,
         'api.endpoint': 'kick_send_message',
         'message.temp_id': optimisticMessage.tempId,
+        'message.operation_id': lifecycle.operationId,
       }, opSpan);
       let response;
       try {
         response = await window.app.kick.sendMessage(chatroomId, message);
         checkSendResponse(response, apiSpan);
         endSpanOk(apiSpan);
+        recordSendOutcome(lifecycle, 'api_accepted');
       } catch (err) {
         endSendSpanError(apiSpan, getChatSendFailure(err));
         throw err;
@@ -711,36 +776,27 @@ const useChatStore = create((set, get) => ({
         console.warn('[Telemetry]: Failed to record API request:', telemetryError);
       }
 
-      // Record successful message send
-      const duration = (Date.now() - startTime) / 1000;
-      window.app?.telemetry?.recordMessageSent(chatroomId, 'regular', duration, true, streamerName);
       endSpanOk(opSpan);
 
       // Message sent successfully - it will be confirmed when we receive it back via WebSocket
       return true;
     } catch (error) {
-      clearTimeout(timeoutId);
+      cancelConfirmationTimeout(optimisticMessage);
       return handleSendFailure(error, {
-        get, chatroomId, optimisticMessage, operation: 'send', opSpan, startTime, streamerName,
+        get, chatroomId, optimisticMessage, lifecycle,
       });
-    } finally {
-      if (optimisticMessage) sendsInFlight.delete(optimisticMessage.tempId);
     }
   },
 
-  sendReply: async (chatroomId, content, metadata = {}) => {
-    const opSpan = startSpan('chat.reply', {
-      'chat.id': chatroomId,
-      'message.length': (content || '').trim().length
-    });
-    const startTime = Date.now();
+  sendReply: async (chatroomId, content, metadata = {}, sendContext = {}) => {
+    const lifecycle = beginSend(chatroomId, content, 'reply', sendContext);
+    const { opSpan } = lifecycle;
     const chatroom = get().chatrooms.find(room => room.id === chatroomId);
     const streamerName = chatroom?.streamerData?.user?.username || chatroom?.username || `chatroom_${chatroomId}`;
     try { opSpan?.setAttribute?.('streamer.name', streamerName); } catch {}
     console.log(`[Telemetry] sendReply - chatroomId: ${chatroomId}, streamerName: ${streamerName}`);
     
     let optimisticReply;
-    let timeoutId;
     try {
       const message = content.trim();
       console.info("Sending reply to chatroom:", chatroomId);
@@ -754,17 +810,13 @@ const useChatStore = create((set, get) => ({
 
       // Create and immediately add optimistic reply (should be instant now!)
       optimisticReply = createOptimisticReply(chatroomId, message, currentUser, metadata);
-      sendsInFlight.set(optimisticReply.tempId, { confirmed: false });
-      get().addMessage(chatroomId, optimisticReply);
-      try {
-        opSpan?.setAttribute?.('message.temp_id', optimisticReply.tempId);
-        opSpan?.addEvent?.('optimistic.add', { 'message.temp_id': optimisticReply.tempId });
-      } catch {}
+      correlateOptimisticSend(optimisticReply, lifecycle);
 
       // Set timeout to mark reply as failed if not confirmed within 30 seconds
-      timeoutId = setTimeout(() => {
-        recordConfirmationTimeout(get, chatroomId, optimisticReply.tempId, 'reply', opSpan);
+      lifecycle.timeoutId = setTimeout(() => {
+        recordConfirmationTimeout(get, chatroomId, optimisticReply.tempId, lifecycle);
       }, 30000);
+      get().addMessage(chatroomId, optimisticReply);
 
       // Send reply to server
       const apiStartTime = Date.now();
@@ -776,12 +828,14 @@ const useChatStore = create((set, get) => ({
         'url.full': url,
         'api.endpoint': 'kick_send_reply',
         'message.temp_id': optimisticReply.tempId,
+        'message.operation_id': lifecycle.operationId,
       }, opSpan);
       let response;
       try {
         response = await window.app.kick.sendReply(chatroomId, message, metadata);
         checkSendResponse(response, apiSpan);
         endSpanOk(apiSpan);
+        recordSendOutcome(lifecycle, 'api_accepted');
       } catch (err) {
         endSendSpanError(apiSpan, getChatSendFailure(err));
         throw err;
@@ -798,20 +852,15 @@ const useChatStore = create((set, get) => ({
         console.warn('[Telemetry]: Failed to record API request:', telemetryError);
       }
 
-      // Record successful reply send
-      const duration = (Date.now() - startTime) / 1000;
-      window.app?.telemetry?.recordMessageSent(chatroomId, 'reply', duration, true, streamerName);
       endSpanOk(opSpan);
 
       // ReplyIcon sent successfully - it will be confirmed when we receive it back via WebSocket
       return true;
     } catch (error) {
-      clearTimeout(timeoutId);
+      cancelConfirmationTimeout(optimisticReply);
       return handleSendFailure(error, {
-        get, chatroomId, optimisticMessage: optimisticReply, operation: 'reply', opSpan, startTime, streamerName,
+        get, chatroomId, optimisticMessage: optimisticReply, lifecycle,
       });
-    } finally {
-      if (optimisticReply) sendsInFlight.delete(optimisticReply.tempId);
     }
   },
 
@@ -1544,6 +1593,11 @@ const useChatStore = create((set, get) => ({
         isRead: isRead,
       };
 
+      if (messages.some((msg) => msg.id === newMessage.id)) {
+        console.log(`[addMessage] Duplicate message ${newMessage.id}, skipping`);
+        return state;
+      }
+
       // CheckIcon if this is a confirmation of an optimistic message (regular or reply)
       if (!newMessage.isOptimistic && (newMessage.type === "message" || newMessage.type === "reply")) {
         const optimisticIndex = messages.findIndex(msg => 
@@ -1556,8 +1610,7 @@ const useChatStore = create((set, get) => ({
 
         if (optimisticIndex !== -1) {
           // Replace optimistic message with confirmed message
-          const inFlight = sendsInFlight.get(messages[optimisticIndex].tempId);
-          if (inFlight) inFlight.confirmed = true;
+          confirmSend(messages[optimisticIndex]);
           const updatedMessages = [...messages];
           updatedMessages[optimisticIndex] = {
             ...newMessage,
@@ -1573,11 +1626,6 @@ const useChatStore = create((set, get) => ({
             },
           };
         }
-      }
-
-      if (messages.some((msg) => msg.id === newMessage.id)) {
-        console.log(`[addMessage] Duplicate message ${newMessage.id}, skipping`);
-        return state;
       }
 
       let updatedMessages = message?.is_old ? [newMessage, ...messages] : [...messages, newMessage];
@@ -1605,8 +1653,14 @@ const useChatStore = create((set, get) => ({
 
       // Keep a configurable window of messages based on pause state
       if (state.isChatroomPaused?.[chatroomId] && updatedMessages.length > pausedLimit) {
+        for (let index = 0; index < updatedMessages.length - pausedTrimTo; index++) {
+          cancelConfirmationTimeout(updatedMessages[index]);
+        }
         updatedMessages = updatedMessages.slice(-pausedTrimTo);
       } else if (!state.isChatroomPaused?.[chatroomId] && updatedMessages.length > normalLimit) {
+        for (let index = 0; index < updatedMessages.length - normalLimit; index++) {
+          cancelConfirmationTimeout(updatedMessages[index]);
+        }
         updatedMessages = updatedMessages.slice(-normalLimit);
       }
 
@@ -1724,10 +1778,10 @@ const useChatStore = create((set, get) => ({
       const messages = state.messages[chatroomId] || [];
       const updatedMessages = messages.map(msg => {
         if (msg.tempId !== tempId) return msg;
-        const inFlight = sendsInFlight.get(tempId);
-        if (inFlight) inFlight.confirmed = true;
+        confirmSend(msg);
         const confirmed = { ...confirmedMessage, state: MESSAGE_STATES.CONFIRMED, isOptimistic: false };
         delete confirmed.failureReason;
+        delete confirmed[SEND_LIFECYCLE];
         return confirmed;
       });
 
@@ -1745,6 +1799,7 @@ const useChatStore = create((set, get) => ({
   removeOptimisticMessage: (chatroomId, tempId) => {
     set((state) => {
       const messages = state.messages[chatroomId] || [];
+      cancelConfirmationTimeout(messages.find(msg => msg.tempId === tempId));
       const updatedMessages = messages.filter(msg => msg.tempId !== tempId);
 
       return {
@@ -1777,6 +1832,7 @@ const useChatStore = create((set, get) => ({
 
   removeChatroom: (chatroomId) => {
     console.log(`[ChatProvider]: Removing chatroom ${chatroomId}`);
+    (get().messages[chatroomId] || []).forEach(cancelConfirmationTimeout);
 
     // Use connection manager for shared connections
     if (connectionManager) {

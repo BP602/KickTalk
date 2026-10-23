@@ -846,3 +846,54 @@
     }
   }
 }
+
+.telemetryHealth {
+  min-width: 0;
+  padding: 12px;
+  overflow-wrap: anywhere;
+  user-select: text;
+
+  h5, h6, p, dl {
+    margin: 8px 0;
+  }
+
+  h5, h6 {
+    font-size: inherit;
+  }
+
+  dd {
+    margin: 0 0 8px;
+  }
+
+  button, input {
+    max-width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    color: inherit;
+    background: var(--bg-dialog-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    padding: 8px;
+  }
+
+  button {
+    white-space: normal;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  button:focus-visible, input:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+
+  input, label {
+    display: block;
+    width: 100%;
+    margin: 8px 0;
+  }
+}

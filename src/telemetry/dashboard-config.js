@@ -5,15 +5,15 @@ const DASHBOARD_CONFIG = {
   // SLO Dashboard Configuration
   slo_panels: {
     message_send_latency: {
-      title: "Message Send Latency SLO",
-      description: "Message send performance vs 2s target",
+      title: "Message API Acceptance Latency",
+      description: "Elapsed action-to-API-acceptance time vs 2s target; not delivery confirmation",
       target_seconds: 2.0,
       p99_target_seconds: 1.5,
       queries: {
         // PromQL queries for Grafana
-        latency_histogram: 'histogram_quantile(0.95, sum(rate(kicktalk_slo_latency_seconds_bucket{operation="MESSAGE_SEND_DURATION"}[5m])) by (le))',
-        success_rate: 'sum(rate(kicktalk_slo_success_rate_total{operation="MESSAGE_SEND_DURATION",status="success"}[5m])) / sum(rate(kicktalk_slo_success_rate_total{operation="MESSAGE_SEND_DURATION"}[5m])) * 100',
-        violations: 'sum(rate(kicktalk_slo_violations_total{operation="MESSAGE_SEND_DURATION"}[5m]))'
+        latency_histogram: 'histogram_quantile(0.95, sum(rate(kicktalk_message_send_transition_duration_seconds_bucket{outcome="api_accepted"}[5m])) by (le))',
+        api_acceptance_rate: 'sum(rate(kicktalk_message_send_outcomes_total{outcome="api_accepted"}[5m])) / sum(rate(kicktalk_message_send_outcomes_total{outcome=~"api_accepted|rejected"}[5m])) * 100',
+        rejected_rate: 'sum(rate(kicktalk_message_send_outcomes_total{outcome="rejected"}[5m]))'
       }
     },
     chatroom_switch_latency: {
@@ -107,11 +107,12 @@ const DASHBOARD_CONFIG = {
     },
     message_throughput: {
       title: "Message Throughput",
-      description: "Message processing rates",
+      description: "Send lifecycle transitions and received message rates; acceptance does not assert delivery",
       queries: {
-        messages_sent_rate: 'rate(kicktalk_messages_sent_total[5m])',
+        send_outcomes_rate: 'sum by (outcome, message_type) (rate(kicktalk_message_send_outcomes_total[5m]))',
         messages_received_rate: 'rate(kicktalk_messages_received_total[5m])',
-        message_send_success_rate: 'sum(rate(kicktalk_slo_success_rate_total{operation="message_send",status="success"}[5m])) / sum(rate(kicktalk_slo_success_rate_total{operation="message_send"}[5m])) * 100'
+        confirmed_rate: 'sum(rate(kicktalk_message_send_outcomes_total{outcome="confirmed"}[5m]))',
+        unconfirmed_rate: 'sum(rate(kicktalk_message_send_outcomes_total{outcome="unconfirmed"}[5m]))'
       }
     }
   },
@@ -120,9 +121,9 @@ const DASHBOARD_CONFIG = {
   alert_rules: {
     slo_violations: [
       {
-        name: "Message Send SLO Violation",
-        description: "Message send latency exceeds 2s target",
-        condition: 'histogram_quantile(0.95, sum(rate(kicktalk_slo_latency_seconds_bucket{operation="MESSAGE_SEND_DURATION"}[5m])) by (le)) > 2',
+        name: "Message API Acceptance Latency",
+        description: "Action-to-API-acceptance latency exceeds 2s target; not a delivery SLO",
+        condition: 'histogram_quantile(0.95, sum(rate(kicktalk_message_send_transition_duration_seconds_bucket{outcome="api_accepted"}[5m])) by (le)) > 2',
         severity: "warning",
         duration: "2m"
       },
@@ -187,7 +188,6 @@ const DashboardUtils = {
    */
   getSLOTargets() {
     return {
-      'MESSAGE_SEND_DURATION': { target: 2.0, p99: 1.5 },
       'CHATROOM_SWITCH_DURATION': { target: 0.5, p99: 0.3 },
       'MESSAGE_PARSER_DURATION': { target: 0.05, p99: 0.02 },
       'EMOTE_SEARCH_DURATION': { target: 0.1, p99: 0.05 },

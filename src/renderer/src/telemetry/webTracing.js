@@ -28,6 +28,22 @@ try {
 } catch (error) {
   console.warn('[Renderer OTEL]: Could not check user settings:', error.message);
 }
+let rendererReady = false;
+let rendererConfigReason = 'restart_required';
+const reportRendererHealth = () => {
+  window.telemetry?.reportRendererState?.({
+    enabled: telemetryEnabled,
+    ready: rendererReady,
+    reason: rendererConfigReason
+  })?.catch(() => {});
+};
+reportRendererHealth();
+window.app?.store?.onUpdate?.(settings => {
+  if (!settings?.telemetry) return;
+  telemetryEnabled = settings.telemetry.enabled === true;
+  reportRendererHealth();
+});
+
 
 console.log('[DEBUG] webTracing.js module loading - telemetry enabled:', telemetryEnabled);
 console.log('[DEBUG] window available:', typeof window !== 'undefined');
@@ -433,6 +449,8 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
       const cfg = await window?.telemetry?.getOtelConfig?.();
       if (!cfg || !cfg.ok) {
         console.warn('[Renderer OTEL]: Missing or invalid OTLP config from preload bridge:', cfg?.reason);
+        rendererConfigReason = cfg?.reason === 'configuration_missing' ? 'configuration_missing' : 'configuration_invalid';
+        reportRendererHealth();
         return;
       }
  
@@ -440,11 +458,19 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
 
       // SDK processors export finalized ReadableSpans; only main owns the OTLP transport/auth.
       class IPCSpanExporter {
+        diagnosticResults = new Map();
         async export(spans, resultCallback) {
           let result;
+          if (!telemetryEnabled) {
+            resultCallback({ code: 0 });
+            return;
+          }
+          let receiver = 'unavailable';
           try {
             const response = await window.telemetry.exportTracesJson(this._toOtlpJson(spans));
             const ok = response?.ok && (!response.status || (response.status >= 200 && response.status < 300));
+            receiver = ok ? 'accepted' : response?.reason === 'receiver_rejected' ? 'rejected'
+              : response?.reason === 'disabled' ? 'not_run' : 'unavailable';
             result = ok
               ? { code: 0 }
               : { code: 1, error: new Error(`OTLP IPC export failed (${response?.status || 'no response'})`) };
@@ -457,6 +483,11 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
             }
           } catch (error) {
             result = { code: 1, error };
+            await window.telemetry.reportExportFailure?.().catch(() => {});
+          }
+          for (const span of spans) {
+            const traceId = span.spanContext().traceId;
+            if (this.diagnosticResults.has(traceId)) this.diagnosticResults.set(traceId, receiver);
           }
           if (result.code !== 0) this._exportError ||= result.error;
           resultCallback(result);
@@ -598,6 +629,8 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
       provider.register({});
       window.__KT_TRACE_API__ = { trace, context };
       window.__KT_OTEL_PROVIDER__ = provider;
+      rendererReady = true;
+      reportRendererHealth();
       // Log early WebSocket activity for debugging
       try {
         const ea = window.__KT_EARLY_WEBSOCKET_ACTIVITY__;
@@ -822,21 +855,25 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
 
       // Manual diagnostics use the same SDK pipeline as application spans, with no second export.
       const emitDiagnosticSpan = async (name) => {
-        const testId = crypto.randomUUID();
+        if (!telemetryEnabled) return { success: false, receiver: 'not_run' };
         let spanContext;
         try {
           const span = trace.getTracer('kicktalk-diagnostics', appVersion).startSpan(name, {
-            attributes: { 'test.id': testId, 'otel.helper': name }
+            attributes: { 'otel.helper': name }
           });
           spanContext = span.spanContext();
+          exporter.diagnosticResults.set(spanContext.traceId, 'not_run');
           span.addEvent('diagnostic_started');
           await new Promise(resolve => setTimeout(resolve, 250));
           span.addEvent('diagnostic_completed');
           span.end();
-          await provider.forceFlush();
-          return { success: true, testId, traceId: spanContext.traceId, spanId: spanContext.spanId };
-        } catch (error) {
-          return { success: false, testId, traceId: spanContext?.traceId, error: error.message };
+          try { await provider.forceFlush(); } catch {}
+          const receiver = exporter.diagnosticResults.get(spanContext.traceId) || 'unavailable';
+          return { success: receiver === 'accepted', traceId: spanContext.traceId, spanId: spanContext.spanId, receiver };
+        } catch {
+          return { success: false, traceId: spanContext?.traceId, receiver: 'unavailable' };
+        } finally {
+          if (spanContext) exporter.diagnosticResults.delete(spanContext.traceId);
         }
       };
       Object.defineProperty(window, 'emitRendererTestSpan', {
@@ -884,6 +921,8 @@ if (!window.__KT_RENDERER_OTEL_INITIALIZED__ && telemetryEnabled) {
 
       console.log('[Renderer OTEL]: Web tracer initialized for kicktalk-renderer (IPC relay)');
     } catch (e) {
+      rendererConfigReason = 'configuration_invalid';
+      reportRendererHealth();
       console.error('[Renderer OTEL]: Setup failed:', e?.message || e);
     }
   })();

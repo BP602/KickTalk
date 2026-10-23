@@ -15,6 +15,11 @@
 //     either rejects (HTTP 401) or forwards to the host's LGTM through a unix
 //     socket, so receiver-side counts are observed at the real boundary.
 //   - Kick/Cloud are unreachable: the namespace has no route out (verified).
+//   - The gate decodes OTLP/HTTP JSON traces and metrics. Send-outcome counts are
+//     asserted from the latest cumulative snapshot per series, never summed. Synthetic
+//     realtime echoes enter through the existing main -> renderer `kick:realtime:event`
+//     IPC channel; no store or telemetry helper fakes a transition. A fifth launch turns
+//     telemetry off at runtime (window.app.store.set) and requires zero further requests.
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -46,6 +51,11 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export const OPERATION = { send: 'chat.send', reply: 'chat.reply' };
 export const API_SPAN = { send: 'chat.api.sendMessage', reply: 'chat.api.sendReply' };
+export const COMPOSER_SPAN = 'chat.input.send_message';
+export const SEND_METRICS = {
+  outcomes: 'kicktalk_message_send_outcomes_total',
+  duration: 'kicktalk_message_send_transition_duration_seconds',
+};
 const STATUS = { STATUS_CODE_UNSET: 0, STATUS_CODE_OK: 1, STATUS_CODE_ERROR: 2 };
 const REASON_PATTERN = {
   mapped: /slow mode/i,
@@ -58,7 +68,17 @@ const FAILURE = {
   unknown: { code: 'UNKNOWN_SEND_ERROR', http: 503 },
   unauth: { code: 'Unauthorized', http: undefined },
 };
-const SPAN_COUNT = { unauth: 1, mapped: 2, unknown: 2, accepted: 3, pending: 3 };
+const spanCount = (kind, retry = false) =>
+  (kind === 'unauth' ? 2 : ['mapped', 'unknown', 'retry_rejected'].includes(kind) ? 3 : 4) - Number(retry);
+
+// The preload's per-channel guard (utils/services/kick/kickAPI.js) refuses the 9th send
+// inside 3 s and then declines everything for 5 s, locally and without a request. Keep the
+// scripted sends well below it (at most 7 per 3.5 s) so every fixture reaches the stub.
+export const SEND_PACING = { windowMs: 3500, maxAttempts: 7 };
+export function sendPacingDelayMs(attemptTimes, now, { windowMs, maxAttempts } = SEND_PACING) {
+  const recent = attemptTimes.filter(at => now - at < windowMs).sort((a, b) => a - b);
+  return recent.length < maxAttempts ? 0 : recent[recent.length - maxAttempts] + windowMs - now;
+}
 
 // Tempo returns ids as base64 in its v1 JSON and hex elsewhere; 16/32 character
 // strings are always hex (base64 of 8/16 bytes is 12/24 characters).
@@ -105,24 +125,85 @@ export function normalizeSpans(data) {
   });
 }
 
+// Decode the actual SDK wire payload, not telemetry IPC calls or application logs.
+// Cumulative points are snapshots: repeated exports must never be added together.
+export function normalizeMetrics(data) {
+  return (data?.resourceMetrics || []).flatMap(batch => {
+    const resource = decodeAttributes(batch.resource?.attributes);
+    return (batch.scopeMetrics || []).flatMap(scope => (scope.metrics || []).flatMap(metric => {
+      const type = metric.sum ? 'sum' : metric.histogram ? 'histogram' : 'gauge';
+      const aggregation = metric[type];
+      return (aggregation?.dataPoints || []).map(point => ({
+        name: metric.name, type, resource, attrs: decodeAttributes(point.attributes),
+        temporality: aggregation.aggregationTemporality, monotonic: aggregation.isMonotonic,
+        start: point.startTimeUnixNano, time: point.timeUnixNano,
+        value: Number(point.asInt ?? point.asDouble), count: Number(point.count), sum: Number(point.sum),
+        buckets: (point.bucketCounts || []).map(Number),
+      }));
+    }));
+  });
+}
+
+const metricKey = attrs => JSON.stringify(Object.entries(attrs).sort(([a], [b]) => a.localeCompare(b)));
+
+export function expectSendMetrics(records, expected) {
+  const points = records.filter(record => record.path === '/v1/metrics').flatMap(record => record.metrics || [])
+    .filter(point => Object.values(SEND_METRICS).includes(point.name));
+  assert(points.length, 'receiver captured no send-outcome metric points');
+  const wanted = new Map(expected.map(({ outcome, messageType, cause, count }) => [
+    metricKey({ outcome, message_type: messageType, ...(cause ? { cause } : {}) }), count,
+  ]));
+  for (const [name, type] of [[SEND_METRICS.outcomes, 'sum'], [SEND_METRICS.duration, 'histogram']]) {
+    const series = new Map();
+    for (const point of points.filter(item => item.name === name)) {
+      assert.equal(point.resource['service.name'], 'kicktalk', `${name}: not exported by main SDK`);
+      assert.equal(point.type, type, `${name}: wrong instrument type`);
+      assert([2, 'AGGREGATION_TEMPORALITY_CUMULATIVE'].includes(point.temporality), `${name}: not cumulative`);
+      assert.deepEqual(Object.keys(point.attrs).sort(), point.attrs.cause
+        ? ['cause', 'message_type', 'outcome'] : ['message_type', 'outcome'], `${name}: unbounded metric dimensions`);
+      const key = metricKey(point.attrs);
+      assert(wanted.has(key), `${name}: unexpected outcome/type/cause label set`);
+      const value = type === 'sum' ? point.value : point.count;
+      assert(Number.isSafeInteger(value) && value >= 0, `${name}: invalid transition count`);
+      const previous = series.get(key);
+      assert(!previous || previous.start === point.start, `${name}: metric stream restarted`);
+      assert(!previous || value >= previous.value, `${name}: cumulative count decreased`);
+      if (type === 'sum') assert.equal(point.monotonic, true, `${name}: counter is not monotonic`);
+      else {
+        assert(Number.isFinite(point.sum) && point.sum >= 0, `${name}: invalid duration sum`);
+        assert.equal(point.buckets.reduce((total, count) => total + count, 0), point.count, `${name}: histogram bucket count`);
+        if (point.attrs.outcome === 'attempted') assert.equal(point.sum, 0, `${name}: attempted duration must be zero`);
+        if (point.attrs.outcome === 'unconfirmed') {
+          assert(point.sum >= point.count * (CONFIRMATION_MS / 1000 - 0.5), `${name}: timeout duration was not measured`);
+        }
+      }
+      series.set(key, { value, start: point.start });
+    }
+    assert.equal(series.size, wanted.size, `${name}: missing transition label sets`);
+    for (const [key, count] of wanted) assert.equal(series.get(key)?.value, count, `${name}: wrong exact transition count ${key}`);
+  }
+  return expected.reduce((total, item) => total + item.count, 0);
+}
+
 export function decodeOtlpBody(body, headers = {}) {
   let buffer = body;
   try {
     if (/gzip/i.test(headers['content-encoding'] || '')) buffer = zlib.gunzipSync(body);
   } catch {
-    return { encoding: 'undecodable', services: [], spans: [], text: '' };
+    return { encoding: 'undecodable', services: [], spans: [], metrics: [], text: '' };
   }
   const text = buffer.toString('latin1');
-  if (!/json/i.test(headers['content-type'] || '')) return { encoding: 'binary', services: [], spans: [], text };
+  if (!/json/i.test(headers['content-type'] || '')) return { encoding: 'binary', services: [], spans: [], metrics: [], text };
   try {
     const json = JSON.parse(buffer.toString('utf8'));
     const spans = normalizeSpans(json);
     const resources = [...(json.resourceSpans || []), ...(json.resourceMetrics || [])];
     const services = [...new Set(resources
       .map(entry => decodeAttributes(entry.resource?.attributes)['service.name']).filter(Boolean))];
-    return { encoding: 'json', services, spans: spans.map(({ name, traceId, spanId }) => ({ name, traceId, spanId })), text };
+    return { encoding: 'json', services, spans: spans.map(({ name, traceId, spanId }) => ({ name, traceId, spanId })),
+      metrics: normalizeMetrics(json), text };
   } catch {
-    return { encoding: 'invalid-json', services: [], spans: [], text };
+    return { encoding: 'invalid-json', services: [], spans: [], metrics: [], text };
   }
 }
 
@@ -147,79 +228,84 @@ export function staleSourceFiles(files, buildMtimeMs) {
   return files.filter(file => file.mtimeMs > buildMtimeMs).map(file => file.path);
 }
 
-// Asserts one send/reply trace exactly as stored by Tempo. `reason` is the text
-// the application showed to the user for the same attempt.
-export function expectSendTrace(spans, { action, kind, tempId, reason }) {
+// Asserts the complete composer -> provider -> API tree as stored by Tempo.
+// Manual retry deliberately starts a fresh provider root: it is not a composer action.
+export function expectSendTrace(spans, { action, kind, tempId, reason, retry = false }) {
   const label = `${kind}/${action}`;
   const operationName = OPERATION[action];
-  const named = name => spans.filter(span => span.name === name);
   const one = name => {
-    const found = named(name);
+    const found = spans.filter(span => span.name === name);
     assert.equal(found.length, 1, `${label}: expected exactly one ${name}, found ${found.length}`);
     return found[0];
   };
-  assert.equal(spans.length, SPAN_COUNT[kind], `${label}: expected ${SPAN_COUNT[kind]} spans, found ${spans.length}`);
+  assert.equal(spans.length, spanCount(kind, retry), `${label}: expected ${spanCount(kind, retry)} spans, found ${spans.length}`);
   assert.equal(new Set(spans.map(span => span.traceId)).size, 1, `${label}: spans span several traces`);
+  const operation = one(operationName);
+  const operationId = operation.attrs['message.operation_id'];
+  assert(typeof operationId === 'string' && operationId.length > 0, `${label}: missing operation id`);
+  const input = retry ? null : one(COMPOSER_SPAN);
+  assert.equal(operation.parentSpanId, input?.spanId || '', `${label}: provider is not a child of composer (or retry root)`);
+  if (input) assert.equal(input.parentSpanId, '', `${label}: composer is not a root`);
+  const noHttp = span => assert(!('http.response.status_code' in span.attrs), `${label}: ${span.name} invented an HTTP status`);
   for (const span of spans) {
     assert.equal(span.resource['service.name'], 'kicktalk-renderer', `${label}: ${span.name} wrong service`);
     assert(span.resource['service.version'], `${label}: ${span.name} missing service.version`);
+    assert.equal(span.attrs['message.operation_id'], operationId, `${label}: operation id differs across layers`);
+    if (kind !== 'unauth') assert.equal(span.attrs['message.temp_id'], tempId, `${label}: ${span.name} temp id differs from the UI row`);
   }
-  const operation = one(operationName);
-  const noHttp = span => assert(!('http.response.status_code' in span.attrs), `${label}: ${span.name} invented an HTTP status`);
-
   if (kind === 'unauth') {
-    assert.equal(operation.status, 2, `${label}: operation is not ERROR`);
-    assert.equal(operation.statusMessage, reason, `${label}: status message differs from the UI reason`);
     assert.match(reason, REASON_PATTERN.unauth);
-    assert.equal(operation.attrs['error.type'], FAILURE.unauth.code);
-    noHttp(operation);
-    assert(!('message.temp_id' in operation.attrs), `${label}: no row exists, so no temp id`);
-    return { traceId: operation.traceId };
+    for (const span of [input, operation]) {
+      assert.equal(span.status, 2, `${label}: local rejection is not ERROR`);
+      assert.equal(span.statusMessage, reason, `${label}: status message differs from the UI reason`);
+      assert.equal(span.attrs['error.type'], FAILURE.unauth.code);
+      noHttp(span);
+      assert(!('message.temp_id' in span.attrs), `${label}: no row exists, so no temp id`);
+    }
+    return { traceId: operation.traceId, operationId };
   }
-
   const api = one(API_SPAN[action]);
   assert.equal(api.parentSpanId, operation.spanId, `${label}: API span is not a child of the operation`);
   assert.equal(api.attrs['http.request.method'], 'POST');
-  assert.equal(operation.attrs['message.temp_id'], tempId, `${label}: operation temp id differs from the UI row`);
-  assert.equal(api.attrs['message.temp_id'], tempId, `${label}: API temp id differs from the UI row`);
   assert(operation.events.some(event => event.name === 'optimistic.add' && event.attrs['message.temp_id'] === tempId),
     `${label}: missing optimistic.add event`);
-
-  if (kind === 'mapped' || kind === 'unknown') {
-    assert.match(reason, REASON_PATTERN[kind]);
-    for (const span of [operation, api]) {
+  const failureKind = kind === 'retry_rejected' ? 'mapped' : kind;
+  if (failureKind === 'mapped' || failureKind === 'unknown') {
+    assert.match(reason, REASON_PATTERN[failureKind]);
+    for (const span of [input, operation, api].filter(Boolean)) {
       assert.equal(span.status, 2, `${label}: ${span.name} is not ERROR`);
       assert.equal(span.statusMessage, reason, `${label}: ${span.name} status message differs from the UI reason`);
-      assert.equal(span.attrs['error.type'], FAILURE[kind].code, `${label}: ${span.name} cause`);
-      assert.equal(span.attrs['http.response.status_code'], FAILURE[kind].http, `${label}: ${span.name} HTTP status`);
+      assert.equal(span.attrs['error.type'], FAILURE[failureKind].code, `${label}: ${span.name} cause`);
+      assert.equal(span.attrs['http.response.status_code'], FAILURE[failureKind].http, `${label}: ${span.name} HTTP status`);
     }
-    return { traceId: operation.traceId };
+    return { traceId: operation.traceId, operationId };
   }
-
-  // accepted-without-echo / still-pending: the request itself did not fail.
-  assert.match(reason, REASON_PATTERN.timeout);
-  for (const span of [operation, api]) {
+  for (const span of [input, operation, api].filter(Boolean)) {
     assert.notEqual(span.status, 2, `${label}: ${span.name} must not be ERROR`);
     assert(!('error.type' in span.attrs), `${label}: ${span.name} must not carry a cause`);
   }
   assert.equal(api.attrs['http.response.status_code'], 200, `${label}: API HTTP status`);
-  const timeout = one(`${operationName}.confirmation_timeout`);
-  assert.equal(timeout.parentSpanId, operation.spanId, `${label}: timeout is not a child of the operation`);
-  assert.equal(timeout.status, 2);
-  assert.equal(timeout.statusMessage, reason, `${label}: timeout message differs from the UI reason`);
-  assert.equal(timeout.attrs['error.type'], 'SEND_TIMEOUT');
-  assert.equal(timeout.attrs['message.delivery'], 'unconfirmed');
-  assert.equal(timeout.attrs['message.temp_id'], tempId);
-  noHttp(timeout);
-  const elapsed = timeout.startMs - operation.startMs;
+  const confirmed = ['confirmed', 'concurrent', 'retry_confirmed'].includes(kind);
+  const terminal = one(`${operationName}.${confirmed ? 'confirmed' : 'confirmation_timeout'}`);
+  assert.equal(terminal.parentSpanId, operation.spanId, `${label}: terminal span is not a child of the operation`);
+  assert.equal(terminal.attrs['message.delivery'], confirmed ? 'confirmed' : 'unconfirmed');
+  noHttp(terminal);
+  if (confirmed) {
+    assert.notEqual(terminal.status, 2, `${label}: confirmation must not be ERROR`);
+    assert(!('error.type' in terminal.attrs), `${label}: confirmation must not carry a cause`);
+    assert(terminal.startMs >= operation.startMs, `${label}: confirmation precedes attempt`);
+    return { traceId: operation.traceId, operationId };
+  }
+  assert.match(reason, REASON_PATTERN.timeout);
+  assert.equal(terminal.status, 2);
+  assert.equal(terminal.statusMessage, reason, `${label}: timeout message differs from the UI reason`);
+  assert.equal(terminal.attrs['error.type'], 'SEND_TIMEOUT');
+  const elapsed = terminal.startMs - operation.startMs;
   assert(elapsed >= CONFIRMATION_MS - 500 && elapsed < CONFIRMATION_MS + 15000,
     `${label}: timeout started ${Math.round(elapsed)}ms after the send, expected about 30000`);
-  if (kind === 'accepted') {
-    assert(timeout.startMs >= operation.endMs, `${label}: operation should have ended before the timeout fired`);
-  } else {
-    assert(timeout.startMs < operation.endMs, `${label}: request should still have been pending when the timeout fired`);
-  }
-  return { traceId: operation.traceId, elapsedMs: Math.round(elapsed) };
+  if (kind === 'pending') assert(terminal.startMs < operation.endMs, `${label}: request should still have been pending when the timeout fired`);
+  else assert(terminal.startMs >= operation.endMs, `${label}: operation should have ended before the timeout fired`);
+  return { traceId: operation.traceId, operationId, elapsedMs: Math.round(elapsed) };
 }
 
 // ---------------------------------------------------------------------------
@@ -227,16 +313,38 @@ export function expectSendTrace(spans, { action, kind, tempId, reason }) {
 // ---------------------------------------------------------------------------
 
 const entry = (n, kind, action) => ({ n, kind, action });
-const markerFor = ({ n, kind, action }) => `KTSYNTH ${String(n).padStart(2, '0')} ${kind} ${action}`;
+const markerFor = ({ n, kind, action }) => `KTSYNTH ${String(kind === 'concurrent' ? (action === 'send' ? 14 : 16) : n).padStart(2, '0')} ${kind} ${action}`;
 const PLANS = {
-  // Both 30 s cases start first so their timers run while the quick cases execute.
+  // Start all 30 s cases first; keep pending/unknown coverage from the original smoke.
   failures: [
     entry(1, 'accepted', 'send'), entry(2, 'accepted', 'reply'), entry(3, 'pending', 'send'), entry(4, 'pending', 'reply'),
+    entry(11, 'late', 'send'), entry(12, 'late', 'reply'),
     entry(5, 'mapped', 'send'), entry(6, 'mapped', 'reply'), entry(7, 'unknown', 'send'), entry(8, 'unknown', 'reply'),
+    entry(9, 'confirmed', 'send'), entry(10, 'confirmed', 'reply'), entry(13, 'retry_rejected', 'send'),
+    entry(14, 'concurrent', 'send'), entry(15, 'concurrent', 'send'),
+    entry(16, 'concurrent', 'reply'), entry(17, 'concurrent', 'reply'),
   ],
   unauth: [entry(1, 'unauth', 'send'), entry(2, 'unauth', 'reply')],
   exporter: [entry(1, 'mapped', 'send'), entry(2, 'mapped', 'send')],
   disabled: [entry(1, 'mapped', 'send')],
+  runtime: [entry(1, 'mapped', 'send'), entry(2, 'mapped', 'send'), entry(3, 'mapped', 'reply')],
+};
+
+const metricExpectation = (kind) => {
+  if (kind === 'unauth') return ['regular', 'reply'].flatMap(messageType => [
+    { messageType, outcome: 'attempted', count: 1 }, { messageType, outcome: 'rejected', cause: 'Unauthorized', count: 1 },
+  ]);
+  return [
+    ['regular', 10, 7, 4, 3, 2, 1],
+    ['reply', 8, 6, 3, 3, 1, 1],
+  ].flatMap(([messageType, attempted, accepted, confirmed, unconfirmed, mapped, unknown]) => [
+    { messageType, outcome: 'attempted', count: attempted },
+    { messageType, outcome: 'api_accepted', count: accepted },
+    { messageType, outcome: 'confirmed', count: confirmed },
+    { messageType, outcome: 'unconfirmed', cause: 'SEND_TIMEOUT', count: unconfirmed },
+    { messageType, outcome: 'rejected', cause: 'SLOW_MODE_ERROR', count: mapped },
+    { messageType, outcome: 'rejected', cause: 'UNKNOWN_SEND_ERROR', count: unknown },
+  ]);
 };
 const PEER = { id: 'ktpeer-message-1', username: 'ktpeer', content: 'KTPEER synthetic peer message' };
 
@@ -258,10 +366,10 @@ async function waitFor(what, probe, { timeoutMs = 15000, intervalMs = 250 } = {}
 
 async function connectDebugger(port, pick, timeoutMs = 30000) {
   const target = await waitFor(`debugger target on ${port}`, async () => {
-    const list = await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json());
+    const list = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) }).then(response => response.json());
     return list.find(item => item.webSocketDebuggerUrl && pick(item));
   }, { timeoutMs });
-  const ws = new WebSocket(target.webSocketDebuggerUrl);
+  const ws = new WebSocket(target.webSocketDebuggerUrl, { handshakeTimeout: 5000 });
   await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
   let nextId = 0;
   const pending = new Map();
@@ -341,18 +449,20 @@ function startStub(cfg) {
       if (host === 'kick.com' && req.method === 'POST' && /^\/api\/v2\/messages\/send\/\d+$/.test(pathname)) {
         let parsed = null;
         try { parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* recorded as a malformed send */ }
-        const match = /^KTSYNTH (\d\d) (mapped|unknown|accepted|pending|unauth) (send|reply)$/.exec(parsed?.content ?? '');
+        const match = /^KTSYNTH (\d\d) (mapped|unknown|accepted|pending|unauth|confirmed|late|retry_rejected|concurrent) (send|reply)$/.exec(parsed?.content ?? '');
+        const prior = sends.filter(item => item.sourceN === Number(match?.[1]) && item.action === match?.[3]).length;
         const record = {
-          at: Date.now(), marker: match ? parsed.content : null, scenario: match?.[2] ?? null,
+          at: Date.now(), sourceN: Number(match?.[1]), n: Number(match?.[1]) + (match?.[2] === 'concurrent' ? prior : 0),
+          scenario: match?.[2] ?? null, action: match?.[3] ?? null, attempt: prior + 1,
           chatId: Number(pathname.split('/').pop()), type: parsed?.type ?? null,
           replyTo: parsed?.metadata?.original_message?.id ?? null, authorized: Boolean(req.headers.authorization),
           status: null, heldMs: null,
         };
         sends.push(record);
-        // Mirrors the synthetic envelopes in tests/failedSends.test.jsx.
-        if (record.scenario === 'mapped') record.status = reply(json({ status: { message: 'SLOW_MODE_ERROR' } }, 422));
-        else if (record.scenario === 'unknown') record.status = reply(json({ message: 'synthetic upstream failure' }, 503));
-        else if (record.scenario === 'pending') held.set(record.marker, { res, headers, record });
+        if (record.scenario === 'mapped' || (record.scenario === 'retry_rejected' && record.attempt === 1)) {
+          record.status = reply(json({ status: { message: 'SLOW_MODE_ERROR' } }, 422));
+        } else if (record.scenario === 'unknown') record.status = reply(json({ message: 'synthetic upstream failure' }, 503));
+        else if (record.scenario === 'pending' || record.scenario === 'concurrent') held.set(record.n, { res, headers, record });
         else record.status = reply(json(acceptedBody));
         return undefined;
       }
@@ -366,10 +476,10 @@ function startStub(cfg) {
       server.once('error', reject);
       server.listen(443, '127.0.0.1', resolve);
     }),
-    release(marker) {
-      const hold = held.get(marker);
+    release(n) {
+      const hold = held.get(n);
       if (!hold) return false;
-      held.delete(marker);
+      held.delete(n);
       hold.record.heldMs = Date.now() - hold.record.at;
       hold.record.status = 200;
       hold.res.writeHead(200, hold.headers);
@@ -388,6 +498,7 @@ function startStub(cfg) {
 function startGate(cfg) {
   const state = { mode: cfg.gateMode, phase: 'startup', records: [] };
   const server = http.createServer((req, res) => {
+    const arrival = { at: Date.now(), phase: state.phase, mode: state.mode };
     const chunks = [];
     let size = 0;
     req.on('data', chunk => { size += chunk.length; if (size <= 8 << 20) chunks.push(chunk); });
@@ -395,11 +506,12 @@ function startGate(cfg) {
       const body = Buffer.concat(chunks);
       const decoded = decodeOtlpBody(body, req.headers);
       const record = {
-        at: Date.now(), phase: state.phase, mode: state.mode, method: req.method, path: req.url,
+        ...arrival, method: req.method, path: req.url,
         host: req.headers.host, bytes: body.length, encoding: decoded.encoding, services: decoded.services,
         spans: decoded.spans, userAgent: String(req.headers['user-agent'] || '').split('/')[0] || null,
+        metrics: decoded.metrics.filter(point => Object.values(SEND_METRICS).includes(point.name)),
         channel: decoded.services.includes('kicktalk-renderer') ? 'renderer-relay' : 'main-sdk',
-        leaks: forbiddenHits(decoded.text, cfg.forbidden), status: 0,
+        leaks: forbiddenHits(decoded.text, cfg.forbidden).length, status: 0,
       };
       state.records.push(record);
       if (state.mode === 'reject') {
@@ -429,8 +541,8 @@ function startGate(cfg) {
       upstream.end(body);
     });
   });
-  const seen = (name, predicate = () => true) =>
-    state.records.filter(record => record.spans.some(span => span.name === name && predicate(record, span))).length;
+  const seen = (name, predicate = () => true) => state.records.reduce((count, record) =>
+    count + record.spans.filter(span => span.name === name && predicate(record, span)).length, 0);
   return {
     state,
     listen: () => new Promise((resolve, reject) => {
@@ -496,10 +608,14 @@ async function runAgent(cfg) {
       .filter(([key]) => !/^(OTEL_|MAIN_VITE_|VITE_|NODE_OPTIONS$|ELECTRON_RENDERER_URL$|(HTTPS?|ALL|NO)_PROXY$)/i.test(key)));
     Object.assign(env, {
       NODE_ENV: 'production',
+      TMPDIR: cfg.tempDir,
       XDG_CONFIG_HOME: path.join(cfg.root, 'xdg-config'),
       XDG_CACHE_HOME: path.join(cfg.root, 'xdg-cache'),
       OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${OTLP_PORT}`,
       OTEL_EXPORTER_OTLP_HEADERS: '',
+      OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
+      OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: 'http/json',
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: 'cumulative',
       OTEL_METRICS_EXPORTER: 'otlp',
       OTEL_METRIC_EXPORT_INTERVAL: '2000',
       OTEL_METRIC_EXPORT_TIMEOUT: '1500',
@@ -512,6 +628,7 @@ async function runAgent(cfg) {
       path.join(REPO, 'out/main/index.js'), '--no-sandbox', '--remote-debugging-port=9222', '--inspect=9230',
       `--user-data-dir=${cfg.profile}`, `--ignore-certificate-errors-spki-list=${cfg.spki}`, `--host-resolver-rules=${rules}`,
     ], { cwd: cfg.root, env, stdio: ['ignore', log, log], detached: true });
+    fs.closeSync(log);
     app.once('exit', code => note(`app exited (${code})`));
     note('app launched');
 
@@ -525,6 +642,9 @@ async function runAgent(cfg) {
       },
     };
     await waitFor('renderer document', () => page.evaluate('document.readyState === "complete"'), { timeoutMs: 30000 });
+    // The message list is virtualized without look-behind: in the default window the peer row (the reply target)
+    // unmounts once ~10 rows have been added. A tall viewport keeps every scripted row mounted for the whole run.
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 4000, deviceScaleFactor: 1, mobile: false });
     await page.evaluate(`(() => {
       localStorage.setItem('chatrooms', ${JSON.stringify(JSON.stringify([room]))});
       localStorage.setItem('chatrooms_version', '2');
@@ -560,22 +680,23 @@ async function runAgent(cfg) {
       } finally { inspector.close(); }
     };
 
-    const rowExpression = marker => `(() => {
+    const rowsExpression = marker => `(() => {
       const marker = ${JSON.stringify(marker)};
-      const el = [...document.querySelectorAll('.chatMessageItem')].find(item => item.innerText.includes(marker));
-      if (!el) return { present: false };
-      const key = Object.keys(el).find(name => name.startsWith('__reactFiber$'));
-      let fiber = key ? el[key] : null;
-      // React double-buffers fibers: the node's fiber may be the previous render, so inspect both.
-      let row = null;
-      for (let depth = 0; fiber && depth < 80 && !row; depth++, fiber = fiber.return) {
-        const found = [fiber, fiber.alternate].map(item => item?.memoizedProps?.message)
-          .filter(message => message && typeof message === 'object' && message.content === marker);
-        if (found.length) row = found.find(message => message.state === 'failed') || found[0];
-      }
-      const reason = el.querySelector('.chatMessageFailureReason');
-      return { present: true, domFailed: el.classList.contains('failed'), domReason: reason ? reason.textContent : null,
-        row: row ? { tempId: row.tempId, state: row.state, failureReason: row.failureReason, type: row.type } : null };
+      return [...document.querySelectorAll('.chatMessageItem')].filter(item => item.innerText.includes(marker)).map(el => {
+        const key = Object.keys(el).find(name => name.startsWith('__reactFiber$'));
+        let fiber = key ? el[key] : null;
+        let row = null;
+        for (let depth = 0; fiber && depth < 80 && !row; depth++, fiber = fiber.return) {
+          const found = [fiber, fiber.alternate].map(item => item?.memoizedProps?.message)
+            .filter(message => message && typeof message === 'object' && message.content === marker);
+          row = found.find(message => el.classList.contains('failed') ? message.state === 'failed'
+            : el.classList.contains('optimistic') ? message.isOptimistic && message.state === 'optimistic' : !message.isOptimistic);
+        }
+        const reason = el.querySelector('.chatMessageFailureReason');
+        return { domFailed: el.classList.contains('failed'), domReason: reason ? reason.textContent : null,
+          row: row ? { id: row.id, tempId: row.tempId, state: row.state, failureReason: row.failureReason,
+            type: row.type, optimistic: !!row.isOptimistic } : null };
+      });
     })()`;
     const loginCount = () => page.evaluate(
       '(document.body.innerText.match(/You must login to chat\\./g) || []).length');
@@ -588,30 +709,45 @@ async function runAgent(cfg) {
         });
       }
     };
+    const attempts = [];
+    const paceSend = async () => {
+      let wait;
+      while ((wait = sendPacingDelayMs(attempts, Date.now())) > 0) await delay(wait);
+    };
     const perform = async item => {
-      const marker = markerFor(item);
+      await paceSend();
       if (item.action === 'reply') {
-        await page.evaluate(`(() => {
+        const found = await page.evaluate(`(() => {
           const icon = document.querySelector('svg[aria-label=${JSON.stringify(`Reply to ${PEER.username}`)}]');
+          if (!icon) return { rendered: document.querySelectorAll('.chatMessageItem').length, viewport: innerHeight };
           icon.closest('button').click();
-          return true;
+          return { clicked: true };
         })()`);
+        // The list is virtualized with no look-behind: the peer row unmounts once enough rows scroll above the viewport.
+        assert(found.clicked, `peer reply control is not rendered (${found.rendered} rows mounted, viewport ${found.viewport}px)`);
         await waitFor('reply target', () => page.evaluate("document.body.innerText.includes('Replying to')"), { timeoutMs: 10000 });
       }
       await page.evaluate("(() => { const input = document.querySelector('.chatInput'); input.focus(); return document.activeElement === input; })()");
-      await page.send('Input.insertText', { text: marker });
-      const record = { ...item, marker, sentAt: Date.now(), ui: null };
+      await page.send('Input.insertText', { text: markerFor(item) });
+      const record = { ...item, sentAt: Date.now(), ui: null };
+      attempts.push(record.sentAt);
       report.sends.push(record);
       await pressEnter();
+      await waitFor('composer cleared after Enter', () => page.evaluate(
+        "!document.querySelector('.chatInput').textContent.trim()"), { timeoutMs: 5000 });
       return record;
     };
-    const rowFor = record => waitFor(`${record.marker} row`, async () => {
-      const state = await page.evaluate(rowExpression(record.marker));
-      return state.present && state.row ? state : null;
-    }, { timeoutMs: 10000 });
-    const untilFailed = (record, timeoutMs) => waitFor(`${record.marker} failure`, async () => {
-      const state = await page.evaluate(rowExpression(record.marker));
-      return state.present && state.row?.state === 'failed' ? state : null;
+    const rowsFor = record => page.evaluate(rowsExpression(markerFor(record)));
+    const selectRow = (record, rows) => {
+      const used = report.sends.filter(other => other !== record).map(other => other.ui?.tempId).filter(Boolean);
+      return rows.find(state => state.row && (record.ui?.tempId
+        ? state.row.tempId === record.ui.tempId : state.row.tempId && !used.includes(state.row.tempId)));
+    };
+    const rowFor = record => waitFor(`${record.kind}/${record.action} optimistic row`,
+      async () => selectRow(record, await rowsFor(record)), { timeoutMs: 10000 });
+    const untilFailed = (record, timeoutMs) => waitFor(`${record.kind}/${record.action} failure`, async () => {
+      const state = selectRow(record, await rowsFor(record));
+      return state?.row.state === 'failed' ? state : null;
     }, { timeoutMs, intervalMs: 200 });
     const settle = (record, state) => {
       record.ui = {
@@ -620,44 +756,170 @@ async function runAgent(cfg) {
         elapsedMs: Date.now() - record.sentAt,
       };
     };
-    const gateHas = (what, predicate, timeoutMs = 25000) => waitFor(what, () => predicate(), { timeoutMs, intervalMs: 300 });
+    const accepted = record => waitFor(`${record.kind}/${record.action} API acceptance`, () =>
+      stub.sends.some(request => request.n === record.n && request.status === 200), { timeoutMs: 10000 });
+    const answered = (record, status) => waitFor(`${record.kind}/${record.action} HTTP ${status} from the stub`, () =>
+      stub.sends.some(request => request.n === record.n && request.status === status), { timeoutMs: 5000 });
+    const publish = async (record, id = `kt-echo-${record.n}`) => {
+      const message = {
+        id, chatroom_id: cfg.chatId, content: markerFor(record), type: record.action === 'reply' ? 'reply' : 'message',
+        created_at: new Date().toISOString(),
+        sender: { id: 9001, username: 'ktsmoke-sender', slug: 'ktsmoke-sender', identity: { color: '#7aa2f7', badges: [] } },
+        metadata: record.action === 'reply'
+          ? { original_message: { id: PEER.id, content: PEER.content }, original_sender: { id: 7001, username: PEER.username } } : {},
+      };
+      const event = { kind: 'publication', chatroomId: cfg.chatId, channel: `chatrooms.${cfg.chatId}.v2`,
+        event: 'App\\Events\\ChatMessageEvent', data: JSON.stringify(message) };
+      const inspector = await connectDebugger(9230, () => true, 15000);
+      try {
+        const moduleUrl = pathToFileURL(path.join(REPO, 'out/main/index.js')).href;
+        // Synthetic publication enters at the existing main -> preload realtime IPC boundary.
+        // No store mutation or telemetry helper can manufacture confirmation evidence.
+        await inspector.evaluate(`(() => {
+          const { BrowserWindow } = process.getBuiltinModule('module').createRequire(${JSON.stringify(moduleUrl)})('electron');
+          const win = BrowserWindow.getAllWindows().find(item => item.webContents.getURL().includes('/renderer/index.html'));
+          if (!win) throw new Error('Main renderer unavailable for realtime publication');
+          win.webContents.send('kick:realtime:event', ${JSON.stringify(event)});
+          return true;
+        })()`);
+      } finally { inspector.close(); }
+      return id;
+    };
+    const confirmedRow = (record, id) => waitFor(`${record.kind}/${record.action} confirmed UI row`, async () =>
+      (await rowsFor(record)).find(state => state.row?.id === id && !state.row.optimistic && state.row.state === 'confirmed'),
+    { timeoutMs: 10000 });
+    const confirm = async record => {
+      await accepted(record);
+      const id = await publish(record);
+      await confirmedRow(record, id);
+      await publish(record, id); // Same server id must never record another transition.
+      await delay(300);
+      const rows = await rowsFor(record);
+      assert.equal(rows.filter(state => state.row?.id === id).length, 1, 'duplicate echo created another row');
+      record.confirmed = true;
+      record.duplicateEcho = true;
+    };
+    const gateHas = async (what, predicate, timeoutMs = 25000) => {
+      let last;
+      try {
+        return await waitFor(what, () => {
+          try { return predicate(); } catch (error) { last = error; return false; }
+        }, { timeoutMs, intervalMs: 300 });
+      } catch (error) {
+        throw new Error(last ? `${error.message} (last mismatch: ${last.message})` : error.message);
+      }
+    };
 
     const plan = PLANS[cfg.kind];
     if (cfg.kind === 'failures') {
       const sent = [];
-      for (const item of plan) {
+      for (const item of plan.filter(item => item.kind !== 'concurrent')) {
         const record = await perform(item);
         sent.push(record);
-        if (item.kind === 'accepted' || item.kind === 'pending') settle(record, await rowFor(record));
-        else if (item.kind === 'mapped' || item.kind === 'unknown') settle(record, await untilFailed(record, 10000));
-        note(`sent ${record.marker}`);
-        await delay(1200);
+        if (['mapped', 'unknown', 'retry_rejected'].includes(item.kind)) {
+          settle(record, await untilFailed(record, 10000));
+          // The preload's rate guard also fails the row, without any request; require the scripted answer.
+          await answered(record, FAILURE[item.kind === 'retry_rejected' ? 'mapped' : item.kind].http);
+        } else settle(record, await rowFor(record));
+        if (item.kind === 'confirmed') await confirm(record);
+        note(`sent case=${item.n} ${item.kind}/${item.action}`);
+        await delay(300);
       }
-      for (const record of sent.filter(item => item.kind === 'accepted' || item.kind === 'pending')) {
+      const rejected = sent.find(item => item.kind === 'retry_rejected');
+      await paceSend();
+      const retry = { n: 18, kind: 'retry_confirmed', action: rejected.action, retry: true, sentAt: Date.now(), ui: null };
+      attempts.push(retry.sentAt);
+      // Retry preserves the original content but creates a new operation and temp id.
+      await page.evaluate(`(() => {
+        const el = [...document.querySelectorAll('.chatMessageItem')].find(item => item.innerText.includes(${JSON.stringify(markerFor(rejected))}));
+        el.querySelector('button[aria-label="Retry sending message"]').click();
+        return true;
+      })()`);
+      report.sends.push(retry);
+      // Content routing remains case 13, while report case 18 uniquely identifies the retry attempt.
+      const retryContent = { ...retry, n: rejected.n, kind: rejected.kind };
+      settle(retry, await rowFor(retryContent));
+      assert.notEqual(retry.ui.tempId, rejected.ui.tempId, 'manual retry reused the failed temp id');
+      await accepted(rejected);
+      const retryId = await publish(rejected, 'kt-echo-retry');
+      await confirmedRow(rejected, retryId);
+      await publish(rejected, retryId);
+      retry.confirmed = true;
+      retry.duplicateEcho = true;
+      report.manualRetry = { oldTempId: rejected.ui.tempId, newTempId: retry.ui.tempId };
+
+      for (const action of ['send', 'reply']) {
+        const pair = [];
+        for (const item of plan.filter(item => item.kind === 'concurrent' && item.action === action)) {
+          const record = await perform(item);
+          settle(record, await rowFor(record));
+          pair.push(record);
+        }
+        assert.notEqual(pair[0].ui.tempId, pair[1].ui.tempId, 'identical concurrent content reused a temp id');
+        await waitFor(`both concurrent ${action} API requests pending`, () =>
+          pair.every(record => stub.sends.some(request => request.n === record.n && request.status === null)), { timeoutMs: 10000 });
+        for (const record of pair) assert(stub.release(record.n), 'missing held concurrent request');
+        await Promise.all(pair.map(accepted));
+        const firstId = await publish(pair[0]);
+        await confirmedRow(pair[0], firstId);
+        await publish(pair[0], firstId);
+        await delay(500);
+        const afterDuplicate = await rowsFor(pair[1]);
+        assert.equal(afterDuplicate.filter(state => state.row?.id === firstId).length, 1, 'duplicate server row');
+        assert(afterDuplicate.some(state => state.row?.tempId === pair[1].ui.tempId && state.row.state === 'optimistic'),
+          'duplicate echo incorrectly confirmed the second identical action');
+        const secondId = await publish(pair[1]);
+        await confirmedRow(pair[1], secondId);
+        await publish(pair[1], secondId);
+        for (const record of pair) { record.confirmed = true; record.duplicateEcho = true; }
+      }
+      for (const record of sent.filter(item => ['accepted', 'pending', 'late'].includes(item.kind))) {
         settle(record, await untilFailed(record, CONFIRMATION_MS + 20000));
-        note(`${record.kind}/${record.action} flagged unconfirmed after ${record.ui.elapsedMs}ms`);
+        note(`${record.kind}/${record.action} unconfirmed after ${record.ui.elapsedMs}ms`);
       }
-      for (const record of sent.filter(item => item.kind === 'pending')) {
-        assert(stub.release(record.marker), `no held request for ${record.marker}`);
+      for (const record of sent.filter(item => item.kind === 'pending')) assert(stub.release(record.n), 'missing held pending request');
+      for (const record of sent.filter(item => item.kind === 'late')) {
+        await accepted(record);
+        const id = await publish(record);
+        await waitFor('late echo remains separate from failed optimistic row', async () => {
+          const rows = await rowsFor(record);
+          return rows.some(state => state.row?.tempId === record.ui.tempId && state.row.state === 'failed')
+            && rows.some(state => state.row?.id === id && !state.row.optimistic);
+        }, { timeoutMs: 10000 });
+        await publish(record, id);
+        await delay(300);
+        assert.equal((await rowsFor(record)).length, 2, 'late duplicate echo changed existing matcher behavior');
+        record.lateEcho = { warningPreserved: true, serverRows: 1 };
       }
       const probe = await evalMain('ktsmoke_main_probe');
-      const expected = { 'chat.send': 4, 'chat.reply': 4, 'chat.api.sendMessage': 4, 'chat.api.sendReply': 4,
-        'chat.send.confirmation_timeout': 2, 'chat.reply.confirmation_timeout': 2 };
+      const expected = { [COMPOSER_SPAN]: 17, 'chat.send': 10, 'chat.reply': 8,
+        'chat.api.sendMessage': 10, 'chat.api.sendReply': 8, 'chat.send.confirmed': 4, 'chat.reply.confirmed': 3,
+        'chat.send.confirmation_timeout': 3, 'chat.reply.confirmation_timeout': 3 };
       await gateHas('every send span at the receiver', () =>
         Object.entries(expected).every(([name, count]) => gate.seen(name) >= count) && gate.sawSpan(probe.spanId));
-      // A silent retry would show up as a second request well after the failure.
-      await delay(5000);
+      await gateHas('exact actual exported outcome counters and histograms', () => {
+        expectSendMetrics(gate.state.records, metricExpectation('failures'));
+        return true;
+      });
+      // Keep observing past every confirmation timer, so duplicate or automatic
+      // transitions cannot hide in a later cumulative export.
+      const latestAttempt = Math.max(...report.sends.map(record => record.sentAt));
+      await delay(Math.max(5000, latestAttempt + CONFIRMATION_MS + 2500 - Date.now()));
     } else if (cfg.kind === 'unauth') {
       for (const item of plan) {
         const record = await perform(item);
         await waitFor('login message', async () => (await loginCount()) >= item.n, { timeoutMs: 10000 });
         record.ui = { reason: 'You must login to chat.', loginMessages: await loginCount() };
-        note(`sent ${record.marker}`);
+        note(`sent case=${record.n} ${record.kind}/${record.action}`);
         await delay(800);
       }
       report.logins = await loginCount();
-      await gateHas('both unauthenticated operation spans at the receiver', () =>
-        gate.seen('chat.send') >= 1 && gate.seen('chat.reply') >= 1);
+      await gateHas('both unauthenticated composer/provider traces at the receiver', () =>
+        gate.seen(COMPOSER_SPAN) >= 2 && gate.seen('chat.send') >= 1 && gate.seen('chat.reply') >= 1);
+      await gateHas('actual unauthenticated rejection metrics', () => {
+        expectSendMetrics(gate.state.records, metricExpectation('unauth'));
+        return true;
+      });
       await delay(3000);
     } else if (cfg.kind === 'exporter') {
       gate.state.mode = 'reject';
@@ -693,19 +955,39 @@ async function runAgent(cfg) {
       report.globals = await page.evaluate(`({
         tracer: !!window.__KT_TRACER__, provider: !!window.__KT_OTEL_PROVIDER__, api: !!window.__KT_TRACE_API__,
       })`);
+    } else if (cfg.kind === 'runtime') {
+      gate.state.phase = 'enabled';
+      const control = await perform(plan[0]);
+      settle(control, await untilFailed(control, 10000));
+      const probe = await evalMain('ktsmoke_main_runtime_control');
+      await gateHas('runtime control spans and real metric export', () =>
+        gate.seen(COMPOSER_SPAN) >= 1 && gate.sawSpan(probe.spanId)
+        && gate.state.records.some(record => record.path === '/v1/metrics' && record.status === 200
+          && record.metrics.some(point => point.name === SEND_METRICS.outcomes && point.attrs.outcome === 'rejected')));
+      await page.evaluate("window.app.store.set('telemetry', { enabled: false })");
+      gate.state.phase = 'disabled';
+      report.disabledAt = Date.now();
+      assert.equal((await page.evaluate("window.app.store.get('telemetry')"))?.enabled, false, 'runtime opt-out was not persisted');
+      for (const item of plan.slice(1)) {
+        const record = await perform(item);
+        settle(record, await untilFailed(record, 10000));
+      }
+      await evalMain('ktsmoke_main_runtime_disabled');
+      await delay(15000);
+      report.observedMs = Date.now() - report.disabledAt;
     }
 
     report.alive ??= await page.evaluate("!!document.querySelector('.chatInput')");
     note('scenario complete');
   } catch (error) {
-    report.error = String(error?.stack || error).split('\n').slice(0, 4).join(' | ');
+    report.error = String(error?.message || error).split('\n')[0];
+    for (const marker of [...cfg.forbidden, ...Object.values(PLANS).flat().map(markerFor)]) {
+      report.error = report.error.split(marker).join('[redacted]');
+    }
     process.exitCode = 1;
-    // Safe diagnostics only: synthetic row text/classes and filtered app errors.
+    // Evidence contains only classes/counts; never persist or print row content.
     report.dom = await page?.evaluate(`[...document.querySelectorAll('.chatMessageItem')].map(item =>
-      item.className + ' | ' + item.innerText.replace(/\\s+/g, ' ').slice(0, 160))`).catch(() => null);
-    const appLog = path.join(cfg.root, 'app.log');
-    report.appLog = fs.existsSync(appLog)
-      ? fs.readFileSync(appLog, 'utf8').split('\n').filter(line => /rror/.test(line) && !/dbus|gpu/i.test(line)).slice(-12) : null;
+      ({ failed: item.classList.contains('failed'), optimistic: item.classList.contains('optimistic') }))`).catch(() => null);
   } finally {
     page?.close();
     // Kill first: SDK shutdown flushes also reach the gate and must be inside the
@@ -812,9 +1094,11 @@ function findProcesses(token) {
 
 async function launchAgent(kind, base, options) {
   const dir = path.join(base.root, kind);
+  fs.mkdirSync(path.join(dir, 'tmp'), { recursive: true });
   fs.mkdirSync(dir, { recursive: true });
   const cfg = {
     ...base.shared, kind, root: dir, profile: path.join(dir, 'profile'), reportPath: path.join(dir, 'report.json'),
+    tempDir: path.join(dir, 'tmp'),
     chatId: base.chatIds[kind], streamer: `ktsmoke-streamer-${kind}`,
     telemetry: kind !== 'disabled', tokens: kind === 'unauth' ? null : base.tokens,
     gateMode: kind === 'exporter' ? 'reject' : 'pass',
@@ -853,10 +1137,10 @@ function commonChecks(launch) {
     assert.notEqual(report.isolation.egress, 'connected');
     assert.notEqual(report.isolation.kickEgress, 'connected');
     // The content/credential scan is only meaningful on payloads the gate could decode.
-    const undecoded = report.gate.records.filter(item => item.path === '/v1/traces' && item.encoding !== 'json');
-    assert.equal(undecoded.length, 0, `${undecoded.length} trace payloads were not JSON-decodable`);
-    const leaks = report.gate.records.filter(item => item.leaks.length);
-    assert.equal(leaks.length, 0, `receiver payloads contained synthetic content/credentials: ${leaks.map(item => item.leaks).flat()}`);
+    const undecoded = report.gate.records.filter(item => ['/v1/traces', '/v1/metrics'].includes(item.path) && item.encoding !== 'json');
+    assert.equal(undecoded.length, 0, `${undecoded.length} trace/metric payloads were not JSON-decodable`);
+    const leaks = report.gate.records.filter(item => item.leaks > 0);
+    assert.equal(leaks.length, 0, 'receiver payloads contained synthetic content/credentials');
     const allowed = new Set(STUB_HOSTS);
     for (const host of report.stub.hostsSeen) assert(allowed.has(host), `unexpected API host ${host}`);
     for (const host of new Set(report.gate.records.map(item => item.host))) {
@@ -875,15 +1159,22 @@ async function verifySends(launch, runStart, plan) {
       assert(sent?.ui?.tempId, 'the UI never exposed a temp id for the row');
       const ids = await searchTraceIds(`{ span.message.temp_id = "${sent.ui.tempId}" }`, runStart);
       assert.equal(ids.length, 1, `expected one trace for the temp id, found ${ids.length}`);
-      const spans = await readTrace(ids[0], item.kind === 'accepted' || item.kind === 'pending' ? 3 : 2);
+      const spans = await readTrace(ids[0], spanCount(item.kind, item.retry));
       const stored = JSON.stringify(spans);
       assert.equal(forbiddenHits(stored, launch.cfg.forbidden).length, 0, 'stored spans contain synthetic content/credentials');
-      const outcome = expectSendTrace(spans, { action: item.action, kind: item.kind, tempId: sent.ui.tempId, reason: sent.ui.reason });
-      const requests = report.stub.sends.filter(request => request.marker === sent.marker);
+      const outcome = expectSendTrace(spans, { action: item.action, kind: item.kind, tempId: sent.ui.tempId, reason: sent.ui.reason, retry: item.retry });
+      const requests = report.stub.sends.filter(request => item.retry
+        ? request.n === 13 && request.attempt === 2
+        : request.n === item.n && (item.kind !== 'retry_rejected' || request.attempt === 1));
       assert.equal(requests.length, 1, `expected exactly one API request, saw ${requests.length}`);
       assert.equal(requests[0].type, item.action === 'send' ? 'message' : 'reply');
       if (item.action === 'reply') assert.equal(requests[0].replyTo, PEER.id, 'reply did not target the peer message');
       if (item.kind === 'pending') assert(requests[0].heldMs >= CONFIRMATION_MS - 500, `request held ${requests[0].heldMs}ms`);
+      if (['confirmed', 'concurrent', 'retry_confirmed'].includes(item.kind)) {
+        assert.equal(sent.confirmed, true, 'actual realtime publication did not confirm the UI row');
+        assert.equal(sent.duplicateEcho, true, 'duplicate publication was not exercised');
+      }
+      if (item.kind === 'late') assert.deepEqual(sent.lateEcho, { warningPreserved: true, serverRows: 1 });
       results.push({ ...item, ...outcome });
       const http = spans.find(span => span.name === API_SPAN[item.action])?.attrs['http.response.status_code'];
       return `trace=${outcome.traceId} temp=${sent.ui.tempId}${http ? ` http=${http}` : ''}`
@@ -897,15 +1188,36 @@ async function verifyFailures(launch, runStart, control) {
   const { report } = launch;
   if (!report || report.error) return record(false, 'failures: agent', explain(launch));
   await commonChecks(launch);
-  await verifySends(launch, runStart, PLANS.failures);
-  await check('failures: exact request counts, no automatic retry', async () => {
+  const traces = await verifySends(launch, runStart, [...PLANS.failures, { ...entry(18, 'retry_confirmed', 'send'), retry: true }]);
+  await check('failures: distinct action correlation including identical concurrent content and retry', async () => {
+    assert.equal(traces.length, 18, 'not every action produced a complete stored trace');
+    assert.equal(new Set(traces.map(item => item.traceId)).size, 18, 'separate actions shared a trace');
+    assert.equal(new Set(traces.map(item => item.operationId)).size, 18, 'separate actions shared an operation id');
+    assert.equal(new Set(report.sends.map(item => item.ui.tempId)).size, 18, 'separate actions shared a temp id');
+    assert.notEqual(report.manualRetry.oldTempId, report.manualRetry.newTempId);
+    return 'actions=18 composer_roots=17 provider_retry_roots=1 distinct_operation_ids=18 distinct_temp_ids=18';
+  });
+  await check('failures: exact request counts, one explicit retry and no automatic retry', async () => {
     const sends = report.stub.sends;
-    assert.equal(sends.length, PLANS.failures.length, `expected ${PLANS.failures.length} send requests, saw ${sends.length}`);
+    assert.equal(sends.length, 18, `expected 18 send requests, saw ${sends.length}`);
     for (const item of PLANS.failures) {
-      assert.equal(sends.filter(request => request.marker === markerFor(item)).length, 1, `${markerFor(item)} was requested more than once`);
+      assert.equal(sends.filter(request => request.n === item.n).length, item.kind === 'retry_rejected' ? 2 : 1,
+        `case ${item.n}/${item.action} request count`);
     }
+    assert.equal(sends.filter(request => request.status === 200).length, 13, 'API acceptance fixture count');
+    assert.equal(sends.filter(request => request.status === 422).length, 3, 'mapped rejection fixture count');
+    assert.equal(sends.filter(request => request.status === 503).length, 2, 'unknown rejection fixture count');
+    assert.equal(report.sends.filter(item => item.confirmed).length, 7, 'actual confirmed UI fixture count');
+    assert.equal(report.sends.filter(item => ['accepted', 'pending', 'late'].includes(item.kind) && item.ui.state === 'failed').length, 6,
+      'actual unconfirmed UI fixture count');
     assert(sends.every(request => request.authorized), 'a send was made without credentials');
-    return `send_requests=${sends.length} retries=0 observed_for_5s_after_last_failure`;
+    return 'attempts=18 api_accepted=13 rejected=5 confirmed=7 unconfirmed=6 manual_retries=1 automatic_retries=0';
+  });
+  await check('failures: real OTLP counter and histogram counts with bounded labels', async () => {
+    const transitions = expectSendMetrics(report.gate.records, metricExpectation('failures'));
+    const exports = report.gate.records.filter(item => item.path === '/v1/metrics');
+    assert(exports.length >= 2 && exports.every(item => item.status === 200), 'actual metric receiver exports were not accepted');
+    return `receiver_metric_exports=${exports.length} cumulative_transitions=${transitions} histogram_observations=${transitions} bounded_labels=true`;
   });
   await check('failures: main and renderer export independently', async () => {
     const traces = report.gate.records.filter(item => item.path === '/v1/traces');
@@ -935,7 +1247,7 @@ async function verifyUnauth(launch, runStart) {
       const name = OPERATION[item.action];
       const ids = await searchTraceIds(`{ name = "${name}" && span.chat.id = ${launch.cfg.chatId} }`, runStart);
       assert.equal(ids.length, 1, `expected one ${name} trace, found ${ids.length}`);
-      const spans = await readTrace(ids[0], 1);
+      const spans = await readTrace(ids[0], spanCount('unauth'));
       assert.equal(forbiddenHits(JSON.stringify(spans), launch.cfg.forbidden).length, 0, 'stored spans contain synthetic content/credentials');
       const outcome = expectSendTrace(spans, { action: item.action, kind: 'unauth', reason: 'You must login to chat.' });
       return `trace=${outcome.traceId} no_http_status=true no_api_span=true`;
@@ -947,6 +1259,10 @@ async function verifyUnauth(launch, runStart) {
     assert.equal(authorized.length, 0, `unexpected authenticated routes ${authorized}`);
     assert.equal(report.logins, 2, `expected two login messages, saw ${report.logins}`);
     return 'send_requests=0 login_messages=2';
+  });
+  await check('unauth: actual attempted/rejected metrics without invented API acceptance', async () => {
+    const transitions = expectSendMetrics(report.gate.records, metricExpectation('unauth'));
+    return `attempts=2 rejected=2 api_accepted=0 confirmed=0 unconfirmed=0 cumulative_transitions=${transitions}`;
   });
 }
 
@@ -976,7 +1292,7 @@ async function verifyExporter(launch, runStart) {
     assert(during('recovery').every(item => item.status === 200), 'recovered exports were not accepted');
     const ids = await searchTraceIds(`{ span.message.temp_id = "${second.ui.tempId}" }`, runStart);
     assert.equal(ids.length, 1);
-    const spans = await readTrace(ids[0], 2);
+    const spans = await readTrace(ids[0], spanCount('mapped'));
     expectSendTrace(spans, { action: 'send', kind: 'mapped', tempId: second.ui.tempId, reason: second.ui.reason });
     const mainSpans = await readTrace(recoveredProbe.traceId, 1);
     assert.equal(mainSpans.find(span => span.spanId === recoveredProbe.spanId)?.resource['service.name'], 'kicktalk');
@@ -1012,6 +1328,44 @@ async function verifyDisabled(launch, runStart, control) {
     const stored = await searchTraceIds(`{ span.chat.id = ${launch.cfg.chatId} }`, runStart, 0, 5000);
     assert.equal(stored.length, 0, 'Tempo holds spans from the disabled profile');
     return `receiver_requests=0 observed=${report.observedMs}ms control_receiver_requests=${control.requests}`;
+  });
+}
+
+async function verifyRuntimeDisabled(launch, runStart) {
+  const { report } = launch;
+  if (!report || report.error) return record(false, 'runtime-disabled: agent', explain(launch));
+  await commonChecks(launch);
+  const [control, ...after] = report.sends;
+  await check('runtime-disabled: enabled control reached Tempo with renderer, main and metric exports', async () => {
+    const before = report.gate.records.filter(item => item.phase === 'enabled' && item.status === 200);
+    assert(before.some(item => item.path === '/v1/traces' && item.channel === 'renderer-relay'), 'no renderer export control');
+    assert(before.some(item => item.path === '/v1/traces' && item.channel === 'main-sdk'), 'no main trace export control');
+    assert(before.some(item => item.path === '/v1/metrics' && item.channel === 'main-sdk'
+      && item.metrics.some(point => point.name === SEND_METRICS.outcomes && point.attrs.outcome === 'rejected')),
+    'no main metric export control carrying the send outcome');
+    const ids = await searchTraceIds(`{ span.message.temp_id = "${control.ui.tempId}" }`, runStart);
+    assert.equal(ids.length, 1, `expected one control trace, found ${ids.length}`);
+    expectSendTrace(await readTrace(ids[0], spanCount('mapped')), {
+      action: 'send', kind: 'mapped', tempId: control.ui.tempId, reason: control.ui.reason,
+    });
+    const probe = report.probes.ktsmoke_main_runtime_control;
+    assert((await readTrace(probe.traceId, 1)).some(span => span.spanId === probe.spanId), 'enabled main control absent from Tempo');
+    return `control_trace=${ids[0]} main_trace=${probe.traceId} renderer+main+metrics=exported`;
+  });
+  await check('runtime-disabled: no export request reaches the receiver after opt-out', async () => {
+    const late = report.gate.records.filter(item => item.phase === 'disabled' || item.at > report.disabledAt);
+    assert.equal(late.length, 0, `receiver saw ${late.length} requests after the runtime opt-out`);
+    assert(report.observedMs >= 15000, `observed only ${report.observedMs}ms`);
+    assert.equal(report.stub.sends.length, 3, 'runtime sends did not exercise the real API');
+    assert.equal(after.length, 2, 'post-opt-out sends were not both made');
+    assert(report.sends.every(item => item.ui.state === 'failed'), 'runtime opt-out altered the user-visible rejection');
+    for (const item of after) {
+      const stored = await searchTraceIds(`{ span.message.temp_id = "${item.ui.tempId}" }`, runStart, 0, 5000);
+      assert.equal(stored.length, 0, 'post-opt-out trace reached Tempo');
+    }
+    const disabled = report.probes.ktsmoke_main_runtime_disabled;
+    if (disabled.recording) assert(await absentFromTempo(disabled.traceId), 'post-opt-out main probe reached Tempo');
+    return `receiver_requests_after_opt_out=0 observed=${report.observedMs}ms post_opt_out_api_requests=2 post_opt_out_traces=0`;
   });
 }
 
@@ -1115,14 +1469,14 @@ async function main() {
     const tokens = { token: `ktsmoke-token-${crypto.randomBytes(8).toString('hex')}`, session: `ktsmoke-session-${crypto.randomBytes(8).toString('hex')}` };
     const forbidden = ['KTSYNTH', 'KTPEER', 'synthetic upstream failure', 'synthetic-accepted', 'Bearer ', tokens.token, tokens.session];
     const idBase = 100000 + crypto.randomInt(800000);
-    const chatIds = { failures: idBase, unauth: idBase + 10, exporter: idBase + 20, disabled: idBase + 30 };
+    const chatIds = { failures: idBase, unauth: idBase + 10, exporter: idBase + 20, disabled: idBase + 30, runtime: idBase + 40 };
     const base = {
       root, children, tokens, chatIds,
       shared: { runId, certPath, keyPath, spki, lgtmSock, forbidden },
     };
 
     // --- launches: separate namespaces, so they cannot collide on ports ---
-    const kinds = ['failures', 'unauth', 'exporter', 'disabled'];
+    const kinds = ['failures', 'unauth', 'exporter', 'disabled', 'runtime'];
     const launches = [];
     if (options.serial) for (const kind of kinds) launches.push(await launchAgent(kind, base, options));
     else launches.push(...await Promise.all(kinds.map(kind => launchAgent(kind, base, options))));
@@ -1136,6 +1490,7 @@ async function main() {
     await verifyUnauth(byKind.unauth, startedAt);
     await verifyExporter(byKind.exporter, startedAt);
     await verifyDisabled(byKind.disabled, startedAt, control);
+    await verifyRuntimeDisabled(byKind.runtime, startedAt);
 
     if (outcomes.some(item => !item.ok)) {
       for (const launch of launches) {

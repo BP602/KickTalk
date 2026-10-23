@@ -21,8 +21,8 @@ const connectionErrors = meter.createCounter('kicktalk_connection_errors_total',
 });
 
 // Message Metrics
-const messagesSent = meter.createCounter('kicktalk_messages_sent_total', {
-  description: 'Total number of messages sent by user',
+const messageSendOutcomes = meter.createCounter('kicktalk_message_send_outcomes_total', {
+  description: 'Send lifecycle transitions: attempted, API accepted, rejected, confirmed or unconfirmed',
   unit: '1'
 });
 
@@ -31,8 +31,8 @@ const messagesReceived = meter.createCounter('kicktalk_messages_received_total',
   unit: '1'
 });
 
-const messageSendDuration = meter.createHistogram('kicktalk_message_send_duration_seconds', {
-  description: 'Time taken to send a message',
+const messageSendTransitionDuration = meter.createHistogram('kicktalk_message_send_transition_duration_seconds', {
+  description: 'Elapsed time from action start to each send lifecycle transition; API acceptance is not delivery',
   unit: 's'
 });
 
@@ -248,14 +248,11 @@ const MetricsHelper = {
   },
 
   // Message metrics
-  recordMessageSent(chatroomId, messageType = 'regular', streamerName = null) {
-    const attributes = {
-      chatroom_id: chatroomId,
-      message_type: messageType
-    };
-    if (streamerName) attributes.streamer_name = streamerName;
-    
-    messagesSent.add(1, attributes);
+  recordSendOutcome({ outcome, messageType, duration, cause }) {
+    const attributes = { outcome, message_type: messageType };
+    if (cause !== undefined) attributes.cause = cause;
+    messageSendOutcomes.add(1, attributes);
+    messageSendTransitionDuration.record(duration, attributes);
   },
 
   recordMessageReceived(chatroomId, messageType = 'regular', senderId = null, streamerName = null) {
@@ -267,22 +264,6 @@ const MetricsHelper = {
     if (streamerName) attributes.streamer_name = streamerName;
     
     messagesReceived.add(1, attributes);
-  },
-
-  recordMessageSendDuration(duration, chatroomId, success = true) {
-    messageSendDuration.record(duration, {
-      chatroom_id: chatroomId,
-      success: success.toString()
-    });
-    
-    // SLO monitoring for message send performance
-    SLOMonitor.recordLatency('MESSAGE_SEND_DURATION', duration, {
-      chatroom_id: chatroomId
-    });
-    
-    SLOMonitor.recordOperationResult('MESSAGE_SEND_DURATION', success, duration, {
-      chatroom_id: chatroomId
-    });
   },
 
   // API metrics
@@ -600,9 +581,9 @@ module.exports = {
   metrics: {
     websocketReconnections,
     connectionErrors,
-    messagesSent,
+    messageSendOutcomes,
     messagesReceived,
-    messageSendDuration,
+    messageSendTransitionDuration,
     apiRequestDuration,
     apiRequests,
     memoryUsage,

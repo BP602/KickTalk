@@ -55,12 +55,14 @@ beforeEach(async () => {
     app: {
       kick: { sendMessage: vi.fn(), sendReply: vi.fn() },
       store: { get: vi.fn(async () => ({ enabled: false })) },
-      telemetry: { recordMessageSent: vi.fn(), recordError: vi.fn() },
+      telemetry: { recordSendOutcome: vi.fn(), recordError: vi.fn() },
     },
   });
   ({ default: useChatStore } = await import('../src/renderer/src/providers/ChatProvider.jsx'));
   useChatStore.setState({
     messages: {},
+    chatHistorySettings: { chatHistoryLength: 200 },
+    isChatroomPaused: {},
     chatrooms: [{ id: 42, username: 'streamer' }],
     currentUser: { id: 9, username: 'sender' },
   });
@@ -92,6 +94,174 @@ it.each(['sendMessage', 'sendReply'])('keeps duplicate %s failures associated wi
   const rows = useChatStore.getState().messages[42];
   expect(rows.find(row => row.tempId === firstRow.tempId).failureReason).toMatch(/rate limit/i);
   expect(rows.find(row => row.tempId === secondRow.tempId).failureReason).toMatch(/slow mode/i);
+});
+
+it.each(['sendMessage', 'sendReply'])('records one %s attempt and safe rejection without claiming acceptance or delivery', async (action) => {
+  window.app.kick[action].mockResolvedValue({ sendError: { code: 'SLOW_MODE_ERROR' } });
+  expect(await useChatStore.getState()[action](42, 'private content')).toBe(false);
+  const messageType = action === 'sendMessage' ? 'regular' : 'reply';
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([outcome]) => outcome)).toEqual([
+    { outcome: 'attempted', messageType, duration: 0 },
+    { outcome: 'rejected', messageType, duration: expect.any(Number), cause: 'SLOW_MODE_ERROR' },
+  ]);
+});
+
+it.each(['sendMessage', 'sendReply'])('separates %s API acceptance from confirmation under the explicit composer parent', async (action) => {
+  captureSendTraces();
+  const parent = window.__KT_TRACER__.startSpan('chat.input.send_message');
+  const sendContext = { parentSpan: parent };
+  const request = deferred();
+  window.app.kick[action].mockReturnValueOnce(request.promise);
+  const metadata = { original_message: { id: 'original', content: 'source' } };
+  const sending = action === 'sendMessage'
+    ? useChatStore.getState().sendMessage(42, 'private content', sendContext)
+    : useChatStore.getState().sendReply(42, 'private content', metadata, sendContext);
+  const pending = useChatStore.getState().messages[42][0];
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => event.outcome)).toEqual(['attempted']);
+  request.resolve({ status: 200 });
+  expect(await sending).toBe(true);
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => event.outcome)).toEqual(['attempted', 'api_accepted']);
+  useChatStore.getState().addMessage(42, {
+    id: 'server-id', type: pending.type, content: pending.content, sender: pending.sender,
+  });
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => event.outcome)).toEqual(['attempted', 'api_accepted', 'confirmed']);
+  parent.end();
+  await flushSendTraces();
+  const spans = spanExporter.getFinishedSpans();
+  const operation = spans.find(span => span.name === (action === 'sendMessage' ? 'chat.send' : 'chat.reply'));
+  const api = spans.find(span => span.name === `chat.api.${action}`);
+  expect(operation.parentSpanContext.spanId).toBe(parent.spanContext().spanId);
+  expect(api.parentSpanContext.spanId).toBe(operation.spanContext().spanId);
+  for (const span of spans) {
+    expect(span.spanContext().traceId).toBe(parent.spanContext().traceId);
+    expect(span.attributes['message.operation_id']).toBe(sendContext.operationId);
+    expect(span.attributes['message.operation_id']).toEqual(expect.any(String));
+    expect(span.attributes['message.temp_id']).toBe(pending.tempId);
+  }
+  for (const [event] of window.app.telemetry.recordSendOutcome.mock.calls) {
+    expect(event).toEqual({
+      outcome: expect.stringMatching(/^(attempted|api_accepted|confirmed)$/),
+      messageType: action === 'sendMessage' ? 'regular' : 'reply',
+      duration: expect.any(Number),
+    });
+    expect(Number.isFinite(event.duration)).toBe(true);
+    expect(event.duration).toBeGreaterThanOrEqual(0);
+  }
+});
+
+it.each(['sendMessage', 'sendReply'])('does not let duplicate %s echo publication confirm another identical pending action', async (action) => {
+  const first = deferred();
+  const second = deferred();
+  window.app.kick[action].mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  const a = useChatStore.getState()[action](42, 'identical');
+  const b = useChatStore.getState()[action](42, 'identical');
+  const [firstRow, secondRow] = useChatStore.getState().messages[42];
+  const echo = { id: 'server-id', type: firstRow.type, content: firstRow.content, sender: firstRow.sender };
+  useChatStore.getState().addMessage(42, echo);
+  useChatStore.getState().addMessage(42, echo);
+  const rows = useChatStore.getState().messages[42];
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toMatchObject({ id: 'server-id', state: 'confirmed' });
+  expect(rows[1]).toMatchObject({ tempId: secondRow.tempId, state: 'optimistic' });
+  first.resolve({ status: 200 });
+  second.reject({ code: 'SLOW_MODE_ERROR' });
+  expect(await a).toBe(true);
+  expect(await b).toBe(false);
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => event.outcome)).toEqual([
+    'attempted', 'attempted', 'confirmed', 'api_accepted', 'rejected',
+  ]);
+});
+
+it.each(['sendMessage', 'sendReply'])('keeps local-auth %s correlated and returns its fixed cause to the composer without an optimistic row', async (action) => {
+  captureSendTraces();
+  useChatStore.setState({ currentUser: null });
+  window.app.kick.getSelfInfo = vi.fn().mockResolvedValue(null);
+  const parent = window.__KT_TRACER__.startSpan('chat.input.send_message');
+  const sendContext = { parentSpan: parent };
+  const result = action === 'sendMessage'
+    ? await useChatStore.getState().sendMessage(42, 'secret draft', sendContext)
+    : await useChatStore.getState().sendReply(42, 'secret draft', {}, sendContext);
+  expect(result).toBe(false);
+  expect(sendContext.failure).toEqual({ code: 'Unauthorized', reason: 'You must login to chat.' });
+  expect(sendContext.operationId).toEqual(expect.any(String));
+  expect(sendContext).not.toHaveProperty('tempId');
+  expect(window.app.kick[action]).not.toHaveBeenCalled();
+  parent.end();
+  await flushSendTraces();
+  const operation = spanExporter.getFinishedSpans().find(span => span.name === (action === 'sendMessage' ? 'chat.send' : 'chat.reply'));
+  expect(operation.parentSpanContext.spanId).toBe(parent.spanContext().spanId);
+  expect(operation.attributes['message.operation_id']).toBe(sendContext.operationId);
+  expect(operation.attributes).not.toHaveProperty('message.temp_id');
+  expect(operation.attributes).not.toHaveProperty('http.response.status_code');
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => event.outcome)).toEqual(['attempted', 'rejected']);
+  expect(window.app.telemetry.recordSendOutcome).toHaveBeenLastCalledWith({
+    outcome: 'rejected', messageType: action === 'sendMessage' ? 'regular' : 'reply',
+    duration: expect.any(Number), cause: 'Unauthorized',
+  });
+});
+
+it.each(['sendMessage', 'sendReply'])('records %s uncertainty once and only confirms a timed-out row through the existing explicit path', async (action) => {
+  captureSendTraces();
+  window.app.kick[action].mockResolvedValue({ status: 200 });
+  expect(await useChatStore.getState()[action](42, 'late echo')).toBe(true);
+  const pending = useChatStore.getState().messages[42][0];
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => event.outcome)).toEqual([
+    'attempted', 'api_accepted', 'unconfirmed',
+  ]);
+  expect(window.app.telemetry.recordSendOutcome).toHaveBeenLastCalledWith({
+    outcome: 'unconfirmed', messageType: action === 'sendMessage' ? 'regular' : 'reply',
+    duration: 30, cause: 'SEND_TIMEOUT',
+  });
+  const echo = { id: 'late-server-id', type: pending.type, content: pending.content, sender: pending.sender };
+  useChatStore.getState().addMessage(42, echo);
+  useChatStore.getState().addMessage(42, echo);
+  expect(useChatStore.getState().messages[42]).toHaveLength(2);
+  expect(useChatStore.getState().messages[42].find(row => row.tempId === pending.tempId).state).toBe('failed');
+  expect(window.app.telemetry.recordSendOutcome).toHaveBeenCalledTimes(3);
+  useChatStore.getState().confirmMessage(42, pending.tempId, { ...pending, id: 'explicit-id' });
+  useChatStore.getState().confirmMessage(42, pending.tempId, { ...pending, id: 'explicit-id' });
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => event.outcome)).toEqual([
+    'attempted', 'api_accepted', 'unconfirmed', 'confirmed',
+  ]);
+  await flushSendTraces();
+  const spans = spanExporter.getFinishedSpans();
+  const operationName = action === 'sendMessage' ? 'chat.send' : 'chat.reply';
+  const operation = spans.find(span => span.name === operationName);
+  const confirmations = spans.filter(span => span.name === `${operationName}.confirmed`);
+  expect(confirmations).toHaveLength(1);
+  expect(confirmations[0].parentSpanContext.spanId).toBe(operation.spanContext().spanId);
+  expect(confirmations[0].attributes).toMatchObject({
+    'message.operation_id': operation.attributes['message.operation_id'],
+    'message.temp_id': pending.tempId, 'message.delivery': 'confirmed',
+  });
+});
+
+it.each(['sendMessage', 'sendReply'].flatMap(action =>
+  ['removal', 'eviction', 'room removal', 'cleanup'].map(loss => [action, loss]),
+))('releases the %s confirmation timer after %s without inventing an outcome or retry', async (action, loss) => {
+  useChatStore.setState({ chatHistorySettings: { chatHistoryLength: 1 }, isChatroomPaused: {} });
+  const timersBefore = vi.getTimerCount();
+  window.app.kick[action].mockResolvedValue({ status: 200 });
+  expect(await useChatStore.getState()[action](42, 'removed pending')).toBe(true);
+  const pending = useChatStore.getState().messages[42][0];
+  expect(vi.getTimerCount()).toBe(timersBefore + 1);
+  if (loss === 'removal') {
+    useChatStore.getState().removeOptimisticMessage(42, pending.tempId);
+  } else if (loss === 'eviction') {
+    useChatStore.getState().addMessage(42, {
+      id: 'newer', type: 'message', content: 'different', sender: { id: 10 },
+      created_at: new Date(Date.now() + 1).toISOString(),
+    });
+  } else if (loss === 'room removal') {
+    useChatStore.getState().removeChatroom(42);
+  } else {
+    useChatStore.getState().cleanupConnections();
+  }
+  expect(vi.getTimerCount()).toBe(timersBefore);
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => event.outcome)).toEqual(['attempted', 'api_accepted']);
+  expect(window.app.kick[action]).toHaveBeenCalledTimes(1);
 });
 
 it.each([
@@ -163,6 +333,7 @@ it('does not overwrite a websocket-confirmed row with a later failure', async ()
 });
 
 it.each(['sendMessage', 'sendReply'])('manually retries %s without stale reason, preserving content and reply metadata', async (action) => {
+  captureSendTraces();
   const metadata = { original_message: { id: 'source-id', content: 'original' } };
   window.app.kick[action].mockRejectedValueOnce({ code: 'SLOW_MODE_ERROR' });
   expect(await useChatStore.getState()[action](42, 'retry me', metadata)).toBe(false);
@@ -182,6 +353,18 @@ it.each(['sendMessage', 'sendReply'])('manually retries %s without stale reason,
   }
   retry.resolve({ status: 200 });
   expect(await retried).toBe(true);
+  const current = useChatStore.getState().messages[42][0];
+  useChatStore.getState().addMessage(42, {
+    id: 'retry-confirmed', type: current.type, content: current.content, sender: current.sender,
+  });
+  await flushSendTraces();
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => event.outcome)).toEqual([
+    'attempted', 'rejected', 'attempted', 'api_accepted', 'confirmed',
+  ]);
+  const operations = spanExporter.getFinishedSpans().filter(span => span.name === (action === 'sendMessage' ? 'chat.send' : 'chat.reply'));
+  expect(operations).toHaveLength(2);
+  expect(operations[0].attributes['message.operation_id']).not.toBe(operations[1].attributes['message.operation_id']);
+  expect(operations[0].attributes['message.temp_id']).not.toBe(operations[1].attributes['message.temp_id']);
 });
 
 it.each(['ECONNABORTED', 'ETIMEDOUT', 'SEND_TIMEOUT'])('describes uncertain delivery for %s without exposing transport details', async (code) => {
@@ -339,7 +522,7 @@ it.each(['sendMessage', 'sendReply'].flatMap(action => ['explicit', 'websocket']
     await flushSendTraces();
 
     const spans = spanExporter.getFinishedSpans();
-    expect(spans).toHaveLength(2);
+    expect(spans).toHaveLength(3);
     const operation = spans.find(span => span.name === (action === 'sendMessage' ? 'chat.send' : 'chat.reply'));
     const api = spans.find(span => span.name === `chat.api.${action}`);
     expect(operation.status.code).toBe(0);
@@ -353,6 +536,9 @@ it.each(['sendMessage', 'sendReply'].flatMap(action => ['explicit', 'websocket']
     expect(api.attributes['error.type']).toBe('SLOW_MODE_ERROR');
     expect(useChatStore.getState().messages[42][0].state).toBe('confirmed');
     expect(window.app.telemetry.recordError).not.toHaveBeenCalled();
+    expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => event.outcome)).toEqual([
+      'attempted', 'confirmed', 'rejected',
+    ]);
   },
 );
 
@@ -387,12 +573,18 @@ it.each(['sendMessage', 'sendReply'])('keeps concurrent %s API failures in their
   const operations = spans.filter(span => span.name === (action === 'sendMessage' ? 'chat.send' : 'chat.reply'));
   expect(operations).toHaveLength(2);
   expect(operations[0].spanContext().traceId).not.toBe(operations[1].spanContext().traceId);
+  expect(new Set(operations.map(span => span.attributes['message.operation_id'])).size).toBe(2);
   for (const api of spans.filter(span => span.name === `chat.api.${action}`)) {
     const operation = operations.find(span => span.spanContext().spanId === api.parentSpanContext.spanId);
     expect(operation.attributes['message.temp_id']).toBe(api.attributes['message.temp_id']);
+    expect(operation.attributes['message.operation_id']).toBe(api.attributes['message.operation_id']);
     expect(operation.attributes['error.type']).toBe(api.attributes['error.type']);
     expect(operation.spanContext().traceId).toBe(api.spanContext().traceId);
   }
+  expect(window.app.telemetry.recordSendOutcome.mock.calls.map(([event]) => [event.outcome, event.cause])).toEqual([
+    ['attempted', undefined], ['attempted', undefined],
+    ['rejected', 'CHAT_RATE_LIMIT_ERROR'], ['rejected', 'SLOW_MODE_ERROR'],
+  ]);
 });
 
 it.each(['sendMessage', 'sendReply'].flatMap(action => ['eviction', 'room removal'].map(loss => [action, loss])))(

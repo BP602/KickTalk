@@ -300,6 +300,20 @@ if (process.contextIsolated) {
     // Telemetry bridge with IPC relay for CORS bypass
     contextBridge.exposeInMainWorld("telemetry", {
       getOtelConfig: () => ipcRenderer.invoke("otel:get-config"),
+      getHealth: () => ipcRenderer.invoke('telemetry:get-health'),
+      onHealthChange: (callback) => {
+        if (typeof callback !== 'function') return () => {};
+        const listener = (_event, snapshot) => callback(snapshot);
+        ipcRenderer.on('telemetry:health-changed', listener);
+        return () => ipcRenderer.removeListener('telemetry:health-changed', listener);
+      },
+      runDiagnostic: () => ipcRenderer.invoke('telemetry:run-diagnostic'),
+      reportRendererState: (state) => ipcRenderer.invoke('telemetry:renderer-state', {
+        enabled: state?.enabled === true,
+        ready: state?.ready === true,
+        reason: state?.reason
+      }),
+      reportExportFailure: () => ipcRenderer.invoke('telemetry:renderer-export-failed'),
       // Relay OTLP JSON ExportTraceServiceRequest via IPC to bypass CORS
       exportTracesJson: (payload) => {
         try {
@@ -314,19 +328,19 @@ if (process.contextIsolated) {
             }
           } catch {}
           return ipcRenderer.invoke('otel:trace-export-json', payload);
-        } catch (e) {
-          return Promise.resolve({ ok: false, reason: e?.message || 'ipc_invoke_failed' });
+        } catch {
+          return Promise.resolve({ ok: false, reason: 'export_error' });
         }
       },
       // Read trace from Grafana Cloud Tempo via IPC
       readTrace: (traceId) => {
         try {
-          if (!traceId || typeof traceId !== 'string') {
+          if (typeof traceId !== 'string' || !/^[0-9a-f]{32}$/.test(traceId) || /^0+$/.test(traceId)) {
             return Promise.resolve({ success: false, reason: 'invalid_trace_id' });
           }
           return ipcRenderer.invoke('telemetry:readTrace', traceId);
-        } catch (e) {
-          return Promise.resolve({ success: false, reason: e?.message || 'ipc_invoke_failed' });
+        } catch {
+          return Promise.resolve({ success: false, reason: 'receiver_unavailable' });
         }
       }
     });
@@ -617,8 +631,8 @@ if (process.contextIsolated) {
 
       // Telemetry utilities
       telemetry: {
-        recordMessageSent: (chatroomId, messageType, duration, success, streamerName) =>
-          ipcRenderer.invoke("telemetry:recordMessageSent", { chatroomId, messageType, duration, success, streamerName }),
+        recordSendOutcome: (payload) =>
+          ipcRenderer.invoke("telemetry:recordSendOutcome", payload),
         recordError: (error, context) =>
           ipcRenderer.invoke("telemetry:recordError", { error, context }),
         recordRendererMemory: (memory) =>

@@ -7,3 +7,6 @@ README.md	private_url	6954295c3d6ce3f3
 README.md	secret	6dd0634ba2f0145b
 docs/kick-websocket-channels.md	private_person	f66e83eb784776e1
 tests/kickRealtime.test.js	private_email	95fdc73414622fe1
+package-lock.json	secret	80b55716d6f713ec
+package-lock.json	private_email	b0373516d594ddd1
+scripts/otel-failure-smoke.mjs	private_person	a959828bd4bfad50

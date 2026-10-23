@@ -40,6 +40,7 @@ import { isModeEnabled, chatModeMatches } from "../../../utils/ChatUtils";
 import { recordChatModeFeatureUsage } from "../../../telemetry/chatModeTelemetry";
 import { useAccessibleKickEmotes } from "./useAccessibleKickEmotes";
 import { useSettings } from "../../../providers/SettingsProvider";
+import { getChatSendFailure } from "../../../utils/chatErrors";
 
 const onError = (error) => {
   console.error(error);
@@ -1321,6 +1322,7 @@ const ChatInput = memo(
           'message.type': content?.startsWith('/') ? 'command' : 'regular',
           'chatroom.id': chatroomId
         });
+        const sendContext = { parentSpan: messageSpan };
         
         const startTime = performance.now();
         
@@ -1367,8 +1369,9 @@ const ChatInput = memo(
 
         // If we are replying to a message, add the original message to the metadata
         const currentReplyData = getReplyData();
-        const isReply = currentReplyData || isReplyThread;
+        const isReply = Boolean(currentReplyData || isReplyThread);
         messageSpan?.setAttribute?.('message.is_reply', isReply);
+        messageSpan?.setAttribute?.('message.type', isReply ? 'reply' : 'regular');
         
         if (isReply) {
           // If replying to a reply, use the original message from the reply's metadata
@@ -1395,9 +1398,9 @@ const ChatInput = memo(
             original_sender: originalSender,
           };
 
-          res = await sendReply(chatroomId, content, metadata);
+          res = await sendReply(chatroomId, content, metadata, sendContext);
         } else {
-          res = await sendMessage(chatroomId, content);
+          res = await sendMessage(chatroomId, content, sendContext);
         }
 
         const sendDuration = performance.now() - startTime;
@@ -1419,16 +1422,22 @@ const ChatInput = memo(
           endSpanOk(messageSpan);
         } else {
           messageSpan?.addEvent?.('message_send_failed');
-          endSpanError(messageSpan, new Error('Message send failed'));
+          const failure = sendContext.failure || getChatSendFailure();
+          messageSpan?.setAttribute?.('error.type', failure.code);
+          if (failure.status !== undefined) messageSpan?.setAttribute?.('http.response.status_code', failure.status);
+          endSpanError(messageSpan, { message: failure.reason });
         }
       } catch (error) {
         console.error('Error sending message:', error);
-        messageSpan?.addEvent?.('message_send_error', { error: error.message });
-        endSpanError(messageSpan, error);
+        const failure = sendContext.failure || getChatSendFailure(error);
+        messageSpan?.addEvent?.('message_send_error', { 'error.type': failure.code });
+        messageSpan?.setAttribute?.('error.type', failure.code);
+        if (failure.status !== undefined) messageSpan?.setAttribute?.('http.response.status_code', failure.status);
+        endSpanError(messageSpan, { message: failure.reason });
         throw error;
       }
     },
-      [chatroomId, chatroom, sendMessage, getReplyData, replyMessage, clearDraftMessage],
+      [chatroomId, chatroom, sendMessage, sendReply, getReplyData, replyMessage, isReplyThread, clearDraftMessage],
     );
 
     return (

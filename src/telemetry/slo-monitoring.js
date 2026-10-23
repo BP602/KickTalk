@@ -7,11 +7,6 @@ const meter = metrics.getMeter('kicktalk-slo', pkg.version);
 // SLO Target Definitions (Service Level Objectives)
 const SLO_TARGETS = {
   // User-facing operations (critical for UX)
-  MESSAGE_SEND_DURATION: {
-    target: 2.0,      // 2 seconds max
-    p99: 1.5,         // 99th percentile should be under 1.5s
-    description: 'Message send latency'
-  },
   CHATROOM_SWITCH_DURATION: {
     target: 0.5,      // 500ms max
     p99: 0.3,         // 99th percentile should be under 300ms

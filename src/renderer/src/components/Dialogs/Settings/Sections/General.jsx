@@ -8,6 +8,7 @@ import ColorPicker from "../../../Shared/ColorPicker";
 import NotificationFilePicker from "../../../Shared/NotificationFilePicker";
 import clsx from "clsx";
 import { DEFAULT_CHAT_HISTORY_LENGTH, DEFAULT_SCROLL_SEEK_VELOCITY } from "@utils/constants";
+import TelemetryHealth from "./TelemetryHealth";
 
 const GeneralSection = ({ settingsData, onChange }) => {
   return (
@@ -974,6 +975,7 @@ const NotificationsSection = ({ settingsData, onChange }) => {
             </div>
           </div>
         </div>
+        <TelemetryHealth enabled={settingsData?.telemetry?.enabled === true} />
       </div>
     </div>
   );
